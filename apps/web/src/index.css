@@ -3,61 +3,62 @@
 @theme {
   --font-sans: "Manrope", system-ui, -apple-system, "Segoe UI", sans-serif;
 
-  --color-pitch-50: #eefbf2;
-  --color-pitch-100: #d3f3dd;
-  --color-pitch-300: #86d9a1;
-  --color-pitch-500: #1f9d54;
-  --color-pitch-600: #167a41;
-  --color-pitch-700: #125f34;
-  --color-pitch-900: #0c3d22;
-  --color-pitch-950: #06210f;
+  /* Verde muschio scuro, dallo scudo del logo */
+  --color-pitch-50: #eef3f2;
+  --color-pitch-100: #d5e2df;
+  --color-pitch-300: #8fada8;
+  --color-pitch-400: #647f7a;
+  --color-pitch-500: #455d59;
+  --color-pitch-600: #384c48;
+  --color-pitch-700: #2c3c39;
+  --color-pitch-900: #1a2624;
+  --color-pitch-950: #0e1614;
 
-  --color-gold-300: #f2cf6e;
-  --color-gold-400: #eab83f;
-  --color-gold-500: #d99f22;
-  --color-gold-600: #b17f16;
-
-  --color-ink-950: #0a0d0c;
-  --color-ink-900: #121712;
-  --color-ink-800: #1b221c;
-  --color-ink-700: #283329;
+  /* Rame/bronzo, dallo scudo del logo */
+  --color-copper-300: #cba89e;
+  --color-copper-400: #a67d72;
+  --color-copper-500: #805e56;
+  --color-copper-600: #664942;
 }
 
 :root {
   color-scheme: light dark;
 
   --surface: #ffffff;
-  --surface-raised: #f4f7f4;
-  --surface-border: #dde3dd;
-  --text-primary: var(--color-ink-950);
-  --text-secondary: #4b564d;
+  --surface-raised: #f3f6f5;
+  --surface-border: #dbe3e1;
+  --text-primary: var(--color-pitch-950);
+  --text-secondary: #566361;
   --brand: var(--color-pitch-600);
   --brand-contrast: #ffffff;
-  --accent: var(--color-gold-500);
+  --accent: var(--color-copper-500);
+  --accent-contrast: #ffffff;
 }
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --surface: var(--color-ink-950);
-    --surface-raised: var(--color-ink-900);
-    --surface-border: var(--color-ink-700);
-    --text-primary: #f2f6f2;
-    --text-secondary: #a9b6ab;
-    --brand: var(--color-pitch-500);
-    --brand-contrast: #ffffff;
-    --accent: var(--color-gold-400);
+    --surface: var(--color-pitch-950);
+    --surface-raised: var(--color-pitch-900);
+    --surface-border: var(--color-pitch-700);
+    --text-primary: #f1f5f4;
+    --text-secondary: #a9bab6;
+    --brand: var(--color-pitch-400);
+    --brand-contrast: #0e1614;
+    --accent: var(--color-copper-400);
+    --accent-contrast: #2c1a15;
   }
 }
 
 :root[data-theme="dark"] {
-  --surface: var(--color-ink-950);
-  --surface-raised: var(--color-ink-900);
-  --surface-border: var(--color-ink-700);
-  --text-primary: #f2f6f2;
-  --text-secondary: #a9b6ab;
-  --brand: var(--color-pitch-500);
-  --brand-contrast: #ffffff;
-  --accent: var(--color-gold-400);
+  --surface: var(--color-pitch-950);
+  --surface-raised: var(--color-pitch-900);
+  --surface-border: var(--color-pitch-700);
+  --text-primary: #f1f5f4;
+  --text-secondary: #a9bab6;
+  --brand: var(--color-pitch-400);
+  --brand-contrast: #0e1614;
+  --accent: var(--color-copper-400);
+  --accent-contrast: #2c1a15;
 }
 
 body {

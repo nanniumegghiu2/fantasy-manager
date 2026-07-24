@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useThemeStore } from "./store/useThemeStore";
 import { useAuth } from "./hooks/useAuth";
 import { useProfile } from "./hooks/useProfile";
@@ -9,6 +9,7 @@ import { HomeScreen } from "./components/HomeScreen";
 
 function App() {
   const theme = useThemeStore((s) => s.theme);
+  const [guestMode, setGuestMode] = useState(false);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -18,7 +19,12 @@ function App() {
   const { profile, loading: profileLoading, refetch } = useProfile(session?.user.id);
 
   if (authLoading) return <LoadingScreen />;
-  if (!session) return <LoginScreen />;
+
+  if (!session) {
+    if (guestMode) return <HomeScreen profile={null} onExitGuest={() => setGuestMode(false)} />;
+    return <LoginScreen onGuestPlay={() => setGuestMode(true)} />;
+  }
+
   if (profileLoading) return <LoadingScreen />;
   if (!profile) return <OnboardingScreen userId={session.user.id} onComplete={refetch} />;
 
