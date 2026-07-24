@@ -1,4 +1,4 @@
-# CLAUDE.md — Bibbia del progetto "38-0-0 Potenziato"
+# CLAUDE.md — Bibbia del progetto "Fantasy Manager"
 
 > **Istruzione permanente**: questo file va **letto integralmente all'inizio di ogni sessione** di lavoro su questo progetto e **aggiornato ad ogni implementazione, correzione o scelta** (architetturale, di design o di prodotto). Non è documentazione statica: è la fonte di verità corrente del progetto. Se una decisione presa qui viene superata da una scelta successiva, questo file va corretto — non lasciare sezioni obsolete.
 >
@@ -12,7 +12,9 @@ Web app React, ottimizzata al massimo per mobile, ispirata al gioco virale **38-
 
 Questo progetto ne costruisce una versione potenziata: account persistenti, PvP 1v1 in tempo reale con vera componente tattica, sistema di livelli in stile Clash Royale, mini tornei tra amici, classifiche globali/mensili con sfide variabili — il tutto con attenzione esplicita agli aspetti legali.
 
-**Nome prodotto**: provvisorio, da definire (evitare marchi registrati esistenti — vedi sez. 2).
+**Nome prodotto**: **Fantasy Manager**. ⚠️ Esistono già più app/giochi calcistici con questo esatto nome (es. "Fantasy Manager Soccer" su Play Store) — rischio di sovrapposizione di naming/possibile conflitto di marchio, segnalato all'utente. Non blocca lo sviluppo ma va rivalutato nella revisione legale prima del lancio pubblico (sez. 2).
+
+**Identità visiva**: logo fornito dall'utente (scudo verde muschio/rame con schema tattico stilizzato, in `logo.png` alla root e `apps/web/public/logo-512.png` ottimizzato). Palette del tema derivata campionando i colori dominanti del logo — vedi sez. 8.
 
 ---
 
@@ -95,7 +97,7 @@ Libreria di **tutti i moduli più famosi del calcio a 11**, selezionabile prima 
 
 ### 3.5 Modalità Classica Rapida Offline
 - Setup: scelta **modulo**, scelta **difficoltà** (facile/normale/difficile), scelta pool **campionato singolo/nazione unica** oppure **misto**.
-- Nessun account richiesto (guest play); se loggato, il risultato conta ai fini dello storico.
+- Nessun account richiesto (guest play, CTA "Gioca senza account" nella `LoginScreen`); se loggato, il risultato conta ai fini dello storico.
 - Obiettivo di riferimento: il record perfetto **38-0-0**.
 - **Storico semplificato**: mostra solo il **contatore di quanti 38-0-0 perfetti** l'utente ha ottenuto — non il dettaglio di ogni partita.
 
@@ -201,6 +203,14 @@ Richiesta esplicita dell'utente: design moderno, **non riconoscibile come "AI-ge
 - **Leggibilità**: contrasti AA, gerarchia tipografica chiara tra titoli/dati/numeri (Overall, rating, risultati) e testo secondario.
 - **Bottoni e componenti**: gerarchia visiva chiara (primario/secondario/ghost/distruttivo), stati hover/pressed/disabled curati, touch target ≥44px.
 
+### 8.1 Palette (derivata dal logo)
+Campionata dai colori dominanti del logo (`logo.png`, scudo verde/rame) via script, non scelta a mano — vedi Decision Log per il dettaglio del campionamento.
+- **Verde muschio** (`--color-pitch-*`, base `#455d59`): colore brand primario, bottoni/CTA principali, testo di enfasi.
+- **Rame/bronzo** (`--color-copper-*`, base `#805e56`): colore accent, badge/etichette secondarie, evidenziazioni.
+- **Superfici**: chiaro = bianco/verde chiarissimo; scuro = verde quasi nero (`#0e1614`), non un nero neutro — coerente col tono del logo.
+- Font: **Manrope** (sans-serif moderno, non il default "Inter" da progetti AI-generated).
+- Implementata in `apps/web/src/index.css` (Tailwind v4 `@theme` + variabili CSS per tema chiaro/scuro).
+
 ---
 
 ## 9. Stack tecnico e architettura
@@ -259,7 +269,7 @@ Costruzione **parallela/feature-complete** (non fasi sequenziali con gate di val
 4. Mini torneo a 4 (riusa draft condiviso + match engine, aggiunge bracket e scelta bersaglio malus).
 5. Classifica Globale/Mensile, sfide giornaliere persistenti/recuperabili, sfida mensile (completamento), Hall of Fame.
 
-**Stato attuale (2026-07-24)**: punto 1 della roadmap in corso. Fatto: monorepo pnpm, `apps/web` (Vite+React 19+TS+Tailwind v4+Zustand+Framer Motion, tema chiaro/scuro selezionabile e persistito), `packages/shared-types` (include ora il tipo `Profile`), `packages/game-engine` (moduli, rating, chemistry, livelli — 14 test vitest verdi), progetto Supabase cloud creato (project ref `krgmwufeshbdlqyivimy`) e **migrazioni + RLS + seed applicati con successo** (8 livelli, 11 moduli, 8 carte tattiche verificati in tabella), colonna `profiles.is_admin` + funzione `is_admin()` + policy admin sulle tabelle catalogo. `apps/web/.env.local` collegato. **Flusso auth client completo e verificato**: `LoginScreen` (Google), `OnboardingScreen` (nickname+nazione, vincolo univocità gestito dal DB), `HomeScreen` (profilo/livello). Google OAuth configurato dall'utente (Google Cloud Console + provider Supabase) e verificato end-to-end con browser headless: il click su "Accedi con Google" reindirizza correttamente alla pagina di login Google reale con redirect URI verso il progetto Supabase, nessun errore console. Il login effettivo (credenziali reali) va completato dall'utente in prima persona. Mancante: draft/match realtime, UI del draft/match, Edge Functions, `apps/admin`.
+**Stato attuale (2026-07-24)**: punto 1 della roadmap in corso. Fatto: monorepo pnpm, `apps/web` (Vite+React 19+TS+Tailwind v4+Zustand+Framer Motion, tema chiaro/scuro selezionabile e persistito), `packages/shared-types` (include ora il tipo `Profile`), `packages/game-engine` (moduli, rating, chemistry, livelli — 14 test vitest verdi), progetto Supabase cloud creato (project ref `krgmwufeshbdlqyivimy`) e **migrazioni + RLS + seed applicati con successo** (8 livelli, 11 moduli, 8 carte tattiche verificati in tabella), colonna `profiles.is_admin` + funzione `is_admin()` + policy admin sulle tabelle catalogo. `apps/web/.env.local` collegato. **Flusso auth client completo e verificato**: `LoginScreen` (Google), `OnboardingScreen` (nickname+nazione, vincolo univocità gestito dal DB), `HomeScreen` (profilo/livello). Google OAuth configurato dall'utente (Google Cloud Console + provider Supabase) e verificato end-to-end con browser headless: il click su "Accedi con Google" reindirizza correttamente alla pagina di login Google reale con redirect URI verso il progetto Supabase, nessun errore console. Il login effettivo (credenziali reali) va completato dall'utente in prima persona. **Rebrand completato**: nome prodotto "Fantasy Manager", logo integrato (favicon/apple-touch-icon/header), palette ricampionata dal logo, `LoginScreen` ridisegnata con CTA "Gioca senza account" (modalità ospite, `HomeScreen` con `profile` nullable). Mancante: draft/match realtime, UI del draft/match, Edge Functions, `apps/admin`.
 
 ---
 
@@ -286,6 +296,8 @@ Punti interpretati in modo ragionevole ma non confermati esplicitamente dall'ute
 
 > Ogni scelta architetturale, di design o di prodotto presa durante l'implementazione va registrata qui, in ordine cronologico (più recente in cima), con data, decisione e motivazione breve.
 
+- **2026-07-24 — Rebrand a "Fantasy Manager" + palette dal logo**: l'utente ha fornito un logo (`logo.png`, scudo verde muschio/rame con schema tattico) e chiesto di rinominare il prodotto e derivarne i colori tema. Verificato che esistono già app "Fantasy Manager Soccer" sugli store — segnalato come rischio di naming, non bloccante, da rivalutare in sede di revisione legale pre-lancio (sez. 0/2). Palette campionata programmaticamente dal PNG (script Node + `sharp`: media pixel non-trasparenti/non-bianchi/non-neri per metà sinistra e destra dello scudo) invece di scelta a occhio, per fedeltà al logo reale. Asset ottimizzati generati con `sharp` (trim + resize) invece di usare il PNG originale da 1.6MB direttamente in produzione.
+- **2026-07-24 — Modalità ospite in `LoginScreen`/`HomeScreen`**: aggiunta CTA "Gioca senza account" che porta a `HomeScreen` con `profile = null` (stato locale `guestMode` in `App.tsx`, non persistito). Coerente con la Modalità Classica Rapida Offline già prevista in sez. 3.5 (guest play, nessun account richiesto). `HomeScreen` ora gestisce sia il profilo autenticato sia lo stato ospite (CTA "Accedi" al posto di nickname/livello/logout).
 - **2026-07-24 — Connessione Supabase via Session Pooler, non connessione diretta**: la connessione diretta (`db.<ref>.supabase.co:5432`) è IPv6-only lato Supabase e non risolveva sulla rete di sviluppo (router ISP la reindirizzava a un indirizzo locale). Usata invece la stringa **Session Pooler IPv4** (`aws-0-eu-west-1.pooler.supabase.com:5432`, utente `postgres.<project-ref>`) per `supabase db push`. Password del DB e connection string salvate solo in `.env` locale (gitignored), mai committate. Se in futuro serve riconfigurare, usare questo stesso pooler.
 - **2026-07-24 — Niente Football Manager, niente API sportive: dataset originale da Wikidata (CC0) + compilazione manuale**: l'utente voleva usare il database di FM26 per popolare `player_pool`. Verificato via ricerca che l'EULA di Sports Interactive vieta esplicitamente l'estrazione/riuso dei dati fuori dal gioco (violazione diretta, non zona grigia) e che le API sportive commerciali (API-Football, football-data.org) non concedono diritto di pubblicazione sui piani gratuiti. L'utente ha confermato di volere una soluzione gratuita, quindi si adotta un dataset originale compilato da noi: Wikidata (CC0/dominio pubblico) per i fatti anagrafici/di carriera, compilazione manuale verificata per le statistiche di dettaglio. Conseguenza: scope v1 curato (Big 5 leghe, poche epoche/club per lega), non esaustivo come FM.
 - **2026-07-24 — Overall calcolato con algoritmo originale, non con il metodo di FM**: dato che l'Overall di FM è un giudizio editoriale proprietario di SI, il nostro va derivato da zero da statistiche fattuali pubbliche (gol, presenze, assist, trofei, caps), pesate per reparto e normalizzate a percentile su scala 60-99. Vedi sez. 2.2.
