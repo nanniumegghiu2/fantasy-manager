@@ -35,6 +35,38 @@ Questo progetto ne costruisce una versione potenziata: account persistenti, PvP 
 - **Dati come fatti**: nomi e statistiche reali trattati come dati storici/fattuali (non protetti da copyright); evitare di copiare testi editoriali da fonti terze (bio, descrizioni) — generare contenuti originali o usare solo numeri.
 - **Revisione legale prima di lancio pubblico/monetizzazione**: todo permanente, non ancora fatto.
 
+### 2.1 Strategia dati giocatori/club (permanente)
+
+**Niente Football Manager, niente database di videogiochi/terzi**: verificato che l'EULA di Sports Interactive vieta esplicitamente l'estrazione/riuso dei dati di FM fuori dal gioco, e i nomi dei giocatori sono concessi in licenza a SI in modo specifico (accordo con FIFPRO) e non trasferibile a terzi. Usare il database di FM sarebbe una violazione diretta, non una zona grigia. Fonti: [SI — FMDB Data Supply License Terms](https://cdn.sports-interactive.com/site/2024-11/SI%20-%20FMDB%20Portal%20-%20Data%20Supply%20License%20Terms%20-%2015%20November%202024%20-%20JC%20(FINAL).pdf), [FM Legal](https://community.sports-interactive.com/sigames-manual/football-manager-2023/legal-r4739/).
+
+**Niente API sportive a pagamento o "gratuite" senza vero diritto di pubblicazione**: verificato che API-Football/api-sports.io non concede diritti di pubblicazione nemmeno sul piano free, e football-data.org riserva l'uso commerciale ai piani a pagamento. L'utente ha confermato di volere solo soluzioni gratuite e legalmente pulite, quindi niente API di terzi come fonte per `player_pool`/`clubs`.
+
+**Fonte dati adottata — dataset originale compilato da noi**:
+- **Fonte primaria strutturata (gratuita, CC0/dominio pubblico)**: [Wikidata](https://www.wikidata.org/wiki/Wikidata:Licensing), via SPARQL Query Service o REST API, per i fatti anagrafici/di carriera (nome, anno di nascita → era/decennio, nazionalità, ruolo, squadre per cui ha giocato e periodo).
+- **Statistiche di dettaglio** (gol, presenze, assist, trofei) dove Wikidata non ha il dato strutturato: compilazione/verifica manuale incrociando più fonti pubbliche — mai estrazione massiva automatizzata di un singolo database altrui (es. niente scraping bulk di Transfermarkt, protetto da diritto sui generis sulle banche dati).
+- **Niente testi editoriali copiati** da Wikipedia o altre fonti: solo numeri/fatti: i testi descrittivi in-app sono sempre scritti originali.
+- **Conseguenza sullo scope**: pool v1 **curato**, non esaustivo come FM — club iconici per lega/epoca con rosa credibile (15-25 giocatori), non l'intero campionato.
+
+**Scope leghe/epoche v1** (confermato con l'utente):
+- **Leghe**: Big 5 europee — Serie A, Premier League, Liga, Bundesliga, Ligue 1.
+- **Epoche per lega**: 3-4 decadi rappresentative (es. anni '90, 2000, 2010, 2020), per preservare la dimensione "epoca" della chemistry (sez. 3.4).
+- **Club per epoca**: sottoinsieme curato di club iconici/vincenti (indicativamente 4-8 per epoca per lega), non l'intera lega.
+- Scope deliberatamente incrementale: si parte più piccoli di FM ma reali e puliti, si amplia nel tempo aggiungendo club/epoche/leghe.
+
+### 2.2 Algoritmo Overall (60-99, originale — non copiato da FM)
+
+L'Overall di FM è un giudizio proprietario/editoriale di Sports Interactive (non un fatto): il nostro va **derivato da zero** con una formula nostra applicata a statistiche fattuali pubbliche (sez. 2.1), coerente con la scelta di avere solo un Overall singolo per giocatore (sez. 3.3).
+
+- **Input fattuali per giocatore** (con fallback se mancanti): presenze, gol, assist (dove pertinente), trofei vinti (count), presenze in nazionale, longevità della carriera al top livello.
+- **Pesi per reparto** (indicativi, tarabili in implementazione):
+  - **ATT**: gol (peso alto), assist, presenze/longevità, trofei, caps.
+  - **CC**: assist/creatività, presenze/longevità, trofei, caps.
+  - **DIF**: presenze/longevità, record difensivo di squadra nel periodo, trofei, caps, piccolo bonus gol/assist.
+  - **POR**: presenze/longevità, trofei, caps, record di squadra (clean sheet dove disponibile).
+- **Normalizzazione**: punteggio grezzo pesato → **percentile all'interno del pool raccolto** (non scala assoluta arbitraria, perché le statistiche grezze cambiano molto tra epoche/leghe) → mappato linearmente su **60-99**.
+- **Fallback editoriale dichiarato**: per giocatori con dati incompleti (comune per epoche più vecchie), stima basata su trofei/caps/reputazione storica accertata — dichiarata come stima nostra, non spacciata per fatto oggettivo.
+- Implementato come funzione pura in `packages/game-engine` (stesso pattern di `rating.ts`/`chemistry.ts`), ricalcolabile in automatico se si aggiornano le fonti dati — mai un calcolo one-off fuori dal codice.
+
 ---
 
 ## 3. Meccaniche core
@@ -48,7 +80,7 @@ Libreria di **tutti i moduli più famosi del calcio a 11**, selezionabile prima 
 - Timer per round per il ritmo frenetico (anche in single-player).
 
 ### 3.3 Rating: solo Overall + rating di reparto
-- Ogni giocatore ha **un solo valore Overall** (niente sotto-attributi tipo pace/dribbling — semplificazione voluta).
+- Ogni giocatore ha **un solo valore Overall** (niente sotto-attributi tipo pace/dribbling — semplificazione voluta). Calcolato con l'algoritmo originale in sez. 2.2 (mai copiato da database di terzi).
 - **Rating di reparto** (Portiere, Difesa, Centrocampo, Attacco) = aggregazione degli Overall dei titolari di quel reparto. Le riserve non contribuiscono al rating titolare.
 - Rating squadra complessivo = rating di reparto + bonus chemistry (3.4).
 
@@ -179,18 +211,31 @@ Richiesta esplicita dell'utente: design moderno, **non riconoscibile come "AI-ge
 - **Onboarding account**: login Google → schermata rapida con **nickname** + **nazione** → profilo creato.
 - **Hosting**: Vercel (frontend), CI/CD da repo git.
 - **Monorepo**: pnpm workspaces
-  - `apps/web` — React app
-  - `packages/game-engine` — draft, rating, chemistry, moduli, sistema livelli (logica pura, testabile)
+  - `apps/web` — React app (prodotto per i giocatori, mobile-first)
+  - `apps/admin` — React app interna (desktop-oriented, non mobile-first) per gestione `player_pool`/`clubs` e creazione sfide giornaliere — vedi sez. 9.1
+  - `packages/game-engine` — draft, rating, chemistry, moduli, sistema livelli, algoritmo Overall (logica pura, testabile, condivisa tra `apps/web` e `apps/admin`)
   - `packages/shared-types` — tipi TS condivisi client/edge functions
   - `supabase/` — migrazioni SQL + edge functions
+
+### 9.1 Pannello admin (`apps/admin`)
+
+Strumento interno per mantenere aggiornato il pool giocatori/club e creare le sfide giornaliere, senza scrivere SQL a mano.
+
+- **Autenticazione**: stesso Supabase Auth/login Google del prodotto principale.
+- **Autorizzazione**: colonna `profiles.is_admin` (impostata a mano da noi via dashboard Supabase, non self-service) + funzione SQL `is_admin()` usata in policy RLS dedicate (sez. 10) che permettono scrittura su `player_pool`, `clubs`, `formations`, `tactical_cards`, `levels`, `daily_challenges` solo agli admin. Tabelle di punteggio/esito match restano riservate alle Edge Function, invariato — l'admin non le tocca.
+- **Funzionalità v1**:
+  1. **Giocatori**: elenco/ricerca `player_pool`, creazione/modifica con i campi statistici (gol, presenze, assist, trofei, caps) usati dall'algoritmo Overall (sez. 2.2) — l'Overall si **calcola in automatico** con la stessa funzione di `packages/game-engine`, con **override manuale** per i casi con dati incompleti.
+  2. **Club**: creazione/modifica (nome, lega, crest — grafica originale, mai stemmi ufficiali).
+  3. **Sfide giornaliere**: form per creare la sfida di una data (data, tipo sfida dal pool variabile — sez. 3.6 — e selezione dei pacchetti club+epoca del seed).
+- **Non incluso in v1**: gestione utenti/ban, editing moduli (fissi via seed), analytics.
 
 ---
 
 ## 10. Modello dati (bozza — da raffinare in fase di migrazione)
 
-`profiles` (nickname, nazione, avatar generico, livello_attuale, punti_livello, punti_globali, punti_mensili), `levels` (nome a tema calcistico, soglia punti, budget_mercato_base), `formations` (moduli con schema slot per ruolo), `clubs` (crest originale, non ufficiale), `player_pool` (nome reale, overall singolo, valore di mercato, club_id, era/decennio, nazione, campionato), `draft_sessions` (single|pvp|tournament, budget_iniziale derivato dal livello), `draft_participants` (mister, budget_residuo), `draft_picks` (prezzo pagato), `squads` (formation_id, obiettivo/challenge_type), `squad_players` (slot titolare/riserva), `challenge_types` (campionato|salvezza|mercato_gennaio|...), `matches` (type: pve|pvp|tournament|daily_challenge), `match_actions` (le 6 azioni salienti per match, log per replay/anti-cheat), `tactical_cards` (catalogo: fase draft|match, tipo malus|bonus, effetto, costo base crescente), `tactical_card_purchases` (acquisti per mister, privati/non visibili all'avversario finché non giocati, target_mister per i malus), `tournaments` (max 4 partecipanti), `tournament_matches`, `daily_challenges` (persistenti, recuperabili con decadimento punti), `monthly_challenge_progress` (completamento cumulativo giornaliere del mese), `leaderboard_snapshots` (globale + mensile).
+`profiles` (nickname, nazione, avatar generico, livello_attuale, punti_livello, punti_globali, punti_mensili, **is_admin**), `levels` (nome a tema calcistico, soglia punti, budget_mercato_base), `formations` (moduli con schema slot per ruolo), `clubs` (crest originale, non ufficiale), `player_pool` (nome reale, overall singolo **calcolato dall'algoritmo sez. 2.2 + eventuale override manuale**, **statistiche fattuali: presenze, gol, assist, trofei, caps**, valore di mercato, club_id, era/decennio, nazione, campionato), `draft_sessions` (single|pvp|tournament, budget_iniziale derivato dal livello), `draft_participants` (mister, budget_residuo), `draft_picks` (prezzo pagato), `squads` (formation_id, obiettivo/challenge_type), `squad_players` (slot titolare/riserva), `challenge_types` (campionato|salvezza|mercato_gennaio|...), `matches` (type: pve|pvp|tournament|daily_challenge), `match_actions` (le 6 azioni salienti per match, log per replay/anti-cheat), `tactical_cards` (catalogo: fase draft|match, tipo malus|bonus, effetto, costo base crescente), `tactical_card_purchases` (acquisti per mister, privati/non visibili all'avversario finché non giocati, target_mister per i malus), `tournaments` (max 4 partecipanti), `tournament_matches`, `daily_challenges` (persistenti, recuperabili con decadimento punti), `monthly_challenge_progress` (completamento cumulativo giornaliere del mese), `leaderboard_snapshots` (globale + mensile).
 
-**RLS**: utenti leggono/scrivono solo i propri dati diretti (squad in corso, draft picks propri); esiti match/classifiche/punti livello scritti solo da Edge Function con service role.
+**RLS**: utenti leggono/scrivono solo i propri dati diretti (squad in corso, draft picks propri); esiti match/classifiche/punti livello scritti solo da Edge Function con service role. Tabelle catalogo (`player_pool`, `clubs`, `formations`, `tactical_cards`, `levels`, `daily_challenges`) in sola lettura per tutti tranne gli admin (`profiles.is_admin = true`, verificato con funzione SQL `is_admin()` — sez. 9.1), che possono scrivere direttamente da `apps/admin`.
 
 ---
 
@@ -241,6 +286,9 @@ Punti interpretati in modo ragionevole ma non confermati esplicitamente dall'ute
 
 > Ogni scelta architetturale, di design o di prodotto presa durante l'implementazione va registrata qui, in ordine cronologico (più recente in cima), con data, decisione e motivazione breve.
 
+- **2026-07-24 — Niente Football Manager, niente API sportive: dataset originale da Wikidata (CC0) + compilazione manuale**: l'utente voleva usare il database di FM26 per popolare `player_pool`. Verificato via ricerca che l'EULA di Sports Interactive vieta esplicitamente l'estrazione/riuso dei dati fuori dal gioco (violazione diretta, non zona grigia) e che le API sportive commerciali (API-Football, football-data.org) non concedono diritto di pubblicazione sui piani gratuiti. L'utente ha confermato di volere una soluzione gratuita, quindi si adotta un dataset originale compilato da noi: Wikidata (CC0/dominio pubblico) per i fatti anagrafici/di carriera, compilazione manuale verificata per le statistiche di dettaglio. Conseguenza: scope v1 curato (Big 5 leghe, poche epoche/club per lega), non esaustivo come FM.
+- **2026-07-24 — Overall calcolato con algoritmo originale, non con il metodo di FM**: dato che l'Overall di FM è un giudizio editoriale proprietario di SI, il nostro va derivato da zero da statistiche fattuali pubbliche (gol, presenze, assist, trofei, caps), pesate per reparto e normalizzate a percentile su scala 60-99. Vedi sez. 2.2.
+- **2026-07-24 — Aggiunto `apps/admin`**: su richiesta dell'utente, serve un pannello interno per gestire `player_pool`/`clubs` (inclusa correzione Overall) e creare le sfide giornaliere senza SQL manuale. Nuova app nel monorepo, autorizzazione via `profiles.is_admin` + RLS dedicate (sez. 9.1, sez. 10). Non ancora implementata, solo decisione architetturale.
 - **2026-07-24 — Niente Docker locale, si parte da un progetto Supabase cloud**: l'ambiente di sviluppo non ha Docker Desktop installato (necessario per `supabase start`, lo stack locale). Invece di richiedere l'installazione di Docker, si procede creando direttamente un progetto Supabase cloud (piano free) e collegandolo via `supabase link` + `supabase db push`. Motivazione: l'Auth Google richiede comunque configurazione lato Google Cloud Console + dashboard Supabase (passaggi manuali via browser), quindi il progetto cloud serve in ogni caso; evitiamo un doppio setup (locale poi cloud).
 - **2026-07-24 — Creazione riga `profiles` lato client dopo onboarding, non via trigger su `auth.users`**: dopo il login Google, l'app mostra la schermata nickname/nazione (sez. 9) e il client stesso inserisce la riga in `profiles` (permesso da RLS solo per `id = auth.uid()`). Motivazione: più semplice da debuggare in questa fase iniziale rispetto a un trigger Postgres; da rivalutare se in futuro serve garantire che ogni utente Auth abbia sempre un profilo anche senza completare l'onboarding.
 - **2026-07-24 — Trigger anti-tampering su `profiles`**: i campi punteggio/livello (`punti_livello`, `punti_globali`, `punti_mensili`, `livello_id`, `perfect_38_count`) sono protetti da un trigger BEFORE UPDATE che blocca modifiche non provenienti da `service_role`, anche se la riga appartiene all'utente stesso. Motivazione: coerenza con l'anti-cheat richiesto in sez. 10/11 — un utente autenticato non deve poter alterare direttamente i propri punteggi via client.
