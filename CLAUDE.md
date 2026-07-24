@@ -214,7 +214,7 @@ Costruzione **parallela/feature-complete** (non fasi sequenziali con gate di val
 4. Mini torneo a 4 (riusa draft condiviso + match engine, aggiunge bracket e scelta bersaglio malus).
 5. Classifica Globale/Mensile, sfide giornaliere persistenti/recuperabili, sfida mensile (completamento), Hall of Fame.
 
-**Stato attuale**: nessuno scaffolding di codice ancora presente — solo questo documento di riferimento. Prossimo passo: punto 1 della roadmap.
+**Stato attuale (2026-07-24)**: punto 1 della roadmap in corso. Fatto: monorepo pnpm, `apps/web` (Vite+React 19+TS+Tailwind v4+Zustand+Framer Motion, tema chiaro/scuro selezionabile e persistito), `packages/shared-types`, `packages/game-engine` (moduli, rating, chemistry, livelli — 14 test vitest verdi), migrazioni SQL + RLS per Supabase scritte (non ancora applicate, serve un progetto Supabase reale). Mancante: Auth Google, draft/match realtime, UI del draft/match, Edge Functions.
 
 ---
 
@@ -241,4 +241,9 @@ Punti interpretati in modo ragionevole ma non confermati esplicitamente dall'ute
 
 > Ogni scelta architetturale, di design o di prodotto presa durante l'implementazione va registrata qui, in ordine cronologico (più recente in cima), con data, decisione e motivazione breve.
 
-- *(vuoto — nessuna implementazione ancora iniziata)*
+- **2026-07-24 — Niente Docker locale, si parte da un progetto Supabase cloud**: l'ambiente di sviluppo non ha Docker Desktop installato (necessario per `supabase start`, lo stack locale). Invece di richiedere l'installazione di Docker, si procede creando direttamente un progetto Supabase cloud (piano free) e collegandolo via `supabase link` + `supabase db push`. Motivazione: l'Auth Google richiede comunque configurazione lato Google Cloud Console + dashboard Supabase (passaggi manuali via browser), quindi il progetto cloud serve in ogni caso; evitiamo un doppio setup (locale poi cloud).
+- **2026-07-24 — Creazione riga `profiles` lato client dopo onboarding, non via trigger su `auth.users`**: dopo il login Google, l'app mostra la schermata nickname/nazione (sez. 9) e il client stesso inserisce la riga in `profiles` (permesso da RLS solo per `id = auth.uid()`). Motivazione: più semplice da debuggare in questa fase iniziale rispetto a un trigger Postgres; da rivalutare se in futuro serve garantire che ogni utente Auth abbia sempre un profilo anche senza completare l'onboarding.
+- **2026-07-24 — Trigger anti-tampering su `profiles`**: i campi punteggio/livello (`punti_livello`, `punti_globali`, `punti_mensili`, `livello_id`, `perfect_38_count`) sono protetti da un trigger BEFORE UPDATE che blocca modifiche non provenienti da `service_role`, anche se la riga appartiene all'utente stesso. Motivazione: coerenza con l'anti-cheat richiesto in sez. 10/11 — un utente autenticato non deve poter alterare direttamente i propri punteggi via client.
+- **2026-07-24 — Formula moduli**: nel `game-engine`, per ogni modulo (es. "4-3-3") il primo numero è sempre DIF, l'ultimo sempre ATT, e la somma dei numeri intermedi è CC. Semplificazione necessaria per restare coerenti con le sole 4 categorie di reparto (sez. 3.3) anche per moduli con centrocampisti/trequartisti su più linee (es. 4-2-3-1, 3-4-2-1).
+- **2026-07-24 — Formula chemistry bonus**: bonus squadra = media dei pesi delle linee (verde=1, arancione=0.5, rosso=0) moltiplicata per un tetto massimo di 10 punti sommati al rating squadra. Valore placeholder di bilanciamento, non specificato dall'utente — da tarare quando si avranno partite reali da osservare.
+- **2026-07-24 — Valori numerici di `LEVELS` (soglie punti, budget base)**: placeholder di bilanciamento in `packages/game-engine/src/levels.ts` e replicati in `supabase/seed.sql`. Da tarare in base ai dati di gioco reali; se uno dei due file viene aggiornato, aggiornare anche l'altro finché non esiste un'unica fonte di verità (es. generare il seed dal codice invece di duplicarlo a mano).
