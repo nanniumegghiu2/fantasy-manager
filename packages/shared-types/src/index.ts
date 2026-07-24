@@ -72,3 +72,16 @@ export interface TacticalCard {
 }
 
 export type ChallengeType = "campionato" | "salvezza" | "mercato_gennaio";
+
+export interface Profile {
+  id: string;
+  nickname: string;
+  nazione: string;
+  avatarUrl: string | null;
+  livelloId: string;
+  puntiLivello: number;
+  puntiGlobali: number;
+  puntiMensili: number;
+  perfect38Count: number;
+  isAdmin: boolean;
+}
