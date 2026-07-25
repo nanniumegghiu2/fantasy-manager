@@ -1,7 +1,8 @@
 import { useMemo, useState } from "react";
 import type { ChallengeType } from "@app/shared-types";
 import { usePlayers } from "../hooks/usePlayers";
-import { useDailyChallenges, type ChallengePackage } from "../hooks/useDailyChallenges";
+import { useClubs } from "../hooks/useClubs";
+import { useDailyChallenges } from "../hooks/useDailyChallenges";
 
 const CHALLENGE_TYPES: { id: ChallengeType; label: string }[] = [
   { id: "campionato", label: "Campionato perfetto (38-0-0)" },
@@ -9,42 +10,38 @@ const CHALLENGE_TYPES: { id: ChallengeType; label: string }[] = [
   { id: "mercato_gennaio", label: "Mercato di gennaio" },
 ];
 
-function packageKey(pkg: ChallengePackage) {
-  return `${pkg.clubId}__${pkg.era}`;
-}
-
 export function ChallengesScreen() {
   const { players, loading: playersLoading } = usePlayers();
+  const { clubs, loading: clubsLoading } = useClubs();
   const { challenges, loading: challengesLoading, createChallenge } = useDailyChallenges();
 
   const [challengeDate, setChallengeDate] = useState(() =>
     new Date().toISOString().slice(0, 10),
   );
   const [challengeType, setChallengeType] = useState<ChallengeType>("campionato");
-  const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
+  const [selectedClubIds, setSelectedClubIds] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
-  const availablePackages = useMemo(() => {
-    const map = new Map<string, { clubId: string; clubName: string; era: string; count: number }>();
+  const playerCountByClub = useMemo(() => {
+    const map = new Map<string, number>();
     for (const player of players) {
-      const pkg: ChallengePackage = { clubId: player.clubId, era: player.era };
-      const key = packageKey(pkg);
-      const existing = map.get(key);
-      if (existing) existing.count += 1;
-      else map.set(key, { clubId: player.clubId, clubName: player.clubName, era: player.era, count: 1 });
+      map.set(player.clubId, (map.get(player.clubId) ?? 0) + 1);
     }
-    return Array.from(map.values()).sort(
-      (a, b) => a.clubName.localeCompare(b.clubName) || a.era.localeCompare(b.era),
-    );
+    return map;
   }, [players]);
 
-  function toggle(key: string) {
-    setSelectedKeys((prev) => {
+  const sortedClubs = useMemo(
+    () => [...clubs].sort((a, b) => a.name.localeCompare(b.name) || a.era.localeCompare(b.era)),
+    [clubs],
+  );
+
+  function toggle(clubId: string) {
+    setSelectedClubIds((prev) => {
       const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
+      if (next.has(clubId)) next.delete(clubId);
+      else next.add(clubId);
       return next;
     });
   }
@@ -52,12 +49,12 @@ export function ChallengesScreen() {
   async function handleSubmit() {
     setError(null);
     setSuccessMessage(null);
-    const packages = availablePackages
-      .filter((p) => selectedKeys.has(packageKey(p)))
-      .map((p) => ({ clubId: p.clubId, era: p.era }));
+    const packages = sortedClubs
+      .filter((c) => selectedClubIds.has(c.id))
+      .map((c) => ({ clubId: c.id, era: c.era }));
 
     if (packages.length === 0) {
-      setError("Seleziona almeno un pacchetto club+epoca per il seed.");
+      setError("Seleziona almeno un club (pacchetto) per il seed.");
       return;
     }
 
@@ -65,7 +62,7 @@ export function ChallengesScreen() {
     try {
       await createChallenge({ challengeDate, challengeType, packages });
       setSuccessMessage(`Sfida del ${challengeDate} creata.`);
-      setSelectedKeys(new Set());
+      setSelectedClubIds(new Set());
     } catch (e) {
       setError(e instanceof Error ? e.message : "Errore durante il salvataggio.");
     } finally {
@@ -78,6 +75,8 @@ export function ChallengesScreen() {
       <h1 className="mb-1 text-xl font-bold">Sfide giornaliere</h1>
       <p className="mb-6 text-sm text-[var(--text-secondary)]">
         Ogni sfida resta disponibile per tutto il mese ed è recuperabile (CLAUDE.md sez. 7.2).
+        Ogni club è già un'istanza per epoca, quindi il seed è semplicemente una selezione di
+        club.
       </p>
 
       <div className="grid grid-cols-[1fr_1fr] gap-8">
@@ -109,34 +108,31 @@ export function ChallengesScreen() {
           </div>
 
           <h3 className="mt-6 mb-2 text-sm font-semibold text-[var(--text-secondary)] uppercase">
-            Pacchetti club + epoca nel seed
+            Club (pacchetti) nel seed
           </h3>
-          {playersLoading ? (
+          {playersLoading || clubsLoading ? (
             <p className="text-sm text-[var(--text-secondary)]">Caricamento...</p>
-          ) : availablePackages.length === 0 ? (
+          ) : sortedClubs.length === 0 ? (
             <p className="text-sm text-[var(--text-secondary)]">
-              Nessun giocatore in pool: aggiungine prima nella sezione "Giocatori".
+              Nessun club: creane prima nella sezione "Club".
             </p>
           ) : (
             <ul className="flex max-h-64 flex-col gap-1 overflow-auto rounded-lg border border-[var(--surface-border)] p-2">
-              {availablePackages.map((pkg) => {
-                const key = packageKey(pkg);
-                return (
-                  <li key={key}>
-                    <label className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-[var(--surface)]">
-                      <input
-                        type="checkbox"
-                        checked={selectedKeys.has(key)}
-                        onChange={() => toggle(key)}
-                      />
-                      {pkg.clubName} — {pkg.era}
-                      <span className="text-xs text-[var(--text-secondary)]">
-                        ({pkg.count} giocatori)
-                      </span>
-                    </label>
-                  </li>
-                );
-              })}
+              {sortedClubs.map((club) => (
+                <li key={club.id}>
+                  <label className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-[var(--surface)]">
+                    <input
+                      type="checkbox"
+                      checked={selectedClubIds.has(club.id)}
+                      onChange={() => toggle(club.id)}
+                    />
+                    {club.name} — {club.leagueName} {club.era}
+                    <span className="text-xs text-[var(--text-secondary)]">
+                      ({playerCountByClub.get(club.id) ?? 0} giocatori)
+                    </span>
+                  </label>
+                </li>
+              ))}
             </ul>
           )}
 

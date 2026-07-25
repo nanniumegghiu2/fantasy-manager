@@ -3,13 +3,14 @@ import { useAdminAuth } from "./hooks/useAdminAuth";
 import { AdminLoginScreen } from "./components/AdminLoginScreen";
 import { AccessDenied } from "./components/AccessDenied";
 import { AdminLayout, type AdminSection } from "./components/AdminLayout";
+import { LeaguesScreen } from "./screens/LeaguesScreen";
 import { PlayersScreen } from "./screens/PlayersScreen";
 import { ClubsScreen } from "./screens/ClubsScreen";
 import { ChallengesScreen } from "./screens/ChallengesScreen";
 
 function App() {
   const { session, profile, loading } = useAdminAuth();
-  const [section, setSection] = useState<AdminSection>("players");
+  const [section, setSection] = useState<AdminSection>("leagues");
 
   if (loading) {
     return (
@@ -24,8 +25,9 @@ function App() {
 
   return (
     <AdminLayout profile={profile} section={section} onSectionChange={setSection}>
-      {section === "players" && <PlayersScreen />}
+      {section === "leagues" && <LeaguesScreen />}
       {section === "clubs" && <ClubsScreen />}
+      {section === "players" && <PlayersScreen />}
       {section === "challenges" && <ChallengesScreen />}
     </AdminLayout>
   );

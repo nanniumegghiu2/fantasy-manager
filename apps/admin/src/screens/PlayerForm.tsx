@@ -1,14 +1,26 @@
 import { useMemo, useState } from "react";
 import { computeOverallRatings } from "@app/game-engine";
-import type { Club, Department } from "@app/shared-types";
+import type { Department } from "@app/shared-types";
+import type { AdminClub } from "../hooks/useClubs";
 import type { AdminPlayer, PlayerFormInput } from "../hooks/usePlayers";
 
 const DEPARTMENTS: Department[] = ["POR", "DIF", "CC", "ATT"];
 
+export interface PlayerFormPrefill {
+  name: string;
+  department: Department;
+  clubId: string;
+  nation: string;
+  marketValue: number;
+  stats: PlayerFormInput["stats"];
+  overallOverride: number | null;
+}
+
 interface PlayerFormProps {
-  clubs: Club[];
+  clubs: AdminClub[];
   existingPlayers: AdminPlayer[];
   editingPlayer: AdminPlayer | null;
+  prefill: PlayerFormPrefill | null;
   onCancel: () => void;
   onSubmit: (input: PlayerFormInput) => Promise<void>;
 }
@@ -17,23 +29,23 @@ export function PlayerForm({
   clubs,
   existingPlayers,
   editingPlayer,
+  prefill,
   onCancel,
   onSubmit,
 }: PlayerFormProps) {
-  const [name, setName] = useState(editingPlayer?.name ?? "");
-  const [department, setDepartment] = useState<Department>(editingPlayer?.department ?? "ATT");
-  const [clubId, setClubId] = useState(editingPlayer?.clubId ?? clubs[0]?.id ?? "");
-  const [era, setEra] = useState(editingPlayer?.era ?? "");
-  const [nation, setNation] = useState(editingPlayer?.nation ?? "");
-  const [league, setLeague] = useState(editingPlayer?.league ?? "");
-  const [marketValue, setMarketValue] = useState(editingPlayer?.marketValue ?? 0);
-  const [appearances, setAppearances] = useState(editingPlayer?.stats.appearances ?? 0);
-  const [goals, setGoals] = useState(editingPlayer?.stats.goals ?? 0);
-  const [assists, setAssists] = useState(editingPlayer?.stats.assists ?? 0);
-  const [trophies, setTrophies] = useState(editingPlayer?.stats.trophies ?? 0);
-  const [caps, setCaps] = useState(editingPlayer?.stats.caps ?? 0);
-  const [overrideEnabled, setOverrideEnabled] = useState(editingPlayer?.overallOverride != null);
-  const [overrideValue, setOverrideValue] = useState(editingPlayer?.overallOverride ?? 75);
+  const base = editingPlayer ?? prefill;
+  const [name, setName] = useState(base?.name ?? "");
+  const [department, setDepartment] = useState<Department>(base?.department ?? "ATT");
+  const [clubId, setClubId] = useState(base?.clubId ?? clubs[0]?.id ?? "");
+  const [nation, setNation] = useState(base?.nation ?? "");
+  const [marketValue, setMarketValue] = useState(base?.marketValue ?? 0);
+  const [appearances, setAppearances] = useState(base?.stats.appearances ?? 0);
+  const [goals, setGoals] = useState(base?.stats.goals ?? 0);
+  const [assists, setAssists] = useState(base?.stats.assists ?? 0);
+  const [trophies, setTrophies] = useState(base?.stats.trophies ?? 0);
+  const [caps, setCaps] = useState(base?.stats.caps ?? 0);
+  const [overrideEnabled, setOverrideEnabled] = useState(base?.overallOverride != null);
+  const [overrideValue, setOverrideValue] = useState(base?.overallOverride ?? 75);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -70,9 +82,7 @@ export function PlayerForm({
         name: name.trim(),
         department,
         clubId,
-        era: era.trim(),
         nation: nation.trim(),
-        league: league.trim(),
         marketValue,
         stats: { appearances, goals, assists, trophies, caps },
         overall: finalOverall,
@@ -116,8 +126,8 @@ export function PlayerForm({
           </select>
         </label>
 
-        <label className="flex flex-col gap-1 text-sm font-medium">
-          Club
+        <label className="col-span-2 flex flex-col gap-1 text-sm font-medium">
+          Club (definisce campionato ed epoca del giocatore)
           <select
             value={clubId}
             onChange={(e) => setClubId(e.target.value)}
@@ -125,35 +135,17 @@ export function PlayerForm({
           >
             {clubs.map((c) => (
               <option key={c.id} value={c.id}>
-                {c.name}
+                {c.name} — {c.leagueName} {c.era}
               </option>
             ))}
           </select>
         </label>
 
         <label className="flex flex-col gap-1 text-sm font-medium">
-          Epoca (es. 1990s)
-          <input
-            value={era}
-            onChange={(e) => setEra(e.target.value)}
-            className="rounded-lg border border-[var(--surface-border)] bg-[var(--surface)] px-3 py-2"
-          />
-        </label>
-
-        <label className="flex flex-col gap-1 text-sm font-medium">
-          Nazione
+          Nazionalità del giocatore
           <input
             value={nation}
             onChange={(e) => setNation(e.target.value)}
-            className="rounded-lg border border-[var(--surface-border)] bg-[var(--surface)] px-3 py-2"
-          />
-        </label>
-
-        <label className="flex flex-col gap-1 text-sm font-medium">
-          Campionato
-          <input
-            value={league}
-            onChange={(e) => setLeague(e.target.value)}
             className="rounded-lg border border-[var(--surface-border)] bg-[var(--surface)] px-3 py-2"
           />
         </label>

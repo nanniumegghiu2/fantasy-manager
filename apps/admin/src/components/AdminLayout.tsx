@@ -1,14 +1,15 @@
-import { LogOut, ShieldCheck, Trophy, Users } from "lucide-react";
+import { CalendarCheck, ShieldCheck, LogOut, Trophy, Users } from "lucide-react";
 import type { ReactNode } from "react";
 import type { Profile } from "@app/shared-types";
 import { supabase } from "../lib/supabaseClient";
 
-export type AdminSection = "players" | "clubs" | "challenges";
+export type AdminSection = "leagues" | "players" | "clubs" | "challenges";
 
 const NAV_ITEMS: { id: AdminSection; label: string; icon: typeof Users }[] = [
-  { id: "players", label: "Giocatori", icon: Users },
+  { id: "leagues", label: "Campionati", icon: Trophy },
   { id: "clubs", label: "Club", icon: ShieldCheck },
-  { id: "challenges", label: "Sfide giornaliere", icon: Trophy },
+  { id: "players", label: "Giocatori", icon: Users },
+  { id: "challenges", label: "Sfide giornaliere", icon: CalendarCheck },
 ];
 
 interface AdminLayoutProps {

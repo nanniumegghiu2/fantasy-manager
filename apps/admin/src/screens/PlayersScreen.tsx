@@ -1,15 +1,18 @@
 import { useMemo, useState } from "react";
-import { Plus, Search } from "lucide-react";
+import { Copy, Plus, Search } from "lucide-react";
 import { usePlayers, type AdminPlayer } from "../hooks/usePlayers";
 import { useClubs } from "../hooks/useClubs";
-import { PlayerForm } from "./PlayerForm";
+import { PlayerForm, type PlayerFormPrefill } from "./PlayerForm";
+
+type FormState =
+  | { mode: "create"; prefill: PlayerFormPrefill | null }
+  | { mode: "edit"; player: AdminPlayer };
 
 export function PlayersScreen() {
   const { players, loading, createPlayer, updatePlayer } = usePlayers();
   const { clubs, loading: clubsLoading } = useClubs();
   const [query, setQuery] = useState("");
-  const [formOpen, setFormOpen] = useState(false);
-  const [editingPlayer, setEditingPlayer] = useState<AdminPlayer | null>(null);
+  const [formState, setFormState] = useState<FormState | null>(null);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -19,17 +22,7 @@ export function PlayersScreen() {
     );
   }, [players, query]);
 
-  function openCreate() {
-    setEditingPlayer(null);
-    setFormOpen(true);
-  }
-
-  function openEdit(player: AdminPlayer) {
-    setEditingPlayer(player);
-    setFormOpen(true);
-  }
-
-  if (formOpen) {
+  if (formState) {
     if (clubsLoading || clubs.length === 0) {
       return (
         <p className="text-sm text-[var(--text-secondary)]">
@@ -37,16 +30,18 @@ export function PlayersScreen() {
         </p>
       );
     }
+    const editing = formState.mode === "edit" ? formState.player : null;
     return (
       <PlayerForm
         clubs={clubs}
         existingPlayers={players}
-        editingPlayer={editingPlayer}
-        onCancel={() => setFormOpen(false)}
+        editingPlayer={editing}
+        prefill={formState.mode === "create" ? formState.prefill : null}
+        onCancel={() => setFormState(null)}
         onSubmit={async (input) => {
-          if (editingPlayer) await updatePlayer(editingPlayer.id, input);
+          if (editing) await updatePlayer(editing.id, input);
           else await createPlayer(input);
-          setFormOpen(false);
+          setFormState(null);
         }}
       />
     );
@@ -61,7 +56,7 @@ export function PlayersScreen() {
         </div>
         <button
           type="button"
-          onClick={openCreate}
+          onClick={() => setFormState({ mode: "create", prefill: null })}
           className="flex items-center gap-2 rounded-full bg-[var(--brand)] px-4 py-2.5 text-sm font-semibold text-[var(--brand-contrast)]"
         >
           <Plus size={16} />
@@ -91,23 +86,29 @@ export function PlayersScreen() {
               <tr>
                 <th className="px-4 py-3">Nome</th>
                 <th className="px-4 py-3">Club</th>
-                <th className="px-4 py-3">Reparto</th>
+                <th className="px-4 py-3">Campionato</th>
                 <th className="px-4 py-3">Epoca</th>
+                <th className="px-4 py-3">Reparto</th>
                 <th className="px-4 py-3">Overall</th>
-                <th className="px-4 py-3">Valore</th>
+                <th className="px-4 py-3"></th>
               </tr>
             </thead>
             <tbody>
               {filtered.map((player) => (
                 <tr
                   key={player.id}
-                  onClick={() => openEdit(player)}
-                  className="cursor-pointer border-t border-[var(--surface-border)] hover:bg-[var(--surface-raised)]"
+                  className="border-t border-[var(--surface-border)] hover:bg-[var(--surface-raised)]"
                 >
-                  <td className="px-4 py-3 font-medium">{player.name}</td>
+                  <td
+                    className="cursor-pointer px-4 py-3 font-medium"
+                    onClick={() => setFormState({ mode: "edit", player })}
+                  >
+                    {player.name}
+                  </td>
                   <td className="px-4 py-3 text-[var(--text-secondary)]">{player.clubName}</td>
-                  <td className="px-4 py-3">{player.department}</td>
+                  <td className="px-4 py-3 text-[var(--text-secondary)]">{player.leagueName}</td>
                   <td className="px-4 py-3 text-[var(--text-secondary)]">{player.era}</td>
+                  <td className="px-4 py-3">{player.department}</td>
                   <td className="px-4 py-3 font-bold">
                     {player.overall}
                     {player.overallOverride != null && (
@@ -116,15 +117,36 @@ export function PlayersScreen() {
                       </span>
                     )}
                   </td>
-                  <td className="px-4 py-3 text-[var(--text-secondary)]">
-                    {player.marketValue}
+                  <td className="px-4 py-3 text-right">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setFormState({
+                          mode: "create",
+                          prefill: {
+                            name: player.name,
+                            department: player.department,
+                            clubId: player.clubId,
+                            nation: player.nation,
+                            marketValue: player.marketValue,
+                            stats: player.stats,
+                            overallOverride: player.overallOverride,
+                          },
+                        })
+                      }
+                      aria-label="Duplica giocatore"
+                      title="Duplica (utile per creare lo stesso giocatore in un'altra epoca/club)"
+                      className="flex h-8 w-8 items-center justify-center rounded-full border border-[var(--surface-border)] transition-colors hover:border-[var(--brand)]"
+                    >
+                      <Copy size={14} />
+                    </button>
                   </td>
                 </tr>
               ))}
               {filtered.length === 0 && (
                 <tr>
                   <td
-                    colSpan={6}
+                    colSpan={7}
                     className="px-4 py-8 text-center text-[var(--text-secondary)]"
                   >
                     Nessun giocatore trovato.

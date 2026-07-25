@@ -1,47 +1,31 @@
 import { useState } from "react";
 import { Copy, Plus } from "lucide-react";
-import { useClubs, type AdminClub, type ClubFormInput } from "../hooks/useClubs";
-import { useLeagues } from "../hooks/useLeagues";
+import type { League } from "@app/shared-types";
+import { useLeagues, type LeagueFormInput } from "../hooks/useLeagues";
 
-type FormState =
-  | { mode: "create"; initial: ClubFormInput | null }
-  | { mode: "edit"; club: AdminClub };
+type FormState = { mode: "create"; initial: LeagueFormInput | null } | { mode: "edit"; league: League };
 
-export function ClubsScreen() {
-  const { clubs, loading, createClub, updateClub } = useClubs();
-  const { leagues, loading: leaguesLoading } = useLeagues();
+export function LeaguesScreen() {
+  const { leagues, loading, createLeague, updateLeague } = useLeagues();
   const [formState, setFormState] = useState<FormState | null>(null);
 
   if (formState) {
-    if (leaguesLoading || leagues.length === 0) {
-      return (
-        <p className="text-sm text-[var(--text-secondary)]">
-          Crea prima almeno un campionato nella sezione "Campionati".
-        </p>
-      );
-    }
-    const editing = formState.mode === "edit" ? formState.club : null;
+    const editing = formState.mode === "edit" ? formState.league : null;
     const initial =
       formState.mode === "create" && formState.initial
         ? formState.initial
         : editing
-          ? {
-              name: editing.name,
-              crestUrl: editing.crestUrl,
-              leagueId: editing.leagueId,
-              era: editing.era,
-            }
+          ? { name: editing.name, nation: editing.nation, crestUrl: editing.crestUrl }
           : null;
 
     return (
-      <ClubForm
-        title={editing ? "Modifica club" : "Nuovo club"}
-        leagues={leagues}
+      <LeagueForm
+        title={editing ? "Modifica campionato" : "Nuovo campionato"}
         initial={initial}
         onCancel={() => setFormState(null)}
         onSubmit={async (input) => {
-          if (editing) await updateClub(editing.id, input);
-          else await createClub(input);
+          if (editing) await updateLeague(editing.id, input);
+          else await createLeague(input);
           setFormState(null);
         }}
       />
@@ -52,10 +36,10 @@ export function ClubsScreen() {
     <div>
       <div className="mb-6 flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-bold">Club</h1>
+          <h1 className="text-xl font-bold">Campionati</h1>
           <p className="text-sm text-[var(--text-secondary)]">
-            {clubs.length} club — ogni club è un'istanza per epoca: duplica per creare la
-            stessa squadra in un'altra epoca.
+            {leagues.length} campionati — i club vengono creati all'interno di un campionato
+            nella sezione "Club".
           </p>
         </div>
         <button
@@ -64,7 +48,7 @@ export function ClubsScreen() {
           className="flex items-center gap-2 rounded-full bg-[var(--brand)] px-4 py-2.5 text-sm font-semibold text-[var(--brand-contrast)]"
         >
           <Plus size={16} />
-          Nuovo club
+          Nuovo campionato
         </button>
       </div>
 
@@ -72,51 +56,44 @@ export function ClubsScreen() {
         <p className="text-sm text-[var(--text-secondary)]">Caricamento...</p>
       ) : (
         <ul className="grid grid-cols-3 gap-3">
-          {clubs.map((club) => (
+          {leagues.map((league) => (
             <li
-              key={club.id}
+              key={league.id}
               className="flex items-center gap-3 rounded-xl border border-[var(--surface-border)] bg-[var(--surface-raised)] p-4"
             >
-              {club.crestUrl ? (
-                <img src={club.crestUrl} alt="" className="h-10 w-10 rounded-full object-cover" />
+              {league.crestUrl ? (
+                <img src={league.crestUrl} alt="" className="h-10 w-10 rounded-full object-cover" />
               ) : (
                 <div className="h-10 w-10 rounded-full bg-[var(--surface-border)]" />
               )}
               <div className="flex-1">
                 <button
                   type="button"
-                  onClick={() => setFormState({ mode: "edit", club })}
+                  onClick={() => setFormState({ mode: "edit", league })}
                   className="text-left font-medium hover:underline"
                 >
-                  {club.name}
+                  {league.name}
                 </button>
-                <p className="text-xs text-[var(--text-secondary)]">
-                  {club.leagueName} · {club.era}
-                </p>
+                <p className="text-xs text-[var(--text-secondary)]">{league.nation}</p>
               </div>
               <button
                 type="button"
                 onClick={() =>
                   setFormState({
                     mode: "create",
-                    initial: {
-                      name: club.name,
-                      crestUrl: club.crestUrl,
-                      leagueId: club.leagueId,
-                      era: club.era,
-                    },
+                    initial: { name: league.name, nation: league.nation, crestUrl: league.crestUrl },
                   })
                 }
-                aria-label="Duplica club"
-                title="Duplica (utile per creare la stessa squadra in un'altra epoca)"
+                aria-label="Duplica campionato"
+                title="Duplica"
                 className="flex h-8 w-8 items-center justify-center rounded-full border border-[var(--surface-border)] transition-colors hover:border-[var(--brand)]"
               >
                 <Copy size={14} />
               </button>
             </li>
           ))}
-          {clubs.length === 0 && (
-            <p className="text-sm text-[var(--text-secondary)]">Nessun club creato.</p>
+          {leagues.length === 0 && (
+            <p className="text-sm text-[var(--text-secondary)]">Nessun campionato creato.</p>
           )}
         </ul>
       )}
@@ -124,39 +101,36 @@ export function ClubsScreen() {
   );
 }
 
-function ClubForm({
+function LeagueForm({
   title,
-  leagues,
   initial,
   onCancel,
   onSubmit,
 }: {
   title: string;
-  leagues: { id: string; name: string }[];
-  initial: ClubFormInput | null;
+  initial: LeagueFormInput | null;
   onCancel: () => void;
-  onSubmit: (input: ClubFormInput) => Promise<void>;
+  onSubmit: (input: LeagueFormInput) => Promise<void>;
 }) {
   const [name, setName] = useState(initial?.name ?? "");
+  const [nation, setNation] = useState(initial?.nation ?? "");
   const [crestUrl, setCrestUrl] = useState(initial?.crestUrl ?? "");
-  const [leagueId, setLeagueId] = useState(initial?.leagueId ?? leagues[0]?.id ?? "");
-  const [era, setEra] = useState(initial?.era ?? "");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   async function handleSubmit() {
     if (name.trim().length < 2) {
-      setError("Inserisci il nome del club.");
+      setError("Inserisci il nome del campionato.");
       return;
     }
-    if (era.trim().length < 2) {
-      setError("Inserisci l'epoca (es. 1990s).");
+    if (nation.trim().length < 2) {
+      setError("Inserisci la nazione del campionato.");
       return;
     }
     setError(null);
     setSubmitting(true);
     try {
-      await onSubmit({ name: name.trim(), crestUrl: crestUrl.trim(), leagueId, era: era.trim() });
+      await onSubmit({ name: name.trim(), nation: nation.trim(), crestUrl: crestUrl.trim() });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Errore durante il salvataggio.");
     } finally {
@@ -169,21 +143,7 @@ function ClubForm({
       <h2 className="mb-4 text-lg font-semibold">{title}</h2>
       <div className="flex flex-col gap-4">
         <label className="flex flex-col gap-1 text-sm font-medium">
-          Campionato
-          <select
-            value={leagueId}
-            onChange={(e) => setLeagueId(e.target.value)}
-            className="rounded-lg border border-[var(--surface-border)] bg-[var(--surface)] px-3 py-2"
-          >
-            {leagues.map((l) => (
-              <option key={l.id} value={l.id}>
-                {l.name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="flex flex-col gap-1 text-sm font-medium">
-          Nome club
+          Nome (es. Serie A)
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
@@ -191,15 +151,15 @@ function ClubForm({
           />
         </label>
         <label className="flex flex-col gap-1 text-sm font-medium">
-          Epoca (es. 1990s)
+          Nazione
           <input
-            value={era}
-            onChange={(e) => setEra(e.target.value)}
+            value={nation}
+            onChange={(e) => setNation(e.target.value)}
             className="rounded-lg border border-[var(--surface-border)] bg-[var(--surface)] px-3 py-2"
           />
         </label>
         <label className="flex flex-col gap-1 text-sm font-medium">
-          Stemma (URL immagine originale — mai stemmi ufficiali)
+          Stemma (URL immagine originale — mai loghi ufficiali di lega)
           <input
             value={crestUrl}
             onChange={(e) => setCrestUrl(e.target.value)}
@@ -224,7 +184,7 @@ function ClubForm({
             disabled={submitting}
             className="rounded-full bg-[var(--brand)] px-5 py-2.5 text-sm font-semibold text-[var(--brand-contrast)] disabled:opacity-60"
           >
-            {submitting ? "Salvataggio..." : "Salva club"}
+            {submitting ? "Salvataggio..." : "Salva campionato"}
           </button>
         </div>
       </div>

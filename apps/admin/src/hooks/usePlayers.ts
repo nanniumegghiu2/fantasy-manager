@@ -9,8 +9,8 @@ export interface AdminPlayer {
   clubId: string;
   clubName: string;
   era: string;
+  leagueName: string;
   nation: string;
-  league: string;
   marketValue: number;
   stats: PlayerStats;
   overall: number;
@@ -21,9 +21,7 @@ export interface PlayerFormInput {
   name: string;
   department: Department;
   clubId: string;
-  era: string;
   nation: string;
-  league: string;
   marketValue: number;
   stats: PlayerStats;
   overall: number;
@@ -35,9 +33,7 @@ interface PlayerRow {
   name: string;
   department: Department;
   club_id: string;
-  era: string;
   nation: string;
-  league: string;
   market_value: number;
   appearances: number;
   goals: number;
@@ -46,7 +42,7 @@ interface PlayerRow {
   caps: number;
   overall: number;
   overall_override: number | null;
-  clubs: { name: string } | null;
+  clubs: { name: string; era: string; leagues: { name: string } | null } | null;
 }
 
 function fromRow(row: PlayerRow): AdminPlayer {
@@ -56,9 +52,9 @@ function fromRow(row: PlayerRow): AdminPlayer {
     department: row.department,
     clubId: row.club_id,
     clubName: row.clubs?.name ?? "—",
-    era: row.era,
+    era: row.clubs?.era ?? "—",
+    leagueName: row.clubs?.leagues?.name ?? "—",
     nation: row.nation,
-    league: row.league,
     marketValue: row.market_value,
     stats: {
       appearances: row.appearances,
@@ -80,7 +76,7 @@ export function usePlayers() {
     setLoading(true);
     const { data, error } = await supabase
       .from("player_pool")
-      .select("*, clubs(name)")
+      .select("*, clubs(name, era, leagues(name))")
       .order("name")
       .returns<PlayerRow[]>();
     if (!error) setPlayers((data ?? []).map(fromRow));
@@ -96,9 +92,7 @@ export function usePlayers() {
       name: input.name,
       department: input.department,
       club_id: input.clubId,
-      era: input.era,
       nation: input.nation,
-      league: input.league,
       market_value: input.marketValue,
       appearances: input.stats.appearances,
       goals: input.stats.goals,
@@ -119,9 +113,7 @@ export function usePlayers() {
         name: input.name,
         department: input.department,
         club_id: input.clubId,
-        era: input.era,
         nation: input.nation,
-        league: input.league,
         market_value: input.marketValue,
         appearances: input.stats.appearances,
         goals: input.stats.goals,

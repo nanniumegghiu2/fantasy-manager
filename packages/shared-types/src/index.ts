@@ -13,12 +13,23 @@ export interface Formation {
   slots: FormationSlot[];
 }
 
+export interface League {
+  id: string;
+  name: string;
+  nation: string;
+  crestUrl: string;
+}
+
+/** Un club rappresenta un'istanza per epoca (stesso club reale puo' avere piu' righe, una per era). */
 export interface Club {
   id: string;
   name: string;
   crestUrl: string;
+  leagueId: string;
+  era: string;
 }
 
+/** Vista di gioco risolta: era/league derivano dal Club (leagueId/era), non sono testo libero nel DB. */
 export interface Player {
   id: string;
   name: string;
