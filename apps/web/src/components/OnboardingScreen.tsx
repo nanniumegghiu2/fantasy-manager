@@ -1,5 +1,6 @@
-import { useState, type FormEvent } from "react";
+import { useId, useState, type FormEvent } from "react";
 import { supabase } from "../lib/supabaseClient";
+import { CountryAutocomplete, isValidCountry } from "./CountryAutocomplete";
 
 interface OnboardingScreenProps {
   userId: string;
@@ -11,19 +12,19 @@ export function OnboardingScreen({ userId, onComplete }: OnboardingScreenProps) 
   const [nazione, setNazione] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const countryFieldId = useId();
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
     setError(null);
 
     const trimmedNickname = nickname.trim();
-    const trimmedNazione = nazione.trim();
     if (trimmedNickname.length < 3) {
       setError("Il nickname deve avere almeno 3 caratteri.");
       return;
     }
-    if (trimmedNazione.length < 2) {
-      setError("Inserisci la tua nazione.");
+    if (!isValidCountry(nazione)) {
+      setError("Seleziona una nazione dall'elenco.");
       return;
     }
 
@@ -31,7 +32,7 @@ export function OnboardingScreen({ userId, onComplete }: OnboardingScreenProps) 
     const { error: insertError } = await supabase.from("profiles").insert({
       id: userId,
       nickname: trimmedNickname,
-      nazione: trimmedNazione,
+      nazione,
     });
     setSubmitting(false);
 
@@ -68,15 +69,9 @@ export function OnboardingScreen({ userId, onComplete }: OnboardingScreenProps) 
           />
         </label>
 
-        <label className="flex flex-col gap-1 text-sm font-medium">
+        <label htmlFor={countryFieldId} className="flex flex-col gap-1 text-sm font-medium">
           Nazione
-          <input
-            value={nazione}
-            onChange={(e) => setNazione(e.target.value)}
-            maxLength={56}
-            placeholder="es. Italia"
-            className="rounded-lg border border-[var(--surface-border)] bg-[var(--surface-raised)] px-3 py-2 text-[var(--text-primary)] outline-none focus:border-[var(--brand)]"
-          />
+          <CountryAutocomplete id={countryFieldId} value={nazione} onChange={setNazione} />
         </label>
 
         {error && <p className="text-sm text-red-500">{error}</p>}

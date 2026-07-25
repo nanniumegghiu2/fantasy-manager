@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { supabase } from "../lib/supabaseClient";
 import { GoogleIcon } from "./GoogleIcon";
+import { ThemeToggle } from "./ThemeToggle";
 
 interface LoginScreenProps {
   onGuestPlay: () => void;
@@ -24,7 +25,11 @@ export function LoginScreen({ onGuestPlay }: LoginScreenProps) {
   }
 
   return (
-    <div className="flex min-h-svh flex-col items-center justify-center gap-10 bg-[var(--surface)] px-6 py-12 text-[var(--text-primary)]">
+    <div className="relative flex min-h-svh flex-col items-center justify-center gap-10 bg-[var(--surface)] px-6 py-12 text-[var(--text-primary)]">
+      <div className="absolute top-4 right-4">
+        <ThemeToggle />
+      </div>
+
       <div className="flex flex-col items-center gap-4 text-center">
         <img
           src="/logo-512.png"
