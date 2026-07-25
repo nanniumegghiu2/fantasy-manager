@@ -50,7 +50,7 @@ export function ClubsScreen() {
 
   return (
     <div>
-      <div className="mb-6 flex items-center justify-between">
+      <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-xl font-bold">Club</h1>
           <p className="text-sm text-[var(--text-secondary)]">
@@ -61,7 +61,7 @@ export function ClubsScreen() {
         <button
           type="button"
           onClick={() => setFormState({ mode: "create", initial: null })}
-          className="flex items-center gap-2 rounded-full bg-[var(--brand)] px-4 py-2.5 text-sm font-semibold text-[var(--brand-contrast)]"
+          className="flex items-center justify-center gap-2 rounded-full bg-[var(--brand)] px-4 py-2.5 text-sm font-semibold text-[var(--brand-contrast)]"
         >
           <Plus size={16} />
           Nuovo club
@@ -71,7 +71,7 @@ export function ClubsScreen() {
       {loading ? (
         <p className="text-sm text-[var(--text-secondary)]">Caricamento...</p>
       ) : (
-        <ul className="grid grid-cols-3 gap-3">
+        <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {clubs.map((club) => (
             <li
               key={club.id}
@@ -210,7 +210,7 @@ function ClubForm({
 
         {error && <p className="text-sm text-red-500">{error}</p>}
 
-        <div className="mt-2 flex justify-end gap-3">
+        <div className="mt-2 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
           <button
             type="button"
             onClick={onCancel}

@@ -101,7 +101,7 @@ export function PlayerForm({
         {editingPlayer ? "Modifica giocatore" : "Nuovo giocatore"}
       </h2>
 
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <label className="flex flex-col gap-1 text-sm font-medium">
           Nome
           <input
@@ -165,7 +165,7 @@ export function PlayerForm({
       <h3 className="mt-6 mb-2 text-sm font-semibold text-[var(--text-secondary)] uppercase">
         Statistiche (per l'algoritmo Overall)
       </h3>
-      <div className="grid grid-cols-5 gap-3">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-5">
         <label className="flex flex-col gap-1 text-xs font-medium">
           Presenze
           <input
@@ -218,7 +218,7 @@ export function PlayerForm({
         </label>
       </div>
 
-      <div className="mt-6 flex items-center gap-4 rounded-lg border border-[var(--surface-border)] bg-[var(--surface)] p-4">
+      <div className="mt-6 flex flex-col gap-4 rounded-lg border border-[var(--surface-border)] bg-[var(--surface)] p-4 sm:flex-row sm:items-center">
         <div className="flex-1">
           <p className="text-xs text-[var(--text-secondary)] uppercase">
             Overall calcolato (rispetto al pool {department} attuale)
@@ -248,11 +248,11 @@ export function PlayerForm({
 
       {error && <p className="mt-4 text-sm text-red-500">{error}</p>}
 
-      <div className="mt-6 flex justify-end gap-3">
+      <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
         <button
           type="button"
           onClick={onCancel}
-          className="rounded-full border border-[var(--surface-border)] px-5 py-2.5 text-sm font-semibold transition-colors hover:border-[var(--brand)]"
+          className="rounded-full border border-[var(--surface-border)] px-5 py-2.5 text-sm font-semibold transition-colors hover:border-[var(--brand)] sm:w-auto"
         >
           Annulla
         </button>
@@ -260,7 +260,7 @@ export function PlayerForm({
           type="button"
           onClick={handleSubmit}
           disabled={submitting}
-          className="rounded-full bg-[var(--brand)] px-5 py-2.5 text-sm font-semibold text-[var(--brand-contrast)] disabled:opacity-60"
+          className="rounded-full bg-[var(--brand)] px-5 py-2.5 text-sm font-semibold text-[var(--brand-contrast)] disabled:opacity-60 sm:w-auto"
         >
           {submitting ? "Salvataggio..." : "Salva giocatore"}
         </button>

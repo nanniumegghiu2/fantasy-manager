@@ -4,8 +4,7 @@
   "version": "0.0.0",
   "scripts": {
     "dev": "pnpm --filter web dev",
-    "dev:admin": "pnpm --filter admin dev",
-    "build": "pnpm --filter web build && pnpm --filter admin build",
+    "build": "pnpm --filter web build",
     "test": "pnpm -r test",
     "lint": "pnpm -r lint",
     "typecheck": "pnpm -r typecheck"

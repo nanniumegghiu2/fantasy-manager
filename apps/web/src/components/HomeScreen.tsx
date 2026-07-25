@@ -1,4 +1,4 @@
-import { LogIn, LogOut } from "lucide-react";
+import { LogIn, LogOut, Shield } from "lucide-react";
 import { FORMATIONS } from "@app/game-engine";
 import type { Profile } from "@app/shared-types";
 import { supabase } from "../lib/supabaseClient";
@@ -29,6 +29,16 @@ export function HomeScreen({ profile, onExitGuest }: HomeScreenProps) {
                 <p className="font-semibold">{profile.nickname}</p>
                 <p className="text-xs text-[var(--text-secondary)]">{profile.nazione}</p>
               </div>
+              {profile.isAdmin && (
+                <a
+                  href="/admin"
+                  aria-label="Pannello admin"
+                  title="Pannello admin"
+                  className="flex h-11 w-11 items-center justify-center rounded-full border border-[var(--surface-border)] bg-[var(--surface-raised)] text-[var(--text-primary)] transition-colors hover:border-[var(--brand)]"
+                >
+                  <Shield size={18} />
+                </a>
+              )}
               <ThemeToggle />
               <button
                 type="button"

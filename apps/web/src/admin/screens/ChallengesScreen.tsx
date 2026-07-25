@@ -79,9 +79,9 @@ export function ChallengesScreen() {
         club.
       </p>
 
-      <div className="grid grid-cols-[1fr_1fr] gap-8">
+      <div className="grid grid-cols-1 gap-8 lg:grid-cols-2">
         <div className="rounded-xl border border-[var(--surface-border)] bg-[var(--surface-raised)] p-6">
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <label className="flex flex-col gap-1 text-sm font-medium">
               Data
               <input
@@ -145,7 +145,7 @@ export function ChallengesScreen() {
             type="button"
             onClick={handleSubmit}
             disabled={submitting}
-            className="mt-6 rounded-full bg-[var(--brand)] px-5 py-2.5 text-sm font-semibold text-[var(--brand-contrast)] disabled:opacity-60"
+            className="mt-6 w-full rounded-full bg-[var(--brand)] px-5 py-2.5 text-sm font-semibold text-[var(--brand-contrast)] disabled:opacity-60 sm:w-auto"
           >
             {submitting ? "Creazione..." : "Crea sfida"}
           </button>

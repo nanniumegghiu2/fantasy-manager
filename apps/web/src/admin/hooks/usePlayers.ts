@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import type { Department, PlayerStats } from "@app/shared-types";
-import { supabase } from "../lib/supabaseClient";
+import { supabase } from "../../lib/supabaseClient";
 
 export interface AdminPlayer {
   id: string;
