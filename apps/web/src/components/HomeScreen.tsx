@@ -1,8 +1,8 @@
-import { LogIn, LogOut, Shield } from "lucide-react";
+import { LogIn, Sparkles, Trophy } from "lucide-react";
 import { FORMATIONS } from "@app/game-engine";
 import type { Profile } from "@app/shared-types";
-import { supabase } from "../lib/supabaseClient";
 import { ThemeToggle } from "./ThemeToggle";
+import { ProfileMenu } from "./ProfileMenu";
 
 interface HomeScreenProps {
   profile: Profile | null;
@@ -12,81 +12,61 @@ interface HomeScreenProps {
 export function HomeScreen({ profile, onExitGuest }: HomeScreenProps) {
   return (
     <div className="flex min-h-svh flex-col bg-[var(--surface)] text-[var(--text-primary)]">
-      <header className="flex items-center justify-between border-b border-[var(--surface-border)] px-5 py-4">
-        <div className="flex items-center gap-3">
-          <img src="/logo-512.png" alt="" className="h-9 w-9" />
-          <div>
-            <p className="text-xs font-semibold tracking-wide text-[var(--brand)] uppercase">
-              Draft Game Calcistico
-            </p>
-            <h1 className="text-xl font-bold">Fantasy Manager</h1>
+      <header className="sticky top-0 z-10 flex items-center justify-between border-b border-[var(--surface-border)] bg-[var(--surface)]/95 px-4 py-3 backdrop-blur">
+        <div className="flex items-center gap-2">
+          <img src="/logo-512.png" alt="" className="h-8 w-8" />
+          <span className="text-base font-extrabold tracking-tight">Fantasy Manager</span>
+        </div>
+
+        {profile ? (
+          <ProfileMenu profile={profile} />
+        ) : (
+          <div className="flex items-center gap-2">
+            <ThemeToggle />
+            <button
+              type="button"
+              onClick={onExitGuest}
+              className="flex items-center gap-2 rounded-full border border-[var(--surface-border)] bg-[var(--surface-raised)] px-4 py-2 text-sm font-semibold transition-colors hover:border-[var(--brand)]"
+            >
+              <LogIn size={16} />
+              Accedi
+            </button>
           </div>
-        </div>
-        <div className="flex items-center gap-3">
-          {profile ? (
-            <>
-              <div className="text-right text-sm">
-                <p className="font-semibold">{profile.nickname}</p>
-                <p className="text-xs text-[var(--text-secondary)]">{profile.nazione}</p>
-              </div>
-              {profile.isAdmin && (
-                <a
-                  href="/admin"
-                  aria-label="Pannello admin"
-                  title="Pannello admin"
-                  className="flex h-11 w-11 items-center justify-center rounded-full border border-[var(--surface-border)] bg-[var(--surface-raised)] text-[var(--text-primary)] transition-colors hover:border-[var(--brand)]"
-                >
-                  <Shield size={18} />
-                </a>
-              )}
-              <ThemeToggle />
-              <button
-                type="button"
-                onClick={() => supabase.auth.signOut()}
-                aria-label="Esci"
-                className="flex h-11 w-11 items-center justify-center rounded-full border border-[var(--surface-border)] bg-[var(--surface-raised)] text-[var(--text-primary)] transition-colors hover:border-[var(--brand)]"
-              >
-                <LogOut size={18} />
-              </button>
-            </>
-          ) : (
-            <>
-              <ThemeToggle />
-              <button
-                type="button"
-                onClick={onExitGuest}
-                className="flex items-center gap-2 rounded-full border border-[var(--surface-border)] bg-[var(--surface-raised)] px-4 py-2 text-sm font-semibold transition-colors hover:border-[var(--brand)]"
-              >
-                <LogIn size={16} />
-                Accedi
-              </button>
-            </>
-          )}
-        </div>
+        )}
       </header>
 
-      <main className="flex flex-1 flex-col gap-8 px-5 py-8">
+      <main className="flex flex-1 flex-col gap-8 px-4 py-6">
         {profile ? (
-          <section className="rounded-xl border border-[var(--surface-border)] bg-[var(--surface-raised)] p-4">
-            <p className="text-xs text-[var(--text-secondary)] uppercase">Livello attuale</p>
-            <p className="text-lg font-bold">{profile.livelloId}</p>
-            <p className="mt-1 text-sm text-[var(--text-secondary)]">
-              {profile.puntiLivello} punti livello · {profile.perfect38Count} campionati
-              perfetti 38-0-0
-            </p>
+          <section className="flex items-center gap-4 rounded-2xl border border-[var(--surface-border)] bg-[var(--surface-raised)] p-5">
+            <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-[var(--brand)] text-[var(--brand-contrast)]">
+              <Trophy size={24} />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-semibold tracking-wide text-[var(--text-secondary)] uppercase">
+                Livello attuale
+              </p>
+              <p className="truncate text-lg font-extrabold">{profile.livelloId}</p>
+              <p className="mt-0.5 text-sm text-[var(--text-secondary)]">
+                {profile.puntiLivello} punti · {profile.perfect38Count} campionati perfetti
+                38-0-0
+              </p>
+            </div>
           </section>
         ) : (
-          <section className="rounded-xl border border-dashed border-[var(--surface-border)] bg-[var(--surface-raised)] p-4">
-            <p className="text-sm font-semibold text-[var(--accent)]">Modalità ospite</p>
-            <p className="mt-1 text-sm text-[var(--text-secondary)]">
-              Stai giocando senza account: i risultati non verranno salvati. Accedi con Google
-              per sbloccare storico, livelli, classifiche e le sfide PvP.
-            </p>
+          <section className="flex items-start gap-3 rounded-2xl border border-dashed border-[var(--surface-border)] bg-[var(--surface-raised)] p-5">
+            <Sparkles size={20} className="mt-0.5 shrink-0 text-[var(--accent)]" />
+            <div>
+              <p className="text-sm font-semibold text-[var(--accent)]">Modalità ospite</p>
+              <p className="mt-1 text-sm text-[var(--text-secondary)]">
+                Stai giocando senza account: i risultati non verranno salvati. Accedi con
+                Google per sbloccare storico, livelli, classifiche e le sfide PvP.
+              </p>
+            </div>
           </section>
         )}
 
         <section>
-          <h2 className="mb-2 text-lg font-semibold">Moduli disponibili</h2>
+          <h2 className="mb-1 text-lg font-bold">Moduli disponibili</h2>
           <p className="mb-4 text-sm text-[var(--text-secondary)]">
             Libreria dei moduli piu' famosi del calcio a 11, selezionabile prima del draft.
           </p>
@@ -94,7 +74,7 @@ export function HomeScreen({ profile, onExitGuest }: HomeScreenProps) {
             {FORMATIONS.map((formation) => (
               <li
                 key={formation.id}
-                className="rounded-full border border-[var(--surface-border)] bg-[var(--surface-raised)] px-3 py-1 text-sm font-medium"
+                className="rounded-full border border-[var(--surface-border)] bg-[var(--surface-raised)] px-3 py-1.5 text-sm font-semibold"
               >
                 {formation.name}
               </li>
@@ -103,7 +83,7 @@ export function HomeScreen({ profile, onExitGuest }: HomeScreenProps) {
         </section>
       </main>
 
-      <footer className="border-t border-[var(--surface-border)] px-5 py-4 text-xs text-[var(--text-secondary)]">
+      <footer className="border-t border-[var(--surface-border)] px-4 py-4 text-xs text-[var(--text-secondary)]">
         Fantasy Manager è un gioco indipendente non affiliato, sponsorizzato o approvato da
         leghe, club o calciatori citati. I dati utilizzati hanno natura storica e statistica.
       </footer>

@@ -1,4 +1,4 @@
-import { CalendarCheck, ShieldCheck, LogOut, Trophy, Users } from "lucide-react";
+import { CalendarCheck, Gamepad2, ShieldCheck, LogOut, Trophy, Users } from "lucide-react";
 import type { ReactNode } from "react";
 import type { Profile } from "@app/shared-types";
 import { supabase } from "../lib/supabaseClient";
@@ -32,6 +32,14 @@ export function AdminLayout({ profile, section, onSectionChange, children }: Adm
           <p className="text-sm font-bold">{currentLabel}</p>
         </div>
         <div className="flex items-center gap-2">
+          <a
+            href="/"
+            aria-label="Torna al gioco"
+            title="Torna al gioco"
+            className="flex h-10 w-10 items-center justify-center rounded-full border border-[var(--surface-border)] text-[var(--text-primary)]"
+          >
+            <Gamepad2 size={16} />
+          </a>
           <ThemeToggle />
           <button
             type="button"
@@ -74,6 +82,13 @@ export function AdminLayout({ profile, section, onSectionChange, children }: Adm
 
         <div className="mt-6 border-t border-[var(--surface-border)] pt-4">
           <p className="mb-3 truncate text-sm font-semibold">{profile.nickname}</p>
+          <a
+            href="/"
+            className="mb-3 flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors hover:bg-[var(--surface-border)]"
+          >
+            <Gamepad2 size={17} />
+            Torna al gioco
+          </a>
           <div className="flex items-center gap-2">
             <ThemeToggle />
             <button
