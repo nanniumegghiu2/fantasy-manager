@@ -73,6 +73,14 @@ export interface TacticalCard {
 
 export type ChallengeType = "campionato" | "salvezza" | "mercato_gennaio";
 
+export interface PlayerStats {
+  appearances: number;
+  goals: number;
+  assists: number;
+  trophies: number;
+  caps: number;
+}
+
 export interface Profile {
   id: string;
   nickname: string;
