@@ -1,0 +1,19 @@
+{
+  "name": "@app/data-scripts",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "recompute": "tsx src/recompute.ts"
+  },
+  "dependencies": {
+    "@app/game-engine": "workspace:*",
+    "@app/shared-types": "workspace:*",
+    "pg": "^8.13.0"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.11.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  }
+}
