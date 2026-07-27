@@ -1,11 +1,15 @@
 import { useState } from "react";
-import { Copy, Plus } from "lucide-react";
+import { ChevronRight, Copy, Pencil, Plus } from "lucide-react";
 import type { League } from "@app/shared-types";
 import { useLeagues, type LeagueFormInput } from "../hooks/useLeagues";
 
 type FormState = { mode: "create"; initial: LeagueFormInput | null } | { mode: "edit"; league: League };
 
-export function LeaguesScreen() {
+interface LeaguesScreenProps {
+  onOpenClubs: (leagueId: string) => void;
+}
+
+export function LeaguesScreen({ onOpenClubs }: LeaguesScreenProps) {
   const { leagues, loading, createLeague, updateLeague } = useLeagues();
   const [formState, setFormState] = useState<FormState | null>(null);
 
@@ -38,8 +42,7 @@ export function LeaguesScreen() {
         <div>
           <h1 className="text-xl font-bold">Campionati</h1>
           <p className="text-sm text-[var(--text-secondary)]">
-            {leagues.length} campionati — i club vengono creati all'interno di un campionato
-            nella sezione "Club".
+            {leagues.length} campionati — tocca un campionato per vedere i suoi club.
           </p>
         </div>
         <button
@@ -66,16 +69,28 @@ export function LeaguesScreen() {
               ) : (
                 <div className="h-10 w-10 rounded-full bg-[var(--surface-border)]" />
               )}
-              <div className="flex-1">
-                <button
-                  type="button"
-                  onClick={() => setFormState({ mode: "edit", league })}
-                  className="text-left font-medium hover:underline"
-                >
-                  {league.name}
-                </button>
-                <p className="text-xs text-[var(--text-secondary)]">{league.nation}</p>
-              </div>
+              <button
+                type="button"
+                onClick={() => onOpenClubs(league.id)}
+                className="flex flex-1 items-center gap-2 text-left"
+              >
+                <span className="flex-1">
+                  <span className="block font-medium">{league.name}</span>
+                  <span className="block text-xs text-[var(--text-secondary)]">
+                    {league.nation}
+                  </span>
+                </span>
+                <ChevronRight size={16} className="shrink-0 text-[var(--text-secondary)]" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setFormState({ mode: "edit", league })}
+                aria-label="Modifica campionato"
+                title="Modifica"
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[var(--surface-border)] transition-colors hover:border-[var(--brand)]"
+              >
+                <Pencil size={14} />
+              </button>
               <button
                 type="button"
                 onClick={() =>
@@ -86,7 +101,7 @@ export function LeaguesScreen() {
                 }
                 aria-label="Duplica campionato"
                 title="Duplica"
-                className="flex h-8 w-8 items-center justify-center rounded-full border border-[var(--surface-border)] transition-colors hover:border-[var(--brand)]"
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[var(--surface-border)] transition-colors hover:border-[var(--brand)]"
               >
                 <Copy size={14} />
               </button>

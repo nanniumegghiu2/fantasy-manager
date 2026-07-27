@@ -8,12 +8,47 @@ import { ChallengesScreen } from "./screens/ChallengesScreen";
 
 export default function AdminApp({ profile }: { profile: Profile }) {
   const [section, setSection] = useState<AdminSection>("leagues");
+  const [leagueFilter, setLeagueFilter] = useState<string | null>(null);
+  const [clubFilter, setClubFilter] = useState<string | null>(null);
+
+  function handleNavChange(next: AdminSection) {
+    setLeagueFilter(null);
+    setClubFilter(null);
+    setSection(next);
+  }
 
   return (
-    <AdminLayout profile={profile} section={section} onSectionChange={setSection}>
-      {section === "leagues" && <LeaguesScreen />}
-      {section === "clubs" && <ClubsScreen />}
-      {section === "players" && <PlayersScreen />}
+    <AdminLayout profile={profile} section={section} onSectionChange={handleNavChange}>
+      {section === "leagues" && (
+        <LeaguesScreen
+          onOpenClubs={(leagueId) => {
+            setLeagueFilter(leagueId);
+            setSection("clubs");
+          }}
+        />
+      )}
+      {section === "clubs" && (
+        <ClubsScreen
+          leagueFilter={leagueFilter}
+          onBack={() => {
+            setLeagueFilter(null);
+            setSection("leagues");
+          }}
+          onOpenPlayers={(clubId) => {
+            setClubFilter(clubId);
+            setSection("players");
+          }}
+        />
+      )}
+      {section === "players" && (
+        <PlayersScreen
+          clubFilter={clubFilter}
+          onBack={() => {
+            setClubFilter(null);
+            setSection("clubs");
+          }}
+        />
+      )}
       {section === "challenges" && <ChallengesScreen />}
     </AdminLayout>
   );

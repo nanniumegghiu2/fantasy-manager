@@ -21,6 +21,7 @@ interface PlayerFormProps {
   existingPlayers: AdminPlayer[];
   editingPlayer: AdminPlayer | null;
   prefill: PlayerFormPrefill | null;
+  defaultClubId?: string;
   onCancel: () => void;
   onSubmit: (input: PlayerFormInput) => Promise<void>;
 }
@@ -30,13 +31,14 @@ export function PlayerForm({
   existingPlayers,
   editingPlayer,
   prefill,
+  defaultClubId,
   onCancel,
   onSubmit,
 }: PlayerFormProps) {
   const base = editingPlayer ?? prefill;
   const [name, setName] = useState(base?.name ?? "");
   const [department, setDepartment] = useState<Department>(base?.department ?? "ATT");
-  const [clubId, setClubId] = useState(base?.clubId ?? clubs[0]?.id ?? "");
+  const [clubId, setClubId] = useState(base?.clubId ?? defaultClubId ?? clubs[0]?.id ?? "");
   const [nation, setNation] = useState(base?.nation ?? "");
   const [marketValue, setMarketValue] = useState(base?.marketValue ?? 0);
   const [appearances, setAppearances] = useState(base?.stats.appearances ?? 0);

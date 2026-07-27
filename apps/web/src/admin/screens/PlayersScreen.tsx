@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
-import { Copy, Plus, Search } from "lucide-react";
+import { ArrowLeft, ArrowUpDown, ChevronDown, ChevronUp, Copy, Plus, Search } from "lucide-react";
+import type { Department } from "@app/shared-types";
 import { usePlayers, type AdminPlayer } from "../hooks/usePlayers";
 import { useClubs } from "../hooks/useClubs";
 import { PlayerForm, type PlayerFormPrefill } from "./PlayerForm";
@@ -7,6 +8,20 @@ import { PlayerForm, type PlayerFormPrefill } from "./PlayerForm";
 type FormState =
   | { mode: "create"; prefill: PlayerFormPrefill | null }
   | { mode: "edit"; player: AdminPlayer };
+
+type SortKey = "name" | "clubName" | "leagueName" | "era" | "department" | "overall";
+type SortDirection = "asc" | "desc";
+
+const SORT_LABELS: Record<SortKey, string> = {
+  name: "Nome",
+  clubName: "Club",
+  leagueName: "Campionato",
+  era: "Epoca",
+  department: "Reparto",
+  overall: "Overall",
+};
+
+const DEPARTMENT_ORDER: Record<Department, number> = { POR: 0, DIF: 1, CC: 2, ATT: 3 };
 
 function toPrefill(player: AdminPlayer): PlayerFormPrefill {
   return {
@@ -20,19 +35,47 @@ function toPrefill(player: AdminPlayer): PlayerFormPrefill {
   };
 }
 
-export function PlayersScreen() {
+function compareBy(key: SortKey, a: AdminPlayer, b: AdminPlayer): number {
+  if (key === "overall") return a.overall - b.overall;
+  if (key === "department") return DEPARTMENT_ORDER[a.department] - DEPARTMENT_ORDER[b.department];
+  return a[key].localeCompare(b[key]);
+}
+
+interface PlayersScreenProps {
+  clubFilter?: string | null;
+  onBack?: () => void;
+}
+
+export function PlayersScreen({ clubFilter, onBack }: PlayersScreenProps) {
   const { players, loading, createPlayer, updatePlayer } = usePlayers();
   const { clubs, loading: clubsLoading } = useClubs();
   const [query, setQuery] = useState("");
   const [formState, setFormState] = useState<FormState | null>(null);
+  const [sortKey, setSortKey] = useState<SortKey>("name");
+  const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
+
+  const activeClub = clubFilter ? clubs.find((c) => c.id === clubFilter) : null;
+
+  function toggleSort(key: SortKey) {
+    if (key === sortKey) {
+      setSortDirection((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(key);
+      setSortDirection("asc");
+    }
+  }
 
   const filtered = useMemo(() => {
+    let list = clubFilter ? players.filter((p) => p.clubId === clubFilter) : players;
     const q = query.trim().toLowerCase();
-    if (!q) return players;
-    return players.filter(
-      (p) => p.name.toLowerCase().includes(q) || p.clubName.toLowerCase().includes(q),
-    );
-  }, [players, query]);
+    if (q) {
+      list = list.filter(
+        (p) => p.name.toLowerCase().includes(q) || p.clubName.toLowerCase().includes(q),
+      );
+    }
+    const sign = sortDirection === "asc" ? 1 : -1;
+    return [...list].sort((a, b) => sign * compareBy(sortKey, a, b));
+  }, [players, clubFilter, query, sortKey, sortDirection]);
 
   if (formState) {
     if (clubsLoading || clubs.length === 0) {
@@ -49,6 +92,7 @@ export function PlayersScreen() {
         existingPlayers={players}
         editingPlayer={editing}
         prefill={formState.mode === "create" ? formState.prefill : null}
+        defaultClubId={clubFilter ?? undefined}
         onCancel={() => setFormState(null)}
         onSubmit={async (input) => {
           if (editing) await updatePlayer(editing.id, input);
@@ -61,10 +105,23 @@ export function PlayersScreen() {
 
   return (
     <div>
+      {activeClub && (
+        <button
+          type="button"
+          onClick={onBack}
+          className="mb-3 flex items-center gap-1 text-sm font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+        >
+          <ArrowLeft size={14} />
+          Tutti i club
+        </button>
+      )}
+
       <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-xl font-bold">Giocatori</h1>
-          <p className="text-sm text-[var(--text-secondary)]">{players.length} nel pool</p>
+          <h1 className="text-xl font-bold">
+            {activeClub ? `Giocatori — ${activeClub.name}` : "Giocatori"}
+          </h1>
+          <p className="text-sm text-[var(--text-secondary)]">{filtered.length} nel pool</p>
         </div>
         <button
           type="button"
@@ -76,17 +133,43 @@ export function PlayersScreen() {
         </button>
       </div>
 
-      <div className="relative mb-4 sm:max-w-sm">
-        <Search
-          size={16}
-          className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-[var(--text-secondary)]"
-        />
-        <input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Cerca per nome o club..."
-          className="w-full rounded-lg border border-[var(--surface-border)] bg-[var(--surface-raised)] py-2 pr-3 pl-9 text-sm outline-none focus:border-[var(--brand)]"
-        />
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center">
+        <div className="relative sm:max-w-sm sm:flex-1">
+          <Search
+            size={16}
+            className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-[var(--text-secondary)]"
+          />
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Cerca per nome o club..."
+            className="w-full rounded-lg border border-[var(--surface-border)] bg-[var(--surface-raised)] py-2 pr-3 pl-9 text-sm outline-none focus:border-[var(--brand)]"
+          />
+        </div>
+
+        {/* Selettore ordinamento, mobile (le intestazioni di colonna non sono visibili sotto md) */}
+        <div className="flex items-center gap-2 md:hidden">
+          <ArrowUpDown size={15} className="shrink-0 text-[var(--text-secondary)]" />
+          <select
+            value={sortKey}
+            onChange={(e) => setSortKey(e.target.value as SortKey)}
+            className="flex-1 rounded-lg border border-[var(--surface-border)] bg-[var(--surface-raised)] px-3 py-2 text-sm"
+          >
+            {Object.entries(SORT_LABELS).map(([key, label]) => (
+              <option key={key} value={key}>
+                Ordina per {label}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            onClick={() => setSortDirection((d) => (d === "asc" ? "desc" : "asc"))}
+            aria-label="Inverti ordinamento"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-[var(--surface-border)]"
+          >
+            {sortDirection === "asc" ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
+          </button>
+        </div>
       </div>
 
       {loading ? (
@@ -142,12 +225,23 @@ export function PlayersScreen() {
             <table className="w-full text-left text-sm">
               <thead className="bg-[var(--surface-raised)] text-xs text-[var(--text-secondary)] uppercase">
                 <tr>
-                  <th className="px-4 py-3">Nome</th>
-                  <th className="px-4 py-3">Club</th>
-                  <th className="px-4 py-3">Campionato</th>
-                  <th className="px-4 py-3">Epoca</th>
-                  <th className="px-4 py-3">Reparto</th>
-                  <th className="px-4 py-3">Overall</th>
+                  {(Object.keys(SORT_LABELS) as SortKey[]).map((key) => (
+                    <th key={key} className="px-4 py-3">
+                      <button
+                        type="button"
+                        onClick={() => toggleSort(key)}
+                        className="flex items-center gap-1 hover:text-[var(--text-primary)]"
+                      >
+                        {SORT_LABELS[key]}
+                        {sortKey === key &&
+                          (sortDirection === "asc" ? (
+                            <ChevronUp size={13} />
+                          ) : (
+                            <ChevronDown size={13} />
+                          ))}
+                      </button>
+                    </th>
+                  ))}
                   <th className="px-4 py-3"></th>
                 </tr>
               </thead>
