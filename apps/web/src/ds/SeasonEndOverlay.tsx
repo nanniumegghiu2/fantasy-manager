@@ -1,0 +1,243 @@
+import { motion } from "framer-motion";
+import { Crown, Handshake, Home, MessagesSquare, Smile, Target, TrendingDown, Trophy, Wallet } from "lucide-react";
+import type { CareerState, SeasonSummary } from "@app/game-engine";
+import { CUP_STAGE_LABEL, euro, ordinale } from "./format";
+import { CelebrationConfetti } from "./CelebrationConfetti";
+
+/**
+ * Fine stagione (e fine carriera).
+ *
+ * Il verdetto è **commentato**, non solo numerico: dopo trentotto giornate l'utente vuole
+ * sapere se è andata bene, e "7º posto" da solo non lo dice — dipende da dove si era partiti.
+ * La retrocessione chiude la carriera, quindi ha un trattamento suo: non è una stagione storta,
+ * è la fine della partita.
+ */
+
+function verdetto(summary: SeasonSummary, teamsInLeague: number) {
+  if (summary.position === 1) {
+    return { titolo: "Campione", tono: "#f5c518", icona: Trophy };
+  }
+  if (summary.position > teamsInLeague - 3) {
+    return { titolo: "Retrocessione", tono: "#ff4d4d", icona: TrendingDown };
+  }
+  if (summary.position <= 4) {
+    return { titolo: "In Europa", tono: "#3ddc6b", icona: Crown };
+  }
+  if (summary.position <= 8) {
+    return { titolo: "Stagione solida", tono: "#8fd4a4", icona: Trophy };
+  }
+  return { titolo: "Salvezza tranquilla", tono: "#ffab2e", icona: Trophy };
+}
+
+interface SeasonEndOverlayProps {
+  state: CareerState;
+  summary: SeasonSummary;
+  teamsInLeague: number;
+  onContinue: () => void;
+  onExit: () => void;
+}
+
+export function SeasonEndOverlay({
+  state,
+  summary,
+  teamsInLeague,
+  onContinue,
+  onExit,
+}: SeasonEndOverlayProps) {
+  const { titolo, tono, icona: Icona } = verdetto(summary, teamsInLeague);
+  const finita = state.phase === "conclusa";
+  const vintaCoppa = summary.cupOutcome === "vittoria";
+  const vintoCampionato = summary.position === 1;
+  const festeggia = vintoCampionato || vintaCoppa;
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 z-40 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
+    >
+      {festeggia && <CelebrationConfetti />}
+
+      <motion.div
+        initial={{ scale: 0.85, y: 24, opacity: 0 }}
+        animate={{ scale: 1, y: 0, opacity: 1 }}
+        transition={{ type: "spring", stiffness: 300, damping: 24 }}
+        className={`relative z-10 w-full max-w-sm overflow-hidden rounded-3xl border ${
+          festeggia
+            ? "border-[#f5c518] shadow-[0_0_50px_rgba(245,197,24,0.35)]"
+            : "border-[var(--surface-border)]"
+        } bg-[var(--surface)]`}
+      >
+        <div
+          className="relative flex flex-col items-center gap-2 overflow-hidden px-6 py-7 text-center"
+          style={{ backgroundColor: `${tono}18` }}
+        >
+          {festeggia && (
+            <motion.div
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="mb-1 rounded-full bg-gradient-to-r from-[#f5c518] via-[#ffe066] to-[#f5c518] px-3.5 py-1 text-[11px] font-black tracking-widest text-black shadow-md uppercase"
+            >
+              {vintoCampionato && vintaCoppa
+                ? "👑🏆 DOPPIETTA STORICA!"
+                : vintoCampionato
+                  ? "🏆 CAMPIONI D'ITALIA!"
+                  : "👑 VINCITORI DELLA CORONA!"}
+            </motion.div>
+          )}
+
+          <motion.span
+            initial={{ scale: 0.4, rotate: -12 }}
+            animate={{ scale: [0.4, 1.2, 1], rotate: [ -12, 6, 0] }}
+            transition={{ type: "spring", stiffness: 380, damping: 16, delay: 0.12 }}
+            className="flex h-16 w-16 items-center justify-center rounded-full shadow-lg"
+            style={{ backgroundColor: `${tono}28`, color: tono }}
+          >
+            <Icona size={34} />
+          </motion.span>
+          <p className="text-[11px] font-bold tracking-widest text-[var(--text-secondary)] uppercase">
+            Stagione {summary.season}
+          </p>
+          <h2 className="text-2xl leading-tight font-extrabold" style={{ color: tono }}>
+            {titolo}
+          </h2>
+          <p className="text-sm font-semibold">
+            {ordinale(summary.position)} posto · {summary.points} punti
+          </p>
+          {summary.cupOutcome && (
+            <p className="flex items-center gap-1.5 text-xs font-semibold text-[#c9a10b]">
+              <Crown size={13} />
+              {vintaCoppa
+                ? "Corona Continentale vinta"
+                : `Corona: ${CUP_STAGE_LABEL[summary.cupOutcome] ?? summary.cupOutcome}`}
+            </p>
+          )}
+        </div>
+
+        <div className="grid grid-cols-3 divide-x divide-[var(--surface-border)] border-y border-[var(--surface-border)]">
+          <Numero label="Fatti" value={summary.goalsFor} />
+          <Numero label="Subiti" value={summary.goalsAgainst} />
+          <Numero
+            label="Differenza"
+            value={
+              summary.goalsFor - summary.goalsAgainst > 0
+                ? `+${summary.goalsFor - summary.goalsAgainst}`
+                : `${summary.goalsFor - summary.goalsAgainst}`
+            }
+          />
+        </div>
+
+        {/* Il resoconto completo: da qui si riparte per la stagione nuova, non solo il
+            risultato sportivo — obiettivo, umore dello spogliatoio, mercato, rapporto col
+            mister. */}
+        <div className="flex flex-col gap-2 px-4 py-3 text-xs">
+          {summary.objective && (
+            <div
+              className="flex items-center gap-2.5 rounded-xl border p-2.5"
+              style={{
+                borderColor: summary.objective.met ? "#3ddc6b40" : "#ff8a3d40",
+                backgroundColor: summary.objective.met ? "#3ddc6b12" : "#ff8a3d12",
+              }}
+            >
+              <Target size={15} className="shrink-0" style={{ color: summary.objective.met ? "#2a9b4d" : "#c96a1f" }} />
+              <span className="flex-1">
+                Obiettivo <strong>{summary.objective.label}</strong> (entro la {summary.objective.targetPosition}ª)
+              </span>
+              <span className="font-extrabold" style={{ color: summary.objective.met ? "#2a9b4d" : "#c96a1f" }}>
+                {summary.objective.met ? "Raggiunto" : "Mancato"}
+              </span>
+            </div>
+          )}
+
+          <div className="grid grid-cols-2 gap-2">
+            <div className="flex items-center gap-2 rounded-xl border border-[var(--surface-border)] p-2.5">
+              <Smile size={15} className="shrink-0 text-[var(--text-secondary)]" />
+              <span>
+                Morale medio <strong className="tabular-nums">{summary.avgMorale}</strong>
+                {summary.unhappyCount > 0 && (
+                  <span className="text-[var(--text-secondary)]"> · {summary.unhappyCount} scontenti</span>
+                )}
+              </span>
+            </div>
+            <div className="flex items-center gap-2 rounded-xl border border-[var(--surface-border)] p-2.5">
+              <Wallet size={15} className="shrink-0 text-[var(--text-secondary)]" />
+              <span>
+                Saldo mercato{" "}
+                <strong className="tabular-nums" style={{ color: summary.netBudget >= 0 ? "#2a9b4d" : "#c96a1f" }}>
+                  {summary.netBudget >= 0 ? "+" : "-"}
+                  {euro(Math.abs(summary.netBudget))}
+                </strong>
+              </span>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 rounded-xl border border-[var(--surface-border)] p-2.5">
+            <Handshake size={15} className="shrink-0 text-[var(--text-secondary)]" />
+            <span>
+              Sintonia col mister{" "}
+              <strong style={{ color: summary.coachHarmonyDelta >= 0 ? "#2a9b4d" : "#c96a1f" }}>
+                {summary.coachHarmonyDelta >= 0 ? "+" : ""}
+                {summary.coachHarmonyDelta}
+              </strong>{" "}
+              in stagione
+            </span>
+          </div>
+
+          {summary.standoffQueue.length > 0 && (
+            <div className="flex items-start gap-2 rounded-xl border border-[#ff4d4d]/30 bg-[#ff4d4d]/5 p-2.5">
+              <MessagesSquare size={15} className="mt-0.5 shrink-0 text-[#ff4d4d]" />
+              <span>
+                {summary.standoffQueue.length === 1
+                  ? `${summary.standoffQueue[0]!.name} vuole ancora andarsene.`
+                  : `${summary.standoffQueue.length} giocatori vogliono ancora andarsene: ${summary.standoffQueue
+                      .slice(0, 3)
+                      .map((s) => s.name)
+                      .join(", ")}${summary.standoffQueue.length > 3 ? "…" : ""}`}
+              </span>
+            </div>
+          )}
+        </div>
+
+        {finita && (
+          <p className="px-6 pt-4 text-center text-sm leading-relaxed text-[var(--text-secondary)]">
+            {state.ending === "retrocessione"
+              ? "La retrocessione chiude la carriera: la società ha scelto un'altra strada."
+              : `Dieci stagioni completate. ${state.history.filter((h) => h.position === 1).length} titoli in bacheca.`}
+          </p>
+        )}
+
+        <div className="flex flex-col gap-2 p-4">
+          {!finita && (
+            <button
+              type="button"
+              onClick={onContinue}
+              className="w-full rounded-2xl bg-[var(--brand)] py-3.5 text-sm font-extrabold text-[var(--brand-contrast)] transition-transform active:scale-[0.98]"
+            >
+              Vai al mercato estivo
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={onExit}
+            className="flex w-full items-center justify-center gap-2 rounded-2xl border border-[var(--surface-border)] py-3 text-sm font-bold"
+          >
+            <Home size={15} />
+            {finita ? "Torna alla home" : "Riprendi più tardi"}
+          </button>
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+}
+
+function Numero({ label, value }: { label: string; value: number | string }) {
+  return (
+    <div className="px-2 py-3 text-center">
+      <p className="text-lg leading-none font-extrabold tabular-nums">{value}</p>
+      <p className="mt-1 text-[10px] font-semibold tracking-wide text-[var(--text-secondary)] uppercase">
+        {label}
+      </p>
+    </div>
+  );
+}

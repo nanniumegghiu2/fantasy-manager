@@ -12,6 +12,8 @@ function makePlayer(overrides: Partial<Player>): Player {
     era: "1990s",
     nation: "Italia",
     league: "Serie A",
+    role: "CC",
+    secondaryRoles: [],
     department: "CC",
     ...overrides,
   };

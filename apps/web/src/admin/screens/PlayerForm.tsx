@@ -1,14 +1,14 @@
 import { useMemo, useState } from "react";
 import { computeOverallRatings } from "@app/game-engine";
-import type { Department } from "@app/shared-types";
+import { ROLES, ROLE_DEPARTMENT, ROLE_LABELS } from "@app/shared-types";
+import type { Role } from "@app/shared-types";
 import type { AdminClub } from "../hooks/useClubs";
 import type { AdminPlayer, PlayerFormInput } from "../hooks/usePlayers";
 
-const DEPARTMENTS: Department[] = ["POR", "DIF", "CC", "ATT"];
-
 export interface PlayerFormPrefill {
   name: string;
-  department: Department;
+  role: Role;
+  secondaryRoles: Role[];
   clubId: string;
   nation: string;
   marketValue: number;
@@ -37,7 +37,8 @@ export function PlayerForm({
 }: PlayerFormProps) {
   const base = editingPlayer ?? prefill;
   const [name, setName] = useState(base?.name ?? "");
-  const [department, setDepartment] = useState<Department>(base?.department ?? "ATT");
+  const [role, setRole] = useState<Role>(base?.role ?? "ATT");
+  const [secondaryRoles, setSecondaryRoles] = useState<Role[]>(base?.secondaryRoles ?? []);
   const [clubId, setClubId] = useState(base?.clubId ?? defaultClubId ?? clubs[0]?.id ?? "");
   const [nation, setNation] = useState(base?.nation ?? "");
   const [marketValue, setMarketValue] = useState(base?.marketValue ?? 0);
@@ -50,6 +51,8 @@ export function PlayerForm({
   const [overrideValue, setOverrideValue] = useState(base?.overallOverride ?? 75);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const department = ROLE_DEPARTMENT[role];
 
   const computedOverall = useMemo(() => {
     const candidateId = editingPlayer?.id ?? "__candidate__";
@@ -82,7 +85,8 @@ export function PlayerForm({
     try {
       await onSubmit({
         name: name.trim(),
-        department,
+        role,
+        secondaryRoles,
         clubId,
         nation: nation.trim(),
         marketValue,
@@ -114,19 +118,53 @@ export function PlayerForm({
         </label>
 
         <label className="flex flex-col gap-1 text-sm font-medium">
-          Reparto
+          Ruolo principale
           <select
-            value={department}
-            onChange={(e) => setDepartment(e.target.value as Department)}
+            value={role}
+            onChange={(e) => {
+              const next = e.target.value as Role;
+              setRole(next);
+              setSecondaryRoles((prev) => prev.filter((r) => r !== next));
+            }}
             className="rounded-lg border border-[var(--surface-border)] bg-[var(--surface)] px-3 py-2"
           >
-            {DEPARTMENTS.map((d) => (
-              <option key={d} value={d}>
-                {d}
+            {ROLES.map((r) => (
+              <option key={r} value={r}>
+                {ROLE_LABELS[r]}
               </option>
             ))}
           </select>
+          <span className="text-xs font-normal text-[var(--text-secondary)]">
+            Reparto: {department}
+          </span>
         </label>
+
+        <div className="col-span-2 flex flex-col gap-1 text-sm font-medium">
+          Ruoli secondari (altre caselle in cui può giocare, senza penalità sull&apos;Overall)
+          <div className="flex flex-wrap gap-2">
+            {ROLES.filter((r) => r !== role).map((r) => {
+              const active = secondaryRoles.includes(r);
+              return (
+                <button
+                  key={r}
+                  type="button"
+                  onClick={() =>
+                    setSecondaryRoles((prev) =>
+                      active ? prev.filter((x) => x !== r) : [...prev, r],
+                    )
+                  }
+                  className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors ${
+                    active
+                      ? "border-[var(--brand)] bg-[var(--brand)] text-[var(--brand-contrast)]"
+                      : "border-[var(--surface-border)] text-[var(--text-secondary)] hover:border-[var(--brand)]"
+                  }`}
+                >
+                  {ROLE_LABELS[r]}
+                </button>
+              );
+            })}
+          </div>
+        </div>
 
         <label className="col-span-2 flex flex-col gap-1 text-sm font-medium">
           Club (definisce campionato ed epoca del giocatore)

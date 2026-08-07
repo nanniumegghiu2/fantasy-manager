@@ -12,6 +12,8 @@ function makePlayer(overall: number): Player {
     era: "1990s",
     nation: "Italia",
     league: "Serie A",
+    role: "ATT",
+    secondaryRoles: [],
     department: "ATT",
   };
 }

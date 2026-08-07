@@ -4,12 +4,25 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "recompute": "tsx src/recompute.ts"
+    "recompute": "tsx src/recompute.ts",
+    "remap-roles-to-board": "tsx src/remapRolesToBoard.ts",
+    "merge-ad-as-into-att": "tsx src/mergeAdAsIntoAtt.ts",
+    "import-roles": "tsx src/importRolesFromSheet.ts",
+    "apply-editorial": "tsx src/applyEditorialOveralls.ts",
+    "prune-roles": "tsx src/pruneAndNormalizeRoles.ts",
+    "import-big5": "tsx src/importBig5Leagues.ts",
+    "apply-editorial-big5": "tsx src/applyEditorialBig5.ts",
+    "calibrate": "tsx src/calibratePerfectSeason.ts",
+    "calibrate-difficolta": "tsx src/calibrateDifficulty.ts",
+    "import-birthdates": "tsx src/importBirthDates.ts",
+    "calibrate-piccola": "tsx src/calibrateSmallClub.ts",
+    "probe-coppa": "tsx src/probeCup.ts"
   },
   "dependencies": {
     "@app/game-engine": "workspace:*",
     "@app/shared-types": "workspace:*",
-    "pg": "^8.13.0"
+    "pg": "^8.13.0",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@types/pg": "^8.11.0",

@@ -10,3 +10,8 @@ Password.txt
 !.vscode/extensions.json
 supabase/.branches
 supabase/.temp
+
+# Dataset di terzi mai usato come fonte (sez. 2 CLAUDE.md) e file di lavoro locale:
+# non vanno redistribuiti in un repository pubblico/privato condiviso.
+Database.xlsx
+Cartel1.xlsx

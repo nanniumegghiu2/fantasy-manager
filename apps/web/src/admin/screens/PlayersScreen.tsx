@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { ArrowLeft, ArrowUpDown, ChevronDown, ChevronUp, Copy, Plus, Search } from "lucide-react";
-import type { Department } from "@app/shared-types";
+import { ROLE_LABELS, ROLES } from "@app/shared-types";
+import type { Role } from "@app/shared-types";
 import { usePlayers, type AdminPlayer } from "../hooks/usePlayers";
 import { useClubs } from "../hooks/useClubs";
 import { PlayerForm, type PlayerFormPrefill } from "./PlayerForm";
@@ -9,7 +10,7 @@ type FormState =
   | { mode: "create"; prefill: PlayerFormPrefill | null }
   | { mode: "edit"; player: AdminPlayer };
 
-type SortKey = "name" | "clubName" | "leagueName" | "era" | "department" | "overall";
+type SortKey = "name" | "clubName" | "leagueName" | "era" | "role" | "overall";
 type SortDirection = "asc" | "desc";
 
 const SORT_LABELS: Record<SortKey, string> = {
@@ -17,16 +18,19 @@ const SORT_LABELS: Record<SortKey, string> = {
   clubName: "Club",
   leagueName: "Campionato",
   era: "Epoca",
-  department: "Reparto",
+  role: "Ruolo",
   overall: "Overall",
 };
 
-const DEPARTMENT_ORDER: Record<Department, number> = { POR: 0, DIF: 1, CC: 2, ATT: 3 };
+const ROLE_ORDER: Record<Role, number> = Object.fromEntries(
+  ROLES.map((r, i) => [r, i]),
+) as Record<Role, number>;
 
 function toPrefill(player: AdminPlayer): PlayerFormPrefill {
   return {
     name: player.name,
-    department: player.department,
+    role: player.role,
+    secondaryRoles: player.secondaryRoles,
     clubId: player.clubId,
     nation: player.nation,
     marketValue: player.marketValue,
@@ -37,7 +41,7 @@ function toPrefill(player: AdminPlayer): PlayerFormPrefill {
 
 function compareBy(key: SortKey, a: AdminPlayer, b: AdminPlayer): number {
   if (key === "overall") return a.overall - b.overall;
-  if (key === "department") return DEPARTMENT_ORDER[a.department] - DEPARTMENT_ORDER[b.department];
+  if (key === "role") return ROLE_ORDER[a.role] - ROLE_ORDER[b.role];
   return a[key].localeCompare(b[key]);
 }
 
@@ -194,7 +198,7 @@ export function PlayersScreen({ clubFilter, onBack }: PlayersScreenProps) {
                       {player.clubName} · {player.leagueName} {player.era}
                     </p>
                     <p className="mt-1 text-xs text-[var(--text-secondary)]">
-                      {player.department}
+                      {ROLE_LABELS[player.role]}
                     </p>
                   </button>
                   <div className="flex flex-col items-end gap-2">
@@ -262,7 +266,9 @@ export function PlayersScreen({ clubFilter, onBack }: PlayersScreenProps) {
                       {player.leagueName}
                     </td>
                     <td className="px-4 py-3 text-[var(--text-secondary)]">{player.era}</td>
-                    <td className="px-4 py-3">{player.department}</td>
+                    <td className="px-4 py-3">
+                      {ROLE_LABELS[player.role]}
+                    </td>
                     <td className="px-4 py-3 font-bold">
                       {player.overall}
                       {player.overallOverride != null && (

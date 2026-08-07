@@ -1,10 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
-import type { Department, PlayerStats } from "@app/shared-types";
+import { ROLE_DEPARTMENT } from "@app/shared-types";
+import type { Department, PlayerStats, Role } from "@app/shared-types";
+import { fetchAllRows } from "../../lib/fetchAllRows";
 import { supabase } from "../../lib/supabaseClient";
 
 export interface AdminPlayer {
   id: string;
   name: string;
+  role: Role;
+  secondaryRoles: Role[];
   department: Department;
   clubId: string;
   clubName: string;
@@ -15,11 +19,14 @@ export interface AdminPlayer {
   stats: PlayerStats;
   overall: number;
   overallOverride: number | null;
+  /** Data di nascita: dato fattuale, sola lettura nel pannello (si popola con `pnpm import-birthdates`). */
+  birthDate: string | null;
 }
 
 export interface PlayerFormInput {
   name: string;
-  department: Department;
+  role: Role;
+  secondaryRoles: Role[];
   clubId: string;
   nation: string;
   marketValue: number;
@@ -31,7 +38,8 @@ export interface PlayerFormInput {
 interface PlayerRow {
   id: string;
   name: string;
-  department: Department;
+  role: Role;
+  secondary_roles: Role[];
   club_id: string;
   nation: string;
   market_value: number;
@@ -42,6 +50,7 @@ interface PlayerRow {
   caps: number;
   overall: number;
   overall_override: number | null;
+  birth_date: string | null;
   clubs: { name: string; era: string; leagues: { name: string } | null } | null;
 }
 
@@ -49,7 +58,9 @@ function fromRow(row: PlayerRow): AdminPlayer {
   return {
     id: row.id,
     name: row.name,
-    department: row.department,
+    role: row.role,
+    secondaryRoles: row.secondary_roles ?? [],
+    department: ROLE_DEPARTMENT[row.role],
     clubId: row.club_id,
     clubName: row.clubs?.name ?? "—",
     era: row.clubs?.era ?? "—",
@@ -65,6 +76,7 @@ function fromRow(row: PlayerRow): AdminPlayer {
     },
     overall: row.overall,
     overallOverride: row.overall_override,
+    birthDate: row.birth_date,
   };
 }
 
@@ -74,12 +86,22 @@ export function usePlayers() {
 
   const refetch = useCallback(async () => {
     setLoading(true);
-    const { data, error } = await supabase
-      .from("player_pool")
-      .select("*, clubs(name, era, leagues(name))")
-      .order("name")
-      .returns<PlayerRow[]>();
-    if (!error) setPlayers((data ?? []).map(fromRow));
+    try {
+      // Paginato per lo stesso motivo del pool di gioco: oltre le 1000 righe il server
+      // tronca senza dirlo, e il pannello mostrerebbe una frazione del database.
+      const data = await fetchAllRows<PlayerRow>((from, to) =>
+        supabase
+          .from("player_pool")
+          .select("*, clubs(name, era, leagues(name))")
+          .order("name")
+          .order("id")
+          .range(from, to)
+          .returns<PlayerRow[]>(),
+      );
+      setPlayers(data.map(fromRow));
+    } catch {
+      // La lista resta quella precedente: meglio dati vecchi che una lista tronca.
+    }
     setLoading(false);
   }, []);
 
@@ -90,7 +112,8 @@ export function usePlayers() {
   async function createPlayer(input: PlayerFormInput) {
     const { error } = await supabase.from("player_pool").insert({
       name: input.name,
-      department: input.department,
+      role: input.role,
+      secondary_roles: input.secondaryRoles,
       club_id: input.clubId,
       nation: input.nation,
       market_value: input.marketValue,
@@ -111,7 +134,8 @@ export function usePlayers() {
       .from("player_pool")
       .update({
         name: input.name,
-        department: input.department,
+        role: input.role,
+        secondary_roles: input.secondaryRoles,
         club_id: input.clubId,
         nation: input.nation,
         market_value: input.marketValue,
