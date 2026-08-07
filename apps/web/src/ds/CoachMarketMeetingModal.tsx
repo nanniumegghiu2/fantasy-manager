@@ -15,6 +15,8 @@ import {
 import { getFormation, type Coach, type CoachPromise, type RosterEntry, type SessionDeal } from "@app/game-engine";
 import { ROLE_LABELS, type Role } from "@app/shared-types";
 import { NationFlag } from "../classic/NationFlag";
+import { Pitch, PitchDot } from "../classic/Pitch";
+import { getSlotPosition } from "../classic/pitchLayouts";
 import { euro } from "./format";
 
 interface CoachMarketMeetingModalProps {
@@ -274,63 +276,100 @@ export function CoachMarketMeetingModal({
               </div>
 
               <p className="text-xs text-[var(--text-secondary)]">
-                Imponi al mister la titolarità fissa in una casella del suo modulo. Se acconsente,
-                il giocatore scelto sarà schierato titolare in quel ruolo.
+                Tocca una casella del modulo, poi il nome in rosa: se il mister acconsente, sarà
+                lui il titolare fisso lì. Un giocatore può essere garantito in un solo ruolo alla
+                volta — sceglierne un altro sposta la garanzia, non la aggiunge.
               </p>
 
-              <div className="flex flex-col sm:flex-row items-center gap-2.5 mt-1">
-                <select
-                  value={selectedRole}
-                  onChange={(e) => {
-                    const ruolo = e.target.value as Role;
-                    setSelectedRole(ruolo);
-                    const primoIdoneo = roster.find((r) => {
-                      const p = players[r.playerId];
-                      return p && (p.role === ruolo || (p.secondaryRoles ?? []).includes(ruolo));
-                    });
-                    setSelectedPlayerId(primoIdoneo?.playerId ?? "");
-                    setDsDemandResponse(null);
-                  }}
-                  className="w-full sm:w-40 shrink-0 rounded-xl border border-[var(--surface-border)] bg-[var(--surface-raised)] px-3 py-2 text-xs font-bold text-[var(--text-primary)] focus:outline-none focus:border-[var(--brand)]"
-                >
-                  {ruoliModulo.map((r) => (
-                    <option key={r} value={r}>
-                      {ROLE_LABELS[r]}
-                    </option>
-                  ))}
-                </select>
+              {formation && (
+                <div className="mx-auto w-full max-w-[280px]">
+                  <Pitch>
+                    {formation.slots.map((slot) => {
+                      const { x, y } = getSlotPosition(formation, slot);
+                      const garantitoId = guaranteedStarters[slot.role];
+                      const garantito = garantitoId ? players[garantitoId] : undefined;
+                      const garantitoEntry = garantitoId ? roster.find((r) => r.playerId === garantitoId) : undefined;
+                      return (
+                        <PitchDot
+                          key={slot.id}
+                          x={x}
+                          y={y}
+                          label={ROLE_LABELS[slot.role]}
+                          shortLabel={slot.role}
+                          playerName={garantito?.name}
+                          overall={garantitoEntry?.overall}
+                          nation={garantito?.nation}
+                          state={selectedRole === slot.role ? "lit" : garantitoId ? "filled" : "empty"}
+                          guaranteed={!!garantitoId}
+                          onClick={() => {
+                            setSelectedRole(slot.role);
+                            const primoIdoneo = roster.find((r) => {
+                              const p = players[r.playerId];
+                              return p && (p.role === slot.role || (p.secondaryRoles ?? []).includes(slot.role));
+                            });
+                            setSelectedPlayerId(primoIdoneo?.playerId ?? "");
+                            setDsDemandResponse(null);
+                          }}
+                        />
+                      );
+                    })}
+                  </Pitch>
+                </div>
+              )}
 
-                <select
-                  value={selectedPlayerId}
-                  onChange={(e) => {
-                    setSelectedPlayerId(e.target.value);
-                    setDsDemandResponse(null);
-                  }}
-                  disabled={idoneiPerRuolo.length === 0}
-                  className="w-full sm:flex-1 rounded-xl border border-[var(--surface-border)] bg-[var(--surface-raised)] px-3 py-2 text-xs font-bold text-[var(--text-primary)] focus:outline-none focus:border-[var(--brand)] disabled:opacity-50"
-                >
-                  {idoneiPerRuolo.length === 0 && <option value="">Nessuno idoneo in rosa</option>}
-                  {idoneiPerRuolo.map((r) => {
-                    const pl = players[r.playerId];
-                    const isGuaranteed = selectedRole && guaranteedStarters[selectedRole] === r.playerId;
-                    return (
-                      <option key={r.playerId} value={r.playerId}>
-                        {pl?.name ?? r.playerId} · Ov: {r.overall}{" "}
-                        {isGuaranteed ? "★ TITOLARE GARANTITO" : ""}
-                      </option>
-                    );
-                  })}
-                </select>
+              {selectedRole && (
+                <div className="flex flex-col gap-2">
+                  <p className="text-[11px] font-bold text-[var(--text-secondary)]">
+                    Chi schierare come {ROLE_LABELS[selectedRole]}:
+                  </p>
+                  {idoneiPerRuolo.length === 0 ? (
+                    <p className="rounded-xl border border-dashed border-[var(--surface-border)] p-3 text-center text-xs text-[var(--text-secondary)]">
+                      Nessuno idoneo in rosa per questo ruolo.
+                    </p>
+                  ) : (
+                    <div className="flex gap-2 overflow-x-auto pb-1">
+                      {idoneiPerRuolo.map((r) => {
+                        const pl = players[r.playerId];
+                        const isGuaranteed = guaranteedStarters[selectedRole] === r.playerId;
+                        const isSelected = selectedPlayerId === r.playerId;
+                        return (
+                          <button
+                            key={r.playerId}
+                            type="button"
+                            onClick={() => {
+                              setSelectedPlayerId(r.playerId);
+                              setDsDemandResponse(null);
+                            }}
+                            className={`flex shrink-0 flex-col items-center gap-1 rounded-xl border px-3 py-2 text-center transition-colors ${
+                              isSelected
+                                ? "border-[var(--brand)] bg-[var(--brand)]/10"
+                                : "border-[var(--surface-border)] bg-[var(--surface-raised)]"
+                            }`}
+                          >
+                            <span className="flex items-center gap-1 text-xs font-extrabold">
+                              {pl?.nation && <NationFlag nation={pl.nation} />}
+                              {pl?.name ?? r.playerId}
+                              {isGuaranteed && <span className="text-[#f5c518]">★</span>}
+                            </span>
+                            <span className="text-[10px] font-semibold text-[var(--text-secondary)] tabular-nums">
+                              Overall {r.overall}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
 
-                <button
-                  type="button"
-                  onClick={handleDsDemand}
-                  disabled={idoneiPerRuolo.length === 0}
-                  className="w-full sm:w-auto shrink-0 rounded-xl bg-[var(--brand)] px-4 py-2 text-xs font-extrabold text-[var(--brand-contrast)] transition-transform active:scale-95 disabled:opacity-50"
-                >
-                  Chiedi Titolarità Garantita
-                </button>
-              </div>
+              <button
+                type="button"
+                onClick={handleDsDemand}
+                disabled={!selectedRole || idoneiPerRuolo.length === 0 || !selectedPlayerId}
+                className="w-full rounded-xl bg-[var(--brand)] px-4 py-2.5 text-xs font-extrabold text-[var(--brand-contrast)] transition-transform active:scale-95 disabled:opacity-50"
+              >
+                Chiedi Titolarità Garantita
+              </button>
 
               {dsDemandResponse && (
                 <motion.div

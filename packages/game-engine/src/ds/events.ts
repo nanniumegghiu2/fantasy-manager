@@ -194,7 +194,10 @@ export function isTooGoodForBench(entry: RosterEntry, context: MoraleContext): b
   return entry.stats.minutes / context.availableMinutes < LOW_MINUTES_SHARE;
 }
 
-export type TransferRequestReason = "vuole_giocare" | "scontento" | "richiamato";
+export type TransferRequestReason = "vuole_giocare" | "scontento" | "richiamato" | "bivio_mister";
+
+/** Sotto questa sintonia col mister, un titolare garantito scontento può arrivare all'ultimatum. */
+export const BIVIO_MISTER_HARMONY_THRESHOLD = 45;
 
 /**
  * Probabilità **per giornata** che un big chieda di andarsene pur stando benissimo.
@@ -221,6 +224,17 @@ export interface RequestContext {
   lastResolvedMatchday?: number;
   /** Serve alla richiesta a sorpresa: senza, resta solo la strada del malcontento. */
   random?: () => number;
+  /**
+   * La stagione corrente: serve a escludere dalla richiesta a sorpresa chi è arrivato
+   * **quest'anno** e gioca con continuità — un titolare appena preso non è ancora
+   * "corteggiabile a sorpresa" nella stessa stagione dell'arrivo (poco realistico, segnalato
+   * dall'utente). Dalla stagione successiva torna corteggiabile come chiunque altro.
+   */
+  currentSeason?: number;
+  /** Chi è titolare garantito adesso (id giocatore): serve al bivio giocatore-mister. */
+  guaranteedStarterIds?: ReadonlySet<string>;
+  /** Sintonia col mister: sotto soglia, un titolare garantito scontento arriva all'ultimatum. */
+  coachHarmony?: number;
 }
 
 /**
@@ -251,9 +265,16 @@ export function findTransferRequest(
 
   const chosen = candidates[0];
   if (chosen) {
+    // Il caso più estremo: chi il DS ha già promesso titolare fisso, ma è scontento **e** la
+    // sintonia col mister è già ai minimi — un titolare garantito infelice in un momento di
+    // frizione reale col mister, non una semplice richiesta di più minuti o soldi.
+    const bivio =
+      (context.guaranteedStarterIds?.has(chosen.playerId) ?? false) &&
+      context.coachHarmony !== undefined &&
+      context.coachHarmony < BIVIO_MISTER_HARMONY_THRESHOLD;
     return {
       playerId: chosen.playerId,
-      reason: isTooGoodForBench(chosen, moraleContextOf(chosen)) ? "vuole_giocare" : "scontento",
+      reason: bivio ? "bivio_mister" : isTooGoodForBench(chosen, moraleContextOf(chosen)) ? "vuole_giocare" : "scontento",
       openedAtMatchday: context.matchday,
     };
   }
@@ -270,6 +291,13 @@ export function findTransferRequest(
 
   const big = [...roster]
     .filter((entry) => !entry.loan)
+    .filter((entry) => {
+      // Appena arrivato quest'anno e titolare fisso: non ancora corteggiabile a sorpresa.
+      if (entry.sinceSeason !== context.currentSeason) return true;
+      const { availableMinutes } = moraleContextOf(entry);
+      const playedShare = availableMinutes > 0 ? Math.min(entry.stats.minutes / availableMinutes, 1) : 0;
+      return playedShare < 0.5;
+    })
     .sort((a, b) => b.overall - a.overall)
     .slice(0, 4);
   const corteggiato = big[Math.floor(random() * big.length)];

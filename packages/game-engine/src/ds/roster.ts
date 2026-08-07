@@ -67,6 +67,7 @@ export type RosterViolation =
   | "not_in_roster"
   | "not_owned"
   | "on_loan_out"
+  | "injured"
   | "min_squad_size"
   | "max_squad_size"
   | "min_department";
@@ -252,6 +253,9 @@ export function canSell(
   }
   if (isLoanedOut(entry)) {
     return deny("on_loan_out", "Il giocatore è in prestito altrove: rientrerà a fine stagione.");
+  }
+  if (isInjured(entry)) {
+    return deny("injured", "Infortunato: nessun club fa offerte per un giocatore ai box. Aspetta il rientro.");
   }
 
   const size = squadSize(roster);

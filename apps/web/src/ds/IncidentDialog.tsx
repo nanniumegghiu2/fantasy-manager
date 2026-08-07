@@ -1,14 +1,32 @@
+import { useState } from "react";
 import { motion } from "framer-motion";
-import { Activity, Flag, Gavel, HeartCrack, Landmark, PiggyBank, ShieldAlert, Users } from "lucide-react";
+import {
+  Activity,
+  Flag,
+  Gavel,
+  HeartCrack,
+  Landmark,
+  Newspaper,
+  MessageSquareWarning,
+  PiggyBank,
+  ShieldAlert,
+  Users,
+} from "lucide-react";
 import type { Incident, IncidentKind } from "@app/game-engine";
 
 /**
  * **L'imprevisto**, annunciato come una notizia.
  *
  * Una carriera fatta solo di mercato e risultati diventa prevedibile; questi popup sono ciò che
- * rompe la routine. Sono deliberatamente **da leggere e chiudere**, non da decidere: una
- * decisione in più a ogni infortunio renderebbe il gioco lento invece che imprevedibile — le
- * decisioni sono il mercato e le richieste dei giocatori.
+ * rompe la routine. La maggior parte è deliberatamente **da leggere e chiudere**, non da
+ * decidere: una decisione in più a ogni infortunio renderebbe il gioco lento invece che
+ * imprevedibile — le decisioni sono il mercato e le richieste dei giocatori.
+ *
+ * Due imprevisti fanno eccezione (`incident.requiresDecision`): una notizia di colore
+ * (`nottata_brava`) o un'intervista contro lo spogliatoio (`intervista_contro`) chiedono davvero
+ * una scelta al DS — ignorare (costa un po' di sintonia col mister, che non gradisce la mano
+ * leggera) o punire con qualche giorno di stop (costa morale al giocatore, di più quanto più
+ * lunga è la punizione).
  */
 
 const STILE: Record<IncidentKind, { colore: string; icona: typeof Activity }> = {
@@ -20,16 +38,28 @@ const STILE: Record<IncidentKind, { colore: string; icona: typeof Activity }> = 
   convocazione_nazionale: { colore: "#3ddc6b", icona: Flag },
   sanzione_federale: { colore: "#ff8a3d", icona: Landmark },
   premio_presidente: { colore: "#3ddc6b", icona: PiggyBank },
+  nottata_brava: { colore: "#ff8a3d", icona: Newspaper },
+  intervista_contro: { colore: "#ff8a3d", icona: MessageSquareWarning },
 };
+
+const GIORNI_PUNIZIONE = [1, 2, 3, 4];
 
 export function IncidentDialog({
   incident,
   onClose,
+  onDecide,
 }: {
   incident: Incident;
   onClose: () => void;
+  /**
+   * Solo per `incident.requiresDecision`: chiamato con la scelta del DS ("ignora" o
+   * "punizione", con i giorni scelti) — l'effetto vero si applica lì (`resolveIncidentDecision`),
+   * non da questo componente.
+   */
+  onDecide?: (scelta: "ignora" | "punizione", giorni?: number) => void;
 }) {
   const { colore, icona: Icona } = STILE[incident.kind];
+  const [sceltaPunizione, setSceltaPunizione] = useState(false);
 
   return (
     <motion.div
@@ -81,13 +111,63 @@ export function IncidentDialog({
         )}
 
         <div className="p-4 pt-0">
-          <button
-            type="button"
-            onClick={onClose}
-            className="w-full rounded-2xl bg-[var(--brand)] py-3.5 text-sm font-extrabold text-[var(--brand-contrast)] transition-transform active:scale-[0.98]"
-          >
-            Ho capito
-          </button>
+          {!incident.requiresDecision ? (
+            <button
+              type="button"
+              onClick={onClose}
+              className="w-full rounded-2xl bg-[var(--brand)] py-3.5 text-sm font-extrabold text-[var(--brand-contrast)] transition-transform active:scale-[0.98]"
+            >
+              Ho capito
+            </button>
+          ) : sceltaPunizione ? (
+            <div className="flex flex-col gap-2">
+              <p className="px-1 text-[11px] font-bold text-[var(--text-secondary)]">
+                Per quanti giorni lo fermi?
+              </p>
+              <div className="grid grid-cols-4 gap-2">
+                {GIORNI_PUNIZIONE.map((giorni) => (
+                  <button
+                    key={giorni}
+                    type="button"
+                    onClick={() => {
+                      onDecide?.("punizione", giorni);
+                      onClose();
+                    }}
+                    className="rounded-2xl border border-[#ff8a3d]/50 py-2.5 text-sm font-extrabold text-[#ff8a3d] transition-transform active:scale-95"
+                  >
+                    {giorni}
+                  </button>
+                ))}
+              </div>
+              <button
+                type="button"
+                onClick={() => setSceltaPunizione(false)}
+                className="w-full rounded-2xl border border-[var(--surface-border)] px-3 py-2 text-[11px] font-bold text-[var(--text-secondary)]"
+              >
+                Annulla
+              </button>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  onDecide?.("ignora");
+                  onClose();
+                }}
+                className="w-full rounded-2xl border border-[var(--surface-border)] py-3 text-sm font-extrabold text-[var(--text-secondary)] transition-transform active:scale-[0.98]"
+              >
+                Non fare nulla
+              </button>
+              <button
+                type="button"
+                onClick={() => setSceltaPunizione(true)}
+                className="w-full rounded-2xl bg-[#ff8a3d] py-3 text-sm font-extrabold text-white transition-transform active:scale-[0.98]"
+              >
+                Punizione
+              </button>
+            </div>
+          )}
         </div>
       </motion.div>
     </motion.div>

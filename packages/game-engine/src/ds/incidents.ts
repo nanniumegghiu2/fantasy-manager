@@ -14,6 +14,7 @@
  *    tassa.
  */
 import type { RosterEntry } from "./types";
+import type { Role } from "@app/shared-types";
 
 /** Che genere di imprevisto è capitato. */
 export type IncidentKind =
@@ -24,7 +25,18 @@ export type IncidentKind =
   | "rissa_spogliatoio"
   | "convocazione_nazionale"
   | "sanzione_federale"
-  | "premio_presidente";
+  | "premio_presidente"
+  | "nottata_brava"
+  | "intervista_contro";
+
+/**
+ * I due imprevisti "con decisione": a differenza di tutti gli altri, non si auto-risolvono —
+ * `costruisci` li restituisce con `matchdays: 0`/`moraleDelta: 0` (quindi `applyIncident` è già
+ * un no-op su di loro, nessun effetto entra in rosa finché il DS non sceglie), e il verdetto
+ * vero arriva solo da `resolveIncidentDecision` (`career.ts`), chiamata quando l'utente risponde
+ * al popup a due bottoni invece del solito "Ho capito".
+ */
+export const DECISION_INCIDENT_KINDS: readonly IncidentKind[] = ["nottata_brava", "intervista_contro"];
 
 /** I due imprevisti economici non toccano un giocatore: colpiscono solo il budget. */
 export const FINANCIAL_INCIDENT_KINDS: readonly IncidentKind[] = [
@@ -45,6 +57,13 @@ export interface Incident {
   /** Titolo e testo già pronti: la UI non deve comporre frasi. */
   title: string;
   message: string;
+  /**
+   * Vero solo per `nottata_brava`/`intervista_contro`: il popup mostra due bottoni (ignora /
+   * punizione) invece del solito "Ho capito", e il verdetto vero arriva da
+   * `resolveIncidentDecision`, non da questo oggetto — che infatti ha già `matchdays`/
+   * `moraleDelta` a zero, quindi applicarlo così com'è (`applyIncident`) non cambia nulla.
+   */
+  requiresDecision?: true;
 }
 
 /**
@@ -65,6 +84,11 @@ export const INCIDENT_ODDS: Record<IncidentKind, number> = {
   // eccezionale.
   infortunio_gravissimo: 0.004,
   sanzione_federale: 0.006,
+  // Notizie di colore che chiedono una vera decisione al DS, non solo da leggere: restano rare
+  // quanto una condotta antisportiva, altrimenti ogni due settimane ci sarebbe un giocatore da
+  // richiamare all'ordine.
+  nottata_brava: 0.014,
+  intervista_contro: 0.01,
   // Non "per giornata" come gli altri: scatta solo se `lastMatch` segnala una vittoria a
   // sorpresa vera (vedi `rollIncident`), quindi la probabilità è alta **condizionata** a
   // quell'evento raro, non sciolta su tutte le 38 giornate.
@@ -86,6 +110,12 @@ export interface IncidentContext {
    * `premio_presidente`, che scatta dopo una vittoria a sorpresa vera e non a caso.
    */
   lastMatch?: { won: boolean; opponentGapFavorevole: number };
+  /**
+   * Ruolo (principale e secondari) di ogni giocatore in rosa: serve a `depthRisk`, il rischio
+   * di infortunio più alto per chi non ha ricambi sani nel suo ruolo. Opzionale e retrocompatibile:
+   * senza, il rischio resta piatto come prima (nessun candidato-chiamante lo forniva finora).
+   */
+  playerRoles?: Record<string, { role: Role; secondaryRoles: Role[] }>;
 }
 
 /** Da quanto lo scarto di forza a nostro sfavore conta come "vittoria a sorpresa" per il premio. */
@@ -104,6 +134,7 @@ export function rollIncident({
   lastIncidentMatchday,
   random,
   lastMatch,
+  playerRoles,
 }: IncidentContext): Incident | undefined {
   if (lastIncidentMatchday !== undefined && matchday - lastIncidentMatchday < INCIDENT_COOLDOWN) {
     return undefined;
@@ -126,7 +157,7 @@ export function rollIncident({
     }
 
     if (disponibili.length === 0) continue;
-    const vittima = scegliVittima(kind, disponibili, random);
+    const vittima = scegliVittima(kind, disponibili, random, playerRoles);
     if (!vittima) continue;
     const nome = nameOf(vittima.playerId);
     return costruisci(kind, vittima, nome, random);
@@ -136,19 +167,62 @@ export function rollIncident({
 }
 
 /**
+ * Quanti compagni sani coprono lo stesso ruolo di `entry` (principale o secondario) —
+ * l'alternativa reale se si fermasse. Pochi ricambi = rischio più alto: una squadra senza
+ * cambio in un ruolo forza chi c'è a giocare sempre, più stanco e più esposto.
+ */
+function depthRisk(
+  entry: RosterEntry,
+  disponibili: readonly RosterEntry[],
+  playerRoles: Record<string, { role: Role; secondaryRoles: Role[] }>,
+): number {
+  const ruolo = playerRoles[entry.playerId]?.role;
+  if (!ruolo) return 1;
+  const alternative = disponibili.filter((altro) => {
+    if (altro.playerId === entry.playerId) return false;
+    const p = playerRoles[altro.playerId];
+    return p && (p.role === ruolo || p.secondaryRoles.includes(ruolo));
+  }).length;
+  if (alternative <= 1) return 1.6;
+  if (alternative === 2) return 1.3;
+  return 1;
+}
+
+/** Pesca pesata: un elemento con peso doppio ha il doppio delle probabilità degli altri. */
+function pescaPesata<T>(items: readonly T[], pesi: readonly number[], random: () => number): T | undefined {
+  const totale = pesi.reduce((s, p) => s + p, 0);
+  if (items.length === 0 || totale <= 0) return items[0];
+  let tiro = random() * totale;
+  for (let i = 0; i < items.length; i++) {
+    tiro -= pesi[i]!;
+    if (tiro <= 0) return items[i];
+  }
+  return items[items.length - 1];
+}
+
+/**
  * Chi tocca.
  *
  * Non è indifferente: un infortunio lungo a una riserva non è una notizia, mentre lo stesso
  * infortunio a un titolare cambia la stagione. Si pesca quindi **fra i migliori** per gli
- * imprevisti che devono far male, e fra tutti per quelli che sono solo colore.
+ * imprevisti che devono far male, e fra tutti per quelli che sono solo colore. Per i due
+ * infortuni (non per squalifiche/liti, che non dipendono dalla profondità di rosa), il pool dei
+ * migliori 16 è pesato per `depthRisk`: chi non ha ricambi nel suo ruolo rischia di più.
  */
 function scegliVittima(
   kind: IncidentKind,
   disponibili: readonly RosterEntry[],
   random: () => number,
+  playerRoles?: Record<string, { role: Role; secondaryRoles: Role[] }>,
 ): RosterEntry | undefined {
-  if (kind === "convocazione_nazionale" || kind === "squalifica_doping") {
-    // Chi va in nazionale (o chi viene controllato) è uno che gioca.
+  if (
+    kind === "convocazione_nazionale" ||
+    kind === "squalifica_doping" ||
+    kind === "nottata_brava" ||
+    kind === "intervista_contro"
+  ) {
+    // Chi va in nazionale, chi viene controllato, chi finisce sui giornali: sempre uno che
+    // gioca, mai una riserva che nessuno noterebbe.
     const migliori = [...disponibili].sort((a, b) => b.overall - a.overall).slice(0, 11);
     return migliori[Math.floor(random() * migliori.length)];
   }
@@ -159,6 +233,10 @@ function scegliVittima(
     return pool[Math.floor(random() * pool.length)];
   }
   const pesati = [...disponibili].sort((a, b) => b.overall - a.overall).slice(0, 16);
+  if ((kind === "infortunio_lungo" || kind === "infortunio_gravissimo") && playerRoles) {
+    const pesi = pesati.map((e) => depthRisk(e, disponibili, playerRoles));
+    return pescaPesata(pesati, pesi, random);
+  }
   return pesati[Math.floor(random() * pesati.length)];
 }
 
@@ -248,6 +326,30 @@ function costruisci(
         message: `Discussione accesa dopo l'allenamento: ${nome} è finito nel mirino del gruppo. Fuori per ${matchdays} giornate, e il clima non è dei migliori.`,
       };
     }
+    case "nottata_brava": {
+      // Niente effetto automatico: matchdays/moraleDelta restano a zero finché il DS non
+      // decide (`resolveIncidentDecision`) — vedi `requiresDecision`.
+      return {
+        kind,
+        playerId: entry!.playerId,
+        matchdays: 0,
+        moraleDelta: 0,
+        requiresDecision: true,
+        title: "Notte fuori prima della partita",
+        message: `Un giornale ha pubblicato foto di ${nome} in un locale fino a tardi, la sera prima della gara. Come reagisce la società?`,
+      };
+    }
+    case "intervista_contro": {
+      return {
+        kind,
+        playerId: entry!.playerId,
+        matchdays: 0,
+        moraleDelta: 0,
+        requiresDecision: true,
+        title: "Intervista contro lo spogliatoio",
+        message: `${nome} ha rilasciato un'intervista dura, puntando il dito contro il mister e la società. Come rispondete?`,
+      };
+    }
     case "convocazione_nazionale": {
       const matchdays = 1 + Math.floor(random() * 2);
       return {
@@ -263,17 +365,30 @@ function costruisci(
   }
 }
 
-/** Applica l'imprevisto alla rosa: indisponibilità e morale. */
+/**
+ * Quanto perde di Overall un infortunio lungo, applicato **una sola volta** all'evento (non
+ * recupera da solo col rientro): un lungo stop pesa sulla condizione e sul valore di mercato,
+ * coerente con "un lungo infortunio farà calare il suo valore" — il prezzo deriva già
+ * dall'Overall (`currentValue`), quindi basta toccare questo per farlo scendere davvero.
+ */
+const OVERALL_DECAY: Partial<Record<IncidentKind, number>> = {
+  infortunio_lungo: 2,
+  infortunio_gravissimo: 4,
+};
+
+/** Applica l'imprevisto alla rosa: indisponibilità, morale ed eventuale calo di Overall. */
 export function applyIncident(
   roster: readonly RosterEntry[],
   incident: Incident,
 ): RosterEntry[] {
+  const decay = OVERALL_DECAY[incident.kind] ?? 0;
   return roster.map((entry) =>
     entry.playerId === incident.playerId
       ? {
           ...entry,
           injuryMatchdaysLeft: Math.max(entry.injuryMatchdaysLeft, incident.matchdays),
           morale: Math.max(0, Math.min(100, entry.morale + incident.moraleDelta)),
+          overall: Math.max(50, entry.overall - decay),
         }
       : entry,
   );

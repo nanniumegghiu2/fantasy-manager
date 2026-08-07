@@ -1,5 +1,5 @@
 import { motion } from "framer-motion";
-import { Crown, Shield, Star, Target } from "lucide-react";
+import { Crown, Shield, ShieldHalf, Star, Target } from "lucide-react";
 import type { ObjectiveTier } from "@app/game-engine";
 
 /**
@@ -14,6 +14,7 @@ import type { ObjectiveTier } from "@app/game-engine";
 
 const ICONA: Record<ObjectiveTier["label"], typeof Target> = {
   Salvezza: Shield,
+  "Parte bassa": ShieldHalf,
   "Metà classifica": Target,
   Europa: Star,
   Titolo: Crown,

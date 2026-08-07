@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
+  Activity,
   ArrowUpRight,
   Banknote,
   Check,
@@ -375,7 +376,7 @@ function PromiseAlternativePicker({
 }) {
   const [query, setQuery] = useState("");
   const risultati = useMemo(
-    () => onSearch({ query, role: promise.targetRole, sort: "overall" }).slice(0, 20),
+    () => onSearch({ query, roles: promise.targetRole ? [promise.targetRole] : undefined, sort: "overall" }).slice(0, 20),
     [onSearch, query, promise.targetRole],
   );
 
@@ -657,12 +658,18 @@ function SchedaRicerca({
 }) {
   const [query, setQuery] = useState("");
   const [department, setDepartment] = useState<Department | undefined>();
-  const [role, setRole] = useState<Role | undefined>();
+  // Multi-selezione: più ruoli insieme ("DC o CC") per ricerche più dettagliate — richiesta
+  // esplicita dell'utente, prima si poteva scegliere un solo ruolo alla volta.
+  const [roles, setRoles] = useState<Set<Role>>(new Set());
   const [sort, setSort] = useState<SearchCriteria["sort"]>("overall");
   const [soloAllaPortata, setSoloAllaPortata] = useState(true);
   const [soloPrestiti, setSoloPrestiti] = useState(false);
   const [filtriAperti, setFiltriAperti] = useState(false);
   const [soloCedibiliIA, setSoloCedibiliIA] = useState(false);
+  const [etaMin, setEtaMin] = useState("");
+  const [etaMax, setEtaMax] = useState("");
+  const [overallMin, setOverallMin] = useState("");
+  const [overallMax, setOverallMax] = useState("");
 
   /**
    * "Cedibili IA": non la ricerca libera, ma chi un club ha davvero in eccedenza (titolari e
@@ -705,12 +712,16 @@ function SchedaRicerca({
       onSearch({
         query,
         department,
-        role,
+        roles: roles.size > 0 ? [...roles] : undefined,
         sort,
         maxPrice: soloAllaPortata ? budget : undefined,
         onlyLoanable: soloPrestiti || undefined,
+        minAge: etaMin ? Number(etaMin) : undefined,
+        maxAge: etaMax ? Number(etaMax) : undefined,
+        minOverall: overallMin ? Number(overallMin) : undefined,
+        maxOverall: overallMax ? Number(overallMax) : undefined,
       }),
-    [onSearch, query, department, role, sort, soloAllaPortata, soloPrestiti, budget],
+    [onSearch, query, department, roles, sort, soloAllaPortata, soloPrestiti, budget, etaMin, etaMax, overallMin, overallMax],
   );
 
   const risultati = soloCedibiliIA ? cedibiliIA : risultatiRicerca;
@@ -790,7 +801,7 @@ function SchedaRicerca({
                     attivo={department === d}
                     onClick={() => {
                       setDepartment(department === d ? undefined : d);
-                      setRole(undefined);
+                      setRoles(new Set());
                     }}
                   >
                     {DEPARTMENT_LABEL[d]}
@@ -801,7 +812,18 @@ function SchedaRicerca({
               {ruoliDelReparto.length > 0 && (
                 <div className="flex flex-wrap gap-1.5">
                   {ruoliDelReparto.map((r) => (
-                    <Chip key={r} attivo={role === r} onClick={() => setRole(role === r ? undefined : r)}>
+                    <Chip
+                      key={r}
+                      attivo={roles.has(r)}
+                      onClick={() =>
+                        setRoles((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(r)) next.delete(r);
+                          else next.add(r);
+                          return next;
+                        })
+                      }
+                    >
                       {r}
                     </Chip>
                   ))}
@@ -815,6 +837,52 @@ function SchedaRicerca({
                 <Chip attivo={soloPrestiti} onClick={() => setSoloPrestiti((v) => !v)}>
                   Solo prestiti
                 </Chip>
+              </div>
+
+              {/* Intervalli età/Overall: ricerche più mirate di un semplice tetto. */}
+              <div className="flex items-center gap-2">
+                <span className="w-12 shrink-0 text-[10px] font-bold text-[var(--text-secondary)] uppercase">
+                  Età
+                </span>
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  placeholder="Min"
+                  value={etaMin}
+                  onChange={(e) => setEtaMin(e.target.value)}
+                  className="w-0 min-w-0 flex-1 rounded-lg border border-[var(--surface-border)] bg-[var(--surface)] px-2 py-1.5 text-xs font-semibold outline-none focus:border-[var(--brand)]"
+                />
+                <span className="text-[10px] text-[var(--text-secondary)]">–</span>
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  placeholder="Max"
+                  value={etaMax}
+                  onChange={(e) => setEtaMax(e.target.value)}
+                  className="w-0 min-w-0 flex-1 rounded-lg border border-[var(--surface-border)] bg-[var(--surface)] px-2 py-1.5 text-xs font-semibold outline-none focus:border-[var(--brand)]"
+                />
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="w-12 shrink-0 text-[10px] font-bold text-[var(--text-secondary)] uppercase">
+                  Overall
+                </span>
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  placeholder="Min"
+                  value={overallMin}
+                  onChange={(e) => setOverallMin(e.target.value)}
+                  className="w-0 min-w-0 flex-1 rounded-lg border border-[var(--surface-border)] bg-[var(--surface)] px-2 py-1.5 text-xs font-semibold outline-none focus:border-[var(--brand)]"
+                />
+                <span className="text-[10px] text-[var(--text-secondary)]">–</span>
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  placeholder="Max"
+                  value={overallMax}
+                  onChange={(e) => setOverallMax(e.target.value)}
+                  className="w-0 min-w-0 flex-1 rounded-lg border border-[var(--surface-border)] bg-[var(--surface)] px-2 py-1.5 text-xs font-semibold outline-none focus:border-[var(--brand)]"
+                />
               </div>
 
               <div className="flex flex-wrap gap-1.5">
@@ -1283,6 +1351,15 @@ function SchedaRosa({
                             </button>
                           );
                         })()}
+                        {/* Infortunio: giorni rimanenti, per capire se serve intervenire sul
+                            mercato — un infortunato non genera offerte né si può vendere. */}
+                        {entry.injuryMatchdaysLeft > 0 && (
+                          <span className="flex items-center gap-1 rounded-full bg-[#ff4d4d]/12 px-1.5 py-px text-[10px] font-bold text-[#ff4d4d]">
+                            <Activity size={10} />
+                            Infortunato · {entry.injuryMatchdaysLeft}{" "}
+                            {entry.injuryMatchdaysLeft === 1 ? "giornata" : "giornate"}
+                          </span>
+                        )}
                       </div>
 
                       {/* Statistiche di Prestazione: Presenze, Gol, Assist, Media Voto */}

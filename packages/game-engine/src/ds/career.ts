@@ -275,6 +275,21 @@ export interface CareerState {
    */
   guaranteedStarters?: Partial<Record<Role, string>>;
   /**
+   * Chi il mister ha smesso di schierare per decisione propria — bivio giocatore-mister
+   * (`playerStandoff.ts`, `StandoffReason: "bivio_mister"`) ignorato fino alla rottura: tenere
+   * entrambi ha un costo vero, non solo narrativo. Si toglie solo cambiando mister (`hireCoach`,
+   * stesso reset di `guaranteedStarters`) o vendendo il giocatore.
+   */
+  coachBenched?: Record<string, true>;
+  /**
+   * Quante volte, in tutta la carriera, un giocatore è stato protagonista di un imprevisto
+   * "con decisione" (nottata prima di una partita, intervista contro mister/società) — non un
+   * conteggio stagionale: alla **seconda** occasione di qualunque giocatore, `resolveIncidentDecision`
+   * forza una richiesta di cessione a prescindere dal morale residuo, perché un DS che perdona
+   * due volte la stessa mancanza non ha più credibilità da spendere.
+   */
+  disciplineHistory?: Record<string, number>;
+  /**
    * Promesse di più spazio fatte a giocatori scontenti (sez. 2, chat coi giocatori), in attesa
    * di verifica. Chi è qui ha lo stesso bonus di selezione di `guaranteedStarters` (è la
    * "promessa" resa meccanica, non solo narrativa) — vedi `currentLineup`.
@@ -485,16 +500,36 @@ export function livePromiseStatus(
   }));
 }
 
+/**
+ * Garantisce la titolarità di `playerId` per `role`, **sovrascrivendo** l'eventuale titolare
+ * precedente per quella casella (già così) **e** togliendo `playerId` da qualunque altra
+ * chiave lo contenesse — un giocatore è garantito in **un solo ruolo alla volta**, mai due:
+ * chiederla per un nuovo ruolo sposta la garanzia, non la duplica.
+ */
+export function setGuaranteedStarter(state: CareerState, role: Role, playerId: string): CareerState {
+  const attuali = state.guaranteedStarters ?? {};
+  const senzaAltrove = Object.fromEntries(
+    Object.entries(attuali).filter(([r, id]) => r === role || id !== playerId),
+  ) as Partial<Record<Role, string>>;
+  return { ...state, guaranteedStarters: { ...senzaAltrove, [role]: playerId } };
+}
+
 /** L'undici che l'allenatore schiererebbe oggi, dati infortuni, fatica e morale. */
 export function currentLineup(state: CareerState, world: CareerWorld): Lineup {
   const coach = state.coachId ? findCoach(state.coachId) : undefined;
   const formation = getFormation(coach?.formationId ?? "4-3-3")!;
+  // Chi il mister ha smesso di schierare (bivio giocatore-mister ignorato) non è disponibile
+  // per lui, esattamente come un infortunato o uno in prestito altrove — stesso hard filter di
+  // `availableEntries`, non un semplice malus di punteggio.
+  const disponibili = state.coachBenched
+    ? availableEntries(state.roster).filter((e) => !state.coachBenched?.[e.playerId])
+    : availableEntries(state.roster);
   // Una promessa di più spazio (sez. 2) pesa nella scelta come un bonus di selezione, ma per
   // **qualunque** ruolo compatibile — è una promessa di minutaggio, non di una casella
   // specifica come la titolarità garantita dalla direttiva DS-Mister.
   return pickStartingEleven(
     formation,
-    availableEntries(state.roster),
+    disponibili,
     careerPlayers(state, world),
     {
       guaranteedStarters: state.guaranteedStarters ?? {},
@@ -1000,6 +1035,8 @@ export function advanceWeek(
       lastIncidentMatchday: next.lastIncidentMatchday,
       random: derivedRandom(next.seed, "incident", next.season, round),
       lastMatch,
+      // Chi non ha ricambi sani nel suo ruolo rischia di più (depthRisk, incidents.ts).
+      playerRoles: anagrafica,
     });
     if (incident) {
       next = {
@@ -1687,6 +1724,19 @@ export function offerPushProbability(state: CareerState, world: CareerWorld, ent
   const availableMinutes = Math.max(1, state.league.round * 90);
   const playedShare = Math.min(entry.stats.minutes / availableMinutes, 1);
 
+  // Poco realistico, segnalato dall'utente: un titolare preso quest'anno che gioca con
+  // continuità non deve spingere per andarsene di sua iniziativa nella stessa stagione
+  // dell'arrivo — la base 10% (che altrimenti si applica sempre, a prescindere da quanto gioca)
+  // scende a zero solo per questo profilo specifico. Dalla stagione successiva torna al
+  // comportamento normale.
+  if (
+    entry.sinceSeason === state.season &&
+    playedShare >= 0.5 &&
+    entry.morale >= STANDOFF_MORALE_THRESHOLD
+  ) {
+    return 0;
+  }
+
   let prob = 0.1;
   if (prestigio >= 4) prob += 0.35; // un top club chiama, e si sente
   if (playedShare < 0.35) prob += 0.35; // gioca poco: un'occasione da ascoltare
@@ -1775,10 +1825,30 @@ export function applyPlayerStandoff(
   standoff: PlayerStandoff,
   move: StandoffMove,
 ): { state: CareerState; standoff: PlayerStandoff } {
-  const { standoff: dopo, moraleDelta, listForTransfer, listForLoan, promiseMinutes, moneyBonus, promise, sellNow } =
-    applyStandoffMove(standoff, move);
+  const {
+    standoff: dopo,
+    moraleDelta,
+    listForTransfer,
+    listForLoan,
+    promiseMinutes,
+    moneyBonus,
+    promise,
+    sellNow,
+    coachResigns,
+    coachBenches,
+  } = applyStandoffMove(standoff, move);
 
   let next = state;
+  // Bivio giocatore-mister, lato mister: schierarsi col giocatore costa la panchina — stesso
+  // trattamento delle dimissioni per promesse infrante, nessun indennizzo (è una scelta sua).
+  if (coachResigns) {
+    next = { ...next, coachId: null, coachPromises: [], coachHarmony: 40 };
+  }
+  // "Tenerli entrambi" fino alla rottura: il mister smette di schierarlo, per davvero
+  // (`currentLineup` lo esclude), non solo sulla carta.
+  if (coachBenches) {
+    next = { ...next, coachBenched: { ...(next.coachBenched ?? {}), [standoff.playerId]: true } };
+  }
   if (moneyBonus) {
     // Premio subito: una percentuale del valore attuale, con un minimo che lo renda un gesto
     // vero anche per un giocatore che vale poco — non una mancia simbolica.
@@ -1874,6 +1944,18 @@ export function applyPlayerStandoff(
   if (dopo.status !== "aperta" && next.brokenTrust?.[standoff.playerId]) {
     const { [standoff.playerId]: _rimosso, ...restoBrokenTrust } = next.brokenTrust;
     next = { ...next, brokenTrust: restoBrokenTrust };
+  }
+
+  // Rottura vera col club: la titolarità garantita si perde per davvero, non prima. Un giocatore
+  // con cui non si arriva mai alla rottura non deve subire questa conseguenza — solo qui, non al
+  // primo malumore risolto bene.
+  if (dopo.status === "rotta" && next.guaranteedStarters) {
+    const rimasti = Object.fromEntries(
+      Object.entries(next.guaranteedStarters).filter(([, playerId]) => playerId !== standoff.playerId),
+    ) as typeof next.guaranteedStarters;
+    if (Object.keys(rimasti!).length !== Object.keys(next.guaranteedStarters).length) {
+      next = { ...next, guaranteedStarters: rimasti };
+    }
   }
 
   return { state: next, standoff: dopo };
@@ -2407,6 +2489,13 @@ export function hireCoach(
       budget: state.budget - effectiveCost,
       coachPromises: promises ?? [],
       coachHarmony: 80,
+      // Le garanzie di titolarità erano una direttiva concordata col mister precedente: un
+      // nuovo mister ha un suo modulo e le sue idee, non eredita gli impegni del predecessore.
+      // Stesso discorso per chi il vecchio mister aveva escluso: il nuovo parte senza pregiudizi.
+      // Solo qui — il rinnovo con lo stesso mister (sopra, `coachId === state.coachId`) non
+      // tocca queste righe.
+      guaranteedStarters: {},
+      coachBenched: {},
     },
     message: `${coach.name} è il nuovo allenatore: modulo ${coach.formationId}. (Costo totale: €${effectiveCost.toLocaleString("it-IT")})`,
   };
@@ -2548,6 +2637,9 @@ function maybeOpenRequest(
       lastResolvedMatchday: state.lastResolvedMatchday,
       // Serve alla richiesta a sorpresa: un big che chiede di andarsene pur stando bene.
       random: derivedRandom(state.seed, "richiesta", state.season, matchday),
+      currentSeason: state.season,
+      guaranteedStarterIds: new Set(Object.values(state.guaranteedStarters ?? {})),
+      coachHarmony: state.coachHarmony,
     },
     () => ({ squadAverage, availableMinutes, played: false, scored: false }),
   );
@@ -2577,6 +2669,63 @@ function applyRequestResponse(state: CareerState, response: RequestResponse): Ca
     pendingRequest: null,
     lastResolvedMatchday: state.league.round,
   };
+}
+
+/**
+ * Risolve un imprevisto "con decisione" (`nottata_brava`/`intervista_contro`): a differenza
+ * degli altri imprevisti, l'effetto non è già scritto nell'oggetto — arriva solo da qui, quando
+ * l'utente ha scelto.
+ *
+ * - **Ignora**: nessuna conseguenza per il giocatore, ma il mister non l'accetta di buon grado
+ *   — un episodio lasciato correre logora la sua fiducia nella disciplina interna quanto la
+ *   logorerebbe in una squadra vera.
+ * - **Punizione** (1-4 giorni, scelti dal DS): il morale del giocatore scala con la durata — una
+ *   punizione simbolica pesa poco, una lunga pesa molto. Se il morale risultante crolla sotto una
+ *   soglia severa, o se è già la **seconda** volta che questo giocatore finisce in un imprevisto
+ *   così (`disciplineHistory`, career-wide, non stagionale), si apre una vera richiesta di
+ *   cessione — stessa strada già percorsa da ogni altra richiesta (`pendingRequest`), non un
+ *   sistema a parte: un giocatore recidivo o già sull'orlo del morale minimo non perdona un
+ *   secondo giro di ramanzine.
+ */
+export function resolveIncidentDecision(
+  state: CareerState,
+  world: CareerWorld,
+  incident: Incident,
+  scelta: "ignora" | "punizione",
+  giorni?: number,
+): CareerState {
+  if (scelta === "ignora") {
+    return { ...state, coachHarmony: Math.max(0, Math.min(100, (state.coachHarmony ?? 75) - 10)) };
+  }
+
+  const playerId = incident.playerId;
+  if (!playerId) return state;
+  const giorniEffettivi = Math.min(4, Math.max(1, giorni ?? 1));
+  const moraleDelta = -6 * giorniEffettivi;
+
+  const roster = state.roster.map((e) =>
+    e.playerId === playerId ? { ...e, morale: Math.max(0, Math.min(100, e.morale + moraleDelta)) } : e,
+  );
+  const entry = roster.find((e) => e.playerId === playerId);
+  const contatore = (state.disciplineHistory?.[playerId] ?? 0) + 1;
+  const disciplineHistory = { ...(state.disciplineHistory ?? {}), [playerId]: contatore };
+
+  let next: CareerState = { ...state, roster, disciplineHistory };
+
+  const recidivoOSevero = contatore >= 2 || (entry?.morale ?? 100) < 15;
+  if (recidivoOSevero && !next.pendingRequest && entry) {
+    next = {
+      ...next,
+      pendingRequest: {
+        playerId,
+        reason: "scontento",
+        openedAtMatchday: next.league.round,
+        playerName: careerPlayers(next, world)[playerId]?.name ?? "Un giocatore",
+      },
+    };
+  }
+
+  return next;
 }
 
 /**

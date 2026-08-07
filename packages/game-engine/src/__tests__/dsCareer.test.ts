@@ -8,6 +8,8 @@
  *    su cui si regge il salvataggio su Supabase.
  */
 import { describe, expect, it } from "vitest";
+import { mulberry32 } from "../random";
+import { findTransferRequest } from "../ds/events";
 import {
   advanceToNextStop,
   advanceWeek,
@@ -19,6 +21,7 @@ import {
   closeNegotiation,
   currentLineup,
   hireCoach,
+  setGuaranteedStarter,
   isNegotiationBlocked,
   negotiateLoanOffer,
   negotiateOffer,
@@ -28,6 +31,7 @@ import {
   seasonObjectiveChoices,
   setSeasonObjective,
   playNegotiation,
+  resolveIncidentDecision,
   searchMarket,
   seasonCalendar,
   getCoachUntouchables,
@@ -37,6 +41,7 @@ import {
   type CareerWorld,
   type ResolvedPlayer,
 } from "../ds/career";
+import type { Incident } from "../ds/incidents";
 import { findCoach } from "../ds/coaches";
 import { emptySquadLists, openMarketWindow } from "../ds/careerMarket";
 import { applyPlayerTalk, talkOptions } from "../ds/playerTalks";
@@ -51,6 +56,7 @@ import {
   standoffCandidates,
 } from "../ds/career";
 import { createRosterEntry, MIN_SQUAD_SIZE } from "../ds/roster";
+import { openStandoff } from "../ds/playerStandoff";
 import { AI_CLUB_COHESION, careerOpponentTeam } from "../ds/aiClub";
 import { INHERITED_SINCE_SEASON } from "../ds/cohesion";
 import { CAREER_SEASONS, type RosterEntry } from "../ds/types";
@@ -1270,6 +1276,235 @@ describe("il faccia a faccia dentro il mercato (scheda Chat)", () => {
     expect(tuttoAlMassimo).toBeLessThanOrEqual(0.9);
   });
 
+  /**
+   * Segnalazione dell'utente: riceveva richieste di cessione da giocatori appena acquistati e
+   * titolari fissi — poco realistico. Il blocco vale **solo per la stagione dell'arrivo**: dalla
+   * stagione successiva il giocatore torna corteggiabile come chiunque altro.
+   */
+  it("offerPushProbability è zero per un titolare sereno preso quest'anno, torna normale l'anno dopo", () => {
+    const { state, world } = fullCareer("prob-offerta-nuovo", 80);
+    const entry = state.roster[0]!;
+    const offerBase = {
+      playerId: entry.playerId, playerName: "X", fromClubId: "clubTest", fromClubName: "Club Test",
+      fee: 1_000_000, appetite: 0.5,
+    };
+    const mondoTop = {
+      ...world,
+      market: {
+        ...world.market!,
+        valuation: { ...world.market!.valuation, clubPrestige: { ...world.market!.valuation.clubPrestige, clubTest: 5 } },
+      },
+    };
+
+    const conStato = { ...state, league: { round: 30, tallies: [] } };
+    const presoOraTitolareSereno = {
+      ...entry,
+      sinceSeason: conStato.season,
+      morale: 80,
+      stats: { ...entry.stats, minutes: 2700 }, // 30 giornate × 90, titolare fisso
+    };
+    expect(offerPushProbability(conStato, mondoTop, presoOraTitolareSereno, offerBase)).toBe(0);
+
+    // La stagione successiva: stesso profilo, ma arrivato l'anno prima → torna al comportamento normale.
+    const conStatoAnnoDopo = { ...conStato, season: conStato.season + 1 };
+    const stessoProfiloAnnoDopo = { ...presoOraTitolareSereno, sinceSeason: conStato.season };
+    expect(offerPushProbability(conStatoAnnoDopo, mondoTop, stessoProfiloAnnoDopo, offerBase)).toBeGreaterThan(0);
+  });
+
+  it("findTransferRequest a sorpresa non pesca mai un titolare sereno preso quest'anno", () => {
+    const { state } = fullCareer("sorpresa-nuovo-acquisto", 80);
+    const titolare = createRosterEntry({
+      playerId: "nuovo-acquisto", overall: 92, potential: 92, sinceSeason: state.season, morale: 85,
+    });
+    const roster = [{ ...titolare, stats: { ...titolare.stats, minutes: 2700 } }, ...state.roster.slice(0, 3)];
+
+    for (let tentativo = 0; tentativo < 200; tentativo++) {
+      const random = mulberry32(tentativo + 1);
+      const request = findTransferRequest(
+        roster,
+        { matchday: 30, hasOpenRequest: false, random, currentSeason: state.season },
+        () => ({ squadAverage: 80, availableMinutes: 2700, played: false, scored: false }),
+      );
+      expect(request?.playerId).not.toBe("nuovo-acquisto");
+    }
+  });
+
+  /**
+   * Titolarità garantita legata alla rottura: solo una rottura vera la toglie, non un
+   * malumore risolto bene.
+   */
+  it("una standoff che si rompe toglie la titolarità garantita del giocatore", () => {
+    const { state, world } = fullCareer("rottura-titolarita", 80);
+    const playerId = state.roster[0]!.playerId;
+    const conGaranzia = { ...state, roster: state.roster.map((e) => (e.playerId === playerId ? { ...e, morale: 40 } : e)), guaranteedStarters: { DC: playerId } };
+    let s = openPlayerStandoff(conGaranzia, world, playerId)!;
+    let corrente = conGaranzia;
+    for (let i = 0; i < 6 && s.status === "aperta"; i++) {
+      const esito = applyPlayerStandoff(corrente, world, s, { kind: "ignora" });
+      corrente = esito.state;
+      s = esito.standoff;
+    }
+    expect(s.status).toBe("rotta");
+    expect(corrente.guaranteedStarters?.DC).toBeUndefined();
+  });
+
+  it("una standoff che si placa NON tocca la titolarità garantita", () => {
+    const { state, world } = fullCareer("standoff-placata-titolarita", 80);
+    const playerId = state.roster[0]!.playerId;
+    const conGaranzia = { ...state, roster: state.roster.map((e) => (e.playerId === playerId ? { ...e, morale: 40 } : e)), guaranteedStarters: { DC: playerId } };
+    let s = openPlayerStandoff(conGaranzia, world, playerId)!;
+    let corrente = conGaranzia;
+    for (let i = 0; i < 6 && s.status === "aperta"; i++) {
+      const esito = applyPlayerStandoff(corrente, world, s, { kind: "prometti_spazio" });
+      corrente = esito.state;
+      s = esito.standoff;
+    }
+    expect(s.status).toBe("placata");
+    expect(corrente.guaranteedStarters?.DC).toBe(playerId);
+  });
+
+  describe("setGuaranteedStarter — un solo ruolo a testa, reset a cambio mister", () => {
+    it("garantire lo stesso giocatore per un nuovo ruolo sposta la garanzia, non la duplica", () => {
+      const { state } = fullCareer("un-solo-ruolo", 80);
+      const playerId = state.roster[0]!.playerId;
+      const conDC = setGuaranteedStarter(state, "DC", playerId);
+      expect(conDC.guaranteedStarters).toEqual({ DC: playerId });
+
+      const conMED = setGuaranteedStarter(conDC, "MED", playerId);
+      expect(conMED.guaranteedStarters).toEqual({ MED: playerId });
+      expect(conMED.guaranteedStarters?.DC).toBeUndefined();
+    });
+
+    it("garantire un giocatore diverso per lo stesso ruolo sostituisce, come già prima", () => {
+      const { state } = fullCareer("sostituzione-stesso-ruolo", 80);
+      const primo = state.roster[0]!.playerId;
+      const secondo = state.roster[1]!.playerId;
+      const conPrimo = setGuaranteedStarter(state, "DC", primo);
+      const conSecondo = setGuaranteedStarter(conPrimo, "DC", secondo);
+      expect(conSecondo.guaranteedStarters).toEqual({ DC: secondo });
+    });
+
+    it("garanzie su ruoli diversi per giocatori diversi convivono senza interferire", () => {
+      const { state } = fullCareer("garanzie-multiple", 80);
+      const a = state.roster[0]!.playerId;
+      const b = state.roster[1]!.playerId;
+      const conEntrambi = setGuaranteedStarter(setGuaranteedStarter(state, "DC", a), "MED", b);
+      expect(conEntrambi.guaranteedStarters).toEqual({ DC: a, MED: b });
+    });
+
+    it("cambiare mister azzera le titolarità garantite; riconfermare lo stesso mister no", () => {
+      const { state, world } = fullCareer("reset-cambio-mister", 80);
+      const playerId = state.roster[0]!.playerId;
+      const conGaranzia = setGuaranteedStarter(state, "DC", playerId);
+      expect(conGaranzia.guaranteedStarters?.DC).toBe(playerId);
+
+      // Riconferma dello stesso mister: hireCoach esce subito senza toccare lo stato.
+      const stessoCoach = hireCoach(conGaranzia, world, conGaranzia.coachId!);
+      expect(stessoCoach.state.guaranteedStarters?.DC).toBe(playerId);
+
+      // Cambio vero di mister: le garanzie si azzerano.
+      const scelte = coachChoices(conGaranzia, world);
+      const altro = scelte.find((c) => c.coachId !== conGaranzia.coachId && !c.blocked);
+      expect(altro, "serve almeno un altro mister ingaggiabile per il test").toBeDefined();
+      const cambiato = hireCoach({ ...conGaranzia, budget: 999_000_000 }, world, altro!.coachId);
+      expect(cambiato.rejected).toBeFalsy();
+      expect(cambiato.state.guaranteedStarters).toEqual({});
+    });
+
+    it("cambiare mister azzera anche la panchina forzata dal bivio giocatore-mister", () => {
+      const { state, world } = fullCareer("reset-coach-benched", 80);
+      const playerId = state.roster[0]!.playerId;
+      const conPanchina = { ...state, coachBenched: { [playerId]: true as const } };
+
+      const scelte = coachChoices(conPanchina, world);
+      const altro = scelte.find((c) => c.coachId !== conPanchina.coachId && !c.blocked);
+      expect(altro, "serve almeno un altro mister ingaggiabile per il test").toBeDefined();
+      const cambiato = hireCoach({ ...conPanchina, budget: 999_000_000 }, world, altro!.coachId);
+      expect(cambiato.state.coachBenched).toEqual({});
+    });
+  });
+
+  describe("bivio giocatore-mister — findTransferRequest lo apre solo nel caso più estremo", () => {
+    it("un titolare garantito scontento con sintonia col mister ai minimi apre 'bivio_mister'", () => {
+      const { state } = fullCareer("bivio-mister-trigger", 80);
+      const scontento = state.roster[0]!.playerId;
+      const roster = state.roster.map((e) => (e.playerId === scontento ? { ...e, morale: 20 } : e));
+      const request = findTransferRequest(
+        roster,
+        {
+          matchday: 10,
+          hasOpenRequest: false,
+          currentSeason: state.season,
+          guaranteedStarterIds: new Set([scontento]),
+          coachHarmony: 20,
+        },
+        () => ({ squadAverage: 80, availableMinutes: 900, played: false, scored: false }),
+      );
+      expect(request?.playerId).toBe(scontento);
+      expect(request?.reason).toBe("bivio_mister");
+    });
+
+    it("senza titolarità garantita, lo stesso scontento resta una richiesta normale", () => {
+      const { state } = fullCareer("bivio-mister-no-garanzia", 80);
+      const scontento = state.roster[0]!.playerId;
+      const roster = state.roster.map((e) => (e.playerId === scontento ? { ...e, morale: 20 } : e));
+      const request = findTransferRequest(
+        roster,
+        { matchday: 10, hasOpenRequest: false, currentSeason: state.season, coachHarmony: 20 },
+        () => ({ squadAverage: 80, availableMinutes: 900, played: false, scored: false }),
+      );
+      expect(request?.playerId).toBe(scontento);
+      expect(request?.reason).not.toBe("bivio_mister");
+    });
+
+    it("con la sintonia col mister ancora buona, un titolare garantito scontento NON arriva al bivio", () => {
+      const { state } = fullCareer("bivio-mister-sintonia-buona", 80);
+      const scontento = state.roster[0]!.playerId;
+      const roster = state.roster.map((e) => (e.playerId === scontento ? { ...e, morale: 20 } : e));
+      const request = findTransferRequest(
+        roster,
+        {
+          matchday: 10,
+          hasOpenRequest: false,
+          currentSeason: state.season,
+          guaranteedStarterIds: new Set([scontento]),
+          coachHarmony: 80,
+        },
+        () => ({ squadAverage: 80, availableMinutes: 900, played: false, scored: false }),
+      );
+      expect(request?.reason).not.toBe("bivio_mister");
+    });
+  });
+
+  describe("bivio giocatore-mister — effetti su coachId e currentLineup", () => {
+    it("'scegli_giocatore' fa dimettere il mister: coachId torna null", () => {
+      const { state, world } = fullCareer("bivio-dimissioni", 80);
+      const entry = state.roster[0]!;
+      const s = openStandoff(entry, "Il Bivio", "bivio_mister");
+      const { state: dopo } = applyPlayerStandoff(state, world, s, { kind: "scegli_giocatore" });
+      expect(dopo.coachId).toBeNull();
+    });
+
+    it("ignorare il bivio fino alla rottura esclude il giocatore da currentLineup per sempre", () => {
+      const { state, world } = fullCareer("bivio-panchina-lineup", 80);
+      const playerId = state.roster[0]!.playerId;
+      const entry = state.roster[0]!;
+      let s = openStandoff(entry, "Il Bivio", "bivio_mister");
+      let corrente = state;
+      for (let i = 0; i < 8 && s.status === "aperta"; i++) {
+        const esito = applyPlayerStandoff(corrente, world, s, { kind: "ignora" });
+        corrente = esito.state;
+        s = esito.standoff;
+      }
+      expect(s.status).toBe("rotta");
+      expect(corrente.coachBenched?.[playerId]).toBe(true);
+
+      const lineup = currentLineup(corrente, world);
+      const inCampo = Object.values(lineup.starters).includes(playerId) || lineup.bench.includes(playerId);
+      expect(inCampo).toBe(false);
+    });
+  });
+
   it("standoffCandidates elenca gli scontenti anche senza offerta", () => {
     const { state, world } = fullCareer("standoff-elenco");
     const aperto = advanceWeek(state, world).state;
@@ -1319,6 +1554,68 @@ describe("il faccia a faccia dentro il mercato (scheda Chat)", () => {
     const standoff = openPlayerStandoff(conRegenScontento, world, regen.id);
     expect(standoff).not.toBeNull();
     expect(standoff!.playerName).toBe(regen.name);
+  });
+
+  /**
+   * Segnalazione dell'utente: "Giocatore" ancora nelle **offerte di prestito** nelle stagioni
+   * successive alla prima. Verificato di persona che il punto di fusione principale
+   * (`DsMode.tsx`, `careerPlayers` applicato a `world.players`) e `buildMarketWorld` (anagrafica
+   * del mercato) sono già corretti — qui si verifica il lato **consumo** (`buildLoanOffers`/
+   * `buildOffers` dentro `openMarketWindow`): dato un `MarketWorld` la cui anagrafica include
+   * correttamente un regen (esattamente come la produce `buildMarketWorld` in produzione), le
+   * proposte di prestito e le offerte in entrata devono risolvere il suo nome vero, mai il
+   * fallback "Giocatore".
+   */
+  it("un regen in lista prestiti/trasferimenti, in una stagione avanzata, ha il nome vero nelle offerte", () => {
+    let { state, world } = fullCareer("prestiti-nome-vero", 80);
+    for (let s = 0; s < 3 && state.phase !== "conclusa" && state.generated.length === 0; s++) {
+      state = playSeason(state, world);
+    }
+    expect(state.generated.length).toBeGreaterThan(0);
+    // Dal 2026-08-06 il regen nasce in un club sorteggiato, non più garantito il nostro: qui
+    // conta solo la risoluzione del nome, quindi forziamo un entry in rosa per lui invece di
+    // sperare che il sorteggio l'abbia messo da noi entro la terza stagione.
+    const regen = state.generated[0]!;
+    if (!state.roster.some((e) => e.playerId === regen.id)) {
+      state = {
+        ...state,
+        roster: [
+          ...state.roster,
+          createRosterEntry({ playerId: regen.id, overall: 74, potential: 78, sinceSeason: state.season }),
+        ],
+      };
+    }
+
+    // Anagrafica di mercato "fresca", fusa con `state.generated` esattamente come fa
+    // `buildMarketWorld` in produzione (ricostruita a ogni stagione, non congelata alla prima).
+    const marketWorld = {
+      ...world.market!,
+      players: { ...world.market!.players, ...Object.fromEntries(state.generated.map((p) => [p.id, {
+        id: p.id, name: p.name, nation: p.nation, role: p.role, secondaryRoles: p.secondaryRoles,
+      }])) },
+      nameOf: (id: string) =>
+        state.generated.find((p) => p.id === id)?.name ?? world.market!.nameOf(id),
+    };
+
+    const snapshot = openMarketWindow(
+      state.roster,
+      marketWorld,
+      state.clubId,
+      state.leagueId,
+      state.budget,
+      "estiva",
+      state.seed,
+      state.season,
+      { transferList: [regen!.id], loanList: [regen!.id] },
+    );
+
+    const offertaTrasferimento = snapshot.offers.find((o) => o.playerId === regen!.id);
+    const offertaPrestito = snapshot.loanOffers.find((o) => o.playerId === regen!.id);
+    if (offertaTrasferimento) expect(offertaTrasferimento.playerName).toBe(regen!.name);
+    if (offertaPrestito) expect(offertaPrestito.playerName).toBe(regen!.name);
+    // Almeno una delle due deve essersi generata, altrimenti il test non verifica nulla.
+    expect(offertaTrasferimento || offertaPrestito).toBeDefined();
+    expect((offertaTrasferimento ?? offertaPrestito)!.playerName).not.toBe("Giocatore");
   });
 
   /**
@@ -2154,5 +2451,73 @@ describe("salvataggio e ripresa", () => {
       return advanceWeek(state, world).report.match?.opponent;
     })();
     expect(primo).toBe(secondo);
+  });
+});
+
+describe("resolveIncidentDecision — 'nottata_brava'/'intervista_contro'", () => {
+  function decisionIncident(playerId: string): Incident {
+    return {
+      kind: "nottata_brava",
+      playerId,
+      matchdays: 0,
+      moraleDelta: 0,
+      requiresDecision: true,
+      title: "Notte fuori prima della partita",
+      message: "x",
+    };
+  }
+
+  it("'ignora' non tocca il giocatore ma costa sintonia col mister", () => {
+    const { state, world } = fullCareer("incident-ignora", 80);
+    const playerId = state.roster[0]!.playerId;
+    const moralePrima = state.roster[0]!.morale;
+    const armoniaPrima = state.coachHarmony ?? 75;
+    const dopo = resolveIncidentDecision(state, world, decisionIncident(playerId), "ignora");
+    expect(dopo.roster.find((e) => e.playerId === playerId)!.morale).toBe(moralePrima);
+    expect(dopo.coachHarmony).toBeLessThan(armoniaPrima);
+  });
+
+  it("'punizione' abbassa il morale del giocatore, di più con più giorni", () => {
+    const { state, world } = fullCareer("incident-punizione", 80);
+    const playerId = state.roster[0]!.playerId;
+    const moralePrima = state.roster[0]!.morale;
+
+    const unGiorno = resolveIncidentDecision(state, world, decisionIncident(playerId), "punizione", 1);
+    const quattroGiorni = resolveIncidentDecision(state, world, decisionIncident(playerId), "punizione", 4);
+
+    const moraleUnGiorno = unGiorno.roster.find((e) => e.playerId === playerId)!.morale;
+    const moraleQuattroGiorni = quattroGiorni.roster.find((e) => e.playerId === playerId)!.morale;
+    expect(moraleUnGiorno).toBeLessThan(moralePrima);
+    expect(moraleQuattroGiorni).toBeLessThan(moraleUnGiorno);
+  });
+
+  it("la seconda occasione dello stesso giocatore apre una richiesta di cessione, a prescindere dal morale residuo", () => {
+    const { state, world } = fullCareer("incident-recidivo", 80);
+    const playerId = state.roster[0]!.playerId;
+    // Morale alto: una singola punizione non basterebbe a farlo scendere sotto la soglia
+    // generica di scontentezza — è la recidiva, non il morale, a dover forzare la richiesta.
+    const roster = state.roster.map((e) => (e.playerId === playerId ? { ...e, morale: 90 } : e));
+    const conMoraleAlto = { ...state, roster };
+
+    const primaVolta = resolveIncidentDecision(conMoraleAlto, world, decisionIncident(playerId), "punizione", 1);
+    expect(primaVolta.pendingRequest).toBeFalsy();
+    expect(primaVolta.disciplineHistory?.[playerId]).toBe(1);
+
+    const secondaVolta = resolveIncidentDecision(primaVolta, world, decisionIncident(playerId), "punizione", 1);
+    expect(secondaVolta.disciplineHistory?.[playerId]).toBe(2);
+    expect(secondaVolta.pendingRequest?.playerId).toBe(playerId);
+  });
+
+  it("non sovrascrive una richiesta di cessione già in sospeso per un altro giocatore", () => {
+    const { state, world } = fullCareer("incident-non-sovrascrive", 80);
+    const altro = state.roster[1]!.playerId;
+    const conRichiestaAperta: CareerState = {
+      ...state,
+      pendingRequest: { playerId: altro, reason: "scontento", openedAtMatchday: 1, playerName: "Altro" },
+    };
+    const playerId = state.roster[0]!.playerId;
+    const conStorico = { ...conRichiestaAperta, disciplineHistory: { [playerId]: 1 } };
+    const dopo = resolveIncidentDecision(conStorico, world, decisionIncident(playerId), "punizione", 4);
+    expect(dopo.pendingRequest?.playerId).toBe(altro);
   });
 });

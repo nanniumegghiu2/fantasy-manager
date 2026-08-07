@@ -81,7 +81,9 @@ export function PlayerStandoffChat({ standoff, onMove, onClose, forced }: Player
                   ? "Lo cerca un'altra squadra"
                   : standoff.reason === "tradito"
                     ? "Si sente tradito da una promessa infranta"
-                    : "È scontento"}
+                    : standoff.reason === "bivio_mister"
+                      ? "Chiede di scegliere fra lui e il mister"
+                      : "È scontento"}
               {standoff.offerFromClubName ? ` · offerta dal ${standoff.offerFromClubName}` : ""}
             </p>
           </div>
@@ -187,6 +189,26 @@ export function PlayerStandoffChat({ standoff, onMove, onClose, forced }: Player
                 className="w-full rounded-2xl border border-[var(--surface-border)] px-3 py-2 text-[11px] font-bold text-[var(--text-secondary)]"
               >
                 Annulla
+              </button>
+            </div>
+          ) : standoff.reason === "bivio_mister" ? (
+            <div className="flex flex-col gap-2">
+              <p className="px-1 text-[11px] font-bold text-[var(--text-secondary)]">
+                Una scelta netta: chi resta, il giocatore o il mister?
+              </p>
+              <button
+                type="button"
+                onClick={() => onMove({ kind: "scegli_giocatore" })}
+                className="flex w-full items-center justify-center gap-1.5 rounded-2xl bg-emerald-500 px-3 py-3 text-xs font-extrabold text-white transition-transform active:scale-95"
+              >
+                <User size={14} /> Scegli il giocatore — il mister lascia
+              </button>
+              <button
+                type="button"
+                onClick={() => onMove({ kind: "scegli_mister" })}
+                className="flex w-full items-center justify-center gap-1.5 rounded-2xl border border-[#ff4d4d]/50 px-3 py-3 text-xs font-extrabold text-[#ff4d4d] transition-transform active:scale-95"
+              >
+                <ShieldAlert size={14} /> Scegli il mister — il giocatore si rompe
               </button>
             </div>
           ) : (

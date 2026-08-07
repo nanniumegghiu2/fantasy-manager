@@ -50,6 +50,9 @@ export function canLoanOut(
   const entry = roster.find((e) => e.playerId === candidate.playerId);
   if (!entry) return { ok: false, reason: "Non è un tuo giocatore" };
   if (entry.loan) return { ok: false, reason: "È già coinvolto in un prestito" };
+  if (entry.injuryMatchdaysLeft > 0) {
+    return { ok: false, reason: "Infortunato: nessun club lo vuole in prestito, aspetta il rientro" };
+  }
   if (loansOut(roster).length >= MAX_LOANS_OUT) {
     return { ok: false, reason: `Massimo ${MAX_LOANS_OUT} prestiti in uscita` };
   }

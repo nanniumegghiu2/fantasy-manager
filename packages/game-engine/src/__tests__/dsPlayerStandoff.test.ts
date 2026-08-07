@@ -151,6 +151,64 @@ describe("mosse: riappacificazione o rottura", () => {
   });
 });
 
+describe("un vero botta e risposta, non lo stesso bottone premuto finché la barra non arriva a zero", () => {
+  it("ripetere di fila la stessa mossa consuma più pazienza della prima volta", () => {
+    const s = openStandoff(entryWith(90), "X", "scontento");
+    const primoGiro = applyStandoffMove(s, { kind: "rassicura" });
+    const secondoGiro = applyStandoffMove(primoGiro.standoff, { kind: "rassicura" });
+    const perditaPrimoGiro = s.patience - primoGiro.standoff.patience;
+    const perditaSecondoGiro = primoGiro.standoff.patience - secondoGiro.standoff.patience;
+    expect(perditaSecondoGiro).toBeGreaterThanOrEqual(perditaPrimoGiro * 2 - 1); // raddoppiata (a meno del clamp a 0)
+  });
+
+  it("alternare mosse diverse non subisce la penalità della ripetizione", () => {
+    const s = openStandoff(entryWith(90), "X", "scontento");
+    const primoGiro = applyStandoffMove(s, { kind: "rassicura" });
+    const secondoGiro = applyStandoffMove(primoGiro.standoff, { kind: "premio_denaro" });
+    // premio_denaro da solo perde 28: se non fosse raddoppiato, la perdita resta 28.
+    expect(primoGiro.standoff.patience - secondoGiro.standoff.patience).toBe(28);
+  });
+
+  it("sameMoveStreak conta le ripetizioni consecutive e si azzera cambiando mossa", () => {
+    const s0 = openStandoff(entryWith(95), "X", "scontento");
+    const s1 = applyStandoffMove(s0, { kind: "rassicura" }).standoff;
+    expect(s1.sameMoveStreak).toBe(0);
+    const s2 = applyStandoffMove(s1, { kind: "rassicura" }).standoff;
+    expect(s2.sameMoveStreak).toBe(1);
+    const s3 = applyStandoffMove(s2, { kind: "premio_denaro" }).standoff;
+    expect(s3.sameMoveStreak).toBe(0);
+  });
+
+  it("il testo del secondo scambio è diverso da quello di apertura, a parità di mossa", () => {
+    const s0 = openStandoff(entryWith(95), "X", "scontento");
+    const s1 = applyStandoffMove(s0, { kind: "rassicura" }).standoff;
+    const primaRisposta = s1.log[s1.log.length - 1]!.text;
+    const s2 = applyStandoffMove(s1, { kind: "premio_denaro" }).standoff;
+    const secondaRisposta = s2.log[s2.log.length - 1]!.text;
+    expect(secondaRisposta).not.toBe(primaRisposta);
+  });
+
+  it("ripetere la stessa mossa produce una battuta di rimprovero dedicata", () => {
+    const s0 = openStandoff(entryWith(95), "X", "scontento");
+    const s1 = applyStandoffMove(s0, { kind: "prometti_spazio" }).standoff;
+    const s2 = applyStandoffMove(s1, { kind: "prometti_spazio" }).standoff;
+    const rispostaRipetuta = s2.log[s2.log.length - 1]!.text;
+    // Diversa sia dalla risposta di apertura sia da quella "a metà" che avrebbe avuto una
+    // mossa nuova nello stesso punto della conversazione.
+    expect(rispostaRipetuta).toContain("promessa");
+  });
+
+  it("un premio in denaro pesa meno sulla pazienza per chi è già corteggiato da una big", () => {
+    const scontento = openStandoff(entryWith(90), "X", "scontento");
+    const richiamato = openStandoff(entryWith(90), "X", "richiamato", { clubId: "c1", clubName: "Club" });
+    const esitoScontento = applyStandoffMove(scontento, { kind: "premio_denaro" });
+    const esitoRichiamato = applyStandoffMove(richiamato, { kind: "premio_denaro" });
+    const perditaScontento = scontento.patience - esitoScontento.standoff.patience;
+    const perditaRichiamato = richiamato.patience - esitoRichiamato.standoff.patience;
+    expect(perditaRichiamato).toBeLessThan(perditaScontento);
+  });
+});
+
 describe("reazione a una fiducia già tradita", () => {
   it("chi ha già subito una promessa infranta parte con pochissima pazienza", () => {
     const normale = openStandoff(entryWith(60), "X", "scontento");
@@ -226,5 +284,54 @@ describe("verifica delle promesse a fine mercato", () => {
     const res = verifyPlayerPromises({ p1: { kind: "trionfo", madeSeason: 3 } }, [], players, 3, 5, 20);
     expect(res.moraleDelta).toEqual({});
     expect(res.newlyBroken).toEqual([]);
+  });
+});
+
+describe("bivio giocatore-mister — una scelta secca, non negoziabile", () => {
+  it("'bivio_mister' offre solo le due scelte nette più ignora", () => {
+    expect(relevantMoves("bivio_mister")).toEqual(["scegli_giocatore", "scegli_mister", "ignora"]);
+  });
+
+  it("apre con pazienza già bassa, come 'tradito'", () => {
+    const s = openStandoff(entryWith(70), "X", "bivio_mister");
+    expect(s.patience).toBeLessThanOrEqual(20);
+  });
+
+  it("'scegli_giocatore' placa la conversazione e fa dimettere il mister", () => {
+    const s = openStandoff(entryWith(40), "X", "bivio_mister");
+    const res = applyStandoffMove(s, { kind: "scegli_giocatore" });
+    expect(res.standoff.status).toBe("placata");
+    expect(res.moraleDelta).toBeGreaterThan(0);
+    expect(res.coachResigns).toBe(true);
+    expect(res.coachBenches).toBeUndefined();
+  });
+
+  it("'scegli_mister' rompe subito il rapporto col giocatore, nessuna dimissione", () => {
+    const s = openStandoff(entryWith(40), "X", "bivio_mister");
+    const res = applyStandoffMove(s, { kind: "scegli_mister" });
+    expect(res.standoff.status).toBe("rotta");
+    expect(res.moraleDelta).toBeLessThan(0);
+    expect(res.coachResigns).toBeUndefined();
+  });
+
+  it("ignorare fino alla rottura mette il giocatore in panchina permanente", () => {
+    let s = openStandoff(entryWith(15), "X", "bivio_mister");
+    let res = applyStandoffMove(s, { kind: "ignora" });
+    // Con pazienza di partenza bassissima, ignorare una volta può già rompere; se non basta,
+    // insistiamo finché non si rompe (patience scende sempre con "ignora").
+    let tentativi = 0;
+    while (res.standoff.status === "aperta" && tentativi < 10) {
+      res = applyStandoffMove(res.standoff, { kind: "ignora" });
+      tentativi += 1;
+    }
+    expect(res.standoff.status).toBe("rotta");
+    expect(res.coachBenches).toBe(true);
+  });
+
+  it("rompersi per una mossa diversa da 'ignora' non manda in panchina il giocatore", () => {
+    const s = openStandoff(entryWith(40), "X", "bivio_mister");
+    const res = applyStandoffMove(s, { kind: "scegli_mister" });
+    expect(res.standoff.status).toBe("rotta");
+    expect(res.coachBenches).toBeUndefined();
   });
 });

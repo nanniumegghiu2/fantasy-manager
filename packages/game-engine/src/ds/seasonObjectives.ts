@@ -12,27 +12,47 @@
 import type { LeagueTeam } from "../season/leagueState";
 import type { RosterEntry } from "./types";
 
-export type ObjectiveLabel = "Salvezza" | "Metà classifica" | "Europa" | "Titolo";
+export type ObjectiveLabel = "Salvezza" | "Parte bassa" | "Metà classifica" | "Europa" | "Titolo";
 
 export interface ObjectiveTier {
   targetPosition: number;
   label: ObjectiveLabel;
 }
 
-/** Etichetta per fascia di classifica, sullo stesso principio già usato altrove nel motore. */
-function labelFor(position: number, teamsInLeague: number): ObjectiveLabel {
-  if (position <= 1) return "Titolo";
-  if (position <= 4) return "Europa";
-  if (position <= teamsInLeague - 3) return "Metà classifica";
-  return "Salvezza";
+/**
+ * Soglie **fisse**, non più un offset di posizioni attorno a una stima: dichiarate
+ * dall'utente, sostituiscono il placeholder a ±4 posizioni. In ordine dalla più ambiziosa alla
+ * più prudente.
+ */
+export const OBJECTIVE_THRESHOLDS: readonly ObjectiveTier[] = [
+  { targetPosition: 1, label: "Titolo" },
+  { targetPosition: 4, label: "Europa" },
+  { targetPosition: 9, label: "Metà classifica" },
+  { targetPosition: 13, label: "Parte bassa" },
+  { targetPosition: 17, label: "Salvezza" },
+];
+
+/**
+ * Lo scaglione fisso di cui `position` ha bisogno per dirsi "in obiettivo": il più ambizioso
+ * fra quelli ancora raggiunti (`position <= targetPosition`). Sotto Salvezza (18ª-20ª, già
+ * zona retrocessione) resta comunque Salvezza — non c'è uno scaglione più permissivo.
+ */
+export function tierFor(position: number): ObjectiveTier {
+  return (
+    OBJECTIVE_THRESHOLDS.find((t) => position <= t.targetPosition) ??
+    OBJECTIVE_THRESHOLDS[OBJECTIVE_THRESHOLDS.length - 1]!
+  );
 }
 
 /**
- * Tre fasce (conservativa/realistica/ambiziosa), centrate su dove la rosa attuale si
- * collocherebbe davvero — stimato confrontando la nostra forza media con quella delle 19
- * avversarie, lo stesso segnale che il mercato usa per il prezzo di un giocatore.
- *
- * Placeholder di bilanciamento dichiarato (±4 posizioni), tarabile come `AI_CLUB_COHESION`.
+ * Tre scelte (ambiziosa/realistica/conservativa) lungo la scala fissa, centrate sullo
+ * scaglione di dove la rosa attuale si collocherebbe davvero — stimato confrontando la nostra
+ * forza media con quella delle 19 avversarie, lo stesso segnale che il mercato usa per il
+ * prezzo di un giocatore. Non più un offset numerico di posizioni: un salto di **scaglione**
+ * lungo la scala fissa (realistica ± uno scaglione), quindi il `targetPosition` di ogni scelta
+ * è sempre una delle 5 soglie dichiarate (17/13/9/4/1), mai un numero calcolato al volo. Agli
+ * estremi (rosa già da titolo, o già la più debole) alcuni scaglioni coincidono e le scelte
+ * proposte scendono a due invece di tre — non c'è un sesto scaglione da inventare.
  */
 export function suggestObjectiveTiers(
   roster: readonly RosterEntry[],
@@ -44,24 +64,14 @@ export function suggestObjectiveTiers(
   const piuForti = opponents.filter((o) => o.rating > nostra).length;
   const posizioneStimata = Math.max(1, Math.min(teamsInLeague, piuForti + 1));
 
-  const scarto = 4;
-  const posizioni = [
-    Math.min(teamsInLeague, posizioneStimata + scarto),
-    posizioneStimata,
-    Math.max(1, posizioneStimata - scarto),
-  ];
-  // Tre fasce distinte: se lo scarto le fa collassare (rosa già al vertice o già ultima), si
-  // allarga finché non sono tre posizioni davvero diverse — un obiettivo non può ripetersi.
-  const uniche = [...new Set(posizioni)];
-  while (uniche.length < 3 && uniche.length > 0) {
-    const ultimo = uniche[uniche.length - 1]!;
-    const prossimo = ultimo < teamsInLeague ? ultimo + 1 : Math.max(1, uniche[0]! - 1);
-    if (!uniche.includes(prossimo)) uniche.push(prossimo);
-    else break;
-  }
-  return uniche
-    .sort((a, b) => a - b)
-    .map((targetPosition) => ({ targetPosition, label: labelFor(targetPosition, teamsInLeague) }));
+  const indiceRealistico = OBJECTIVE_THRESHOLDS.findIndex((t) => posizioneStimata <= t.targetPosition);
+  const r = indiceRealistico === -1 ? OBJECTIVE_THRESHOLDS.length - 1 : indiceRealistico;
+  const ultimo = OBJECTIVE_THRESHOLDS.length - 1;
+  const indiceAmbizioso = Math.max(0, r - 1);
+  const indiceConservativo = Math.min(ultimo, r + 1);
+
+  const indici = [...new Set([indiceAmbizioso, r, indiceConservativo])].sort((a, b) => a - b);
+  return indici.map((i) => OBJECTIVE_THRESHOLDS[i]!);
 }
 
 /**

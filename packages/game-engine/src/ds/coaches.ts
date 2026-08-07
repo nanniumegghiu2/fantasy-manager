@@ -511,11 +511,25 @@ export function getClubDefaultCoach(clubId: string, clubName?: string): Coach | 
 
 /**
  * Gli allenatori disposti ad allenare un club di un dato prestigio.
+ *
+ * **Deduplicato per nome.** `COACHES` contiene, oltre al catalogo dettagliato, un blocco di
+ * alias `c-01`..`c-24` mantenuto apposta per non rompere `findCoach` sui salvataggi precedenti
+ * che referenziano quegli id (bug segnalato dall'utente: la lista mostrava lo stesso allenatore
+ * due volte). Qui, dove si genera l'elenco **visibile** nel picker, si tiene solo la prima
+ * occorrenza per nome — il blocco dettagliato viene prima nell'array, quindi è sempre quello a
+ * vincere il dedup.
  */
 export function availableCoaches(clubPrestigeTier: number, budget = Infinity): Coach[] {
-  return COACHES.filter(
+  const idonei = COACHES.filter(
     (coach) => coach.reputation <= clubPrestigeTier + 1 && coach.hireCost <= budget
   ).sort((a, b) => b.reputation - a.reputation || b.development - a.development);
+
+  const visti = new Set<string>();
+  return idonei.filter((coach) => {
+    if (visti.has(coach.name)) return false;
+    visti.add(coach.name);
+    return true;
+  });
 }
 
 /** Calcola l'indennizzo di riscatto (buyout fee) per soffiare un tecnico sotto contratto ad un altro club. */

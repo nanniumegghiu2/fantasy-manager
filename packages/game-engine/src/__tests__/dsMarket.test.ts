@@ -267,6 +267,12 @@ describe("prestiti", () => {
     expect(canLoanOut(roster, { playerId: "p0", age: 27, overall: 70, potential: 70 }).ok).toBe(false);
   });
 
+  it("un infortunato non è una destinazione prestito proponibile", () => {
+    const conInfortunato = roster.map((e) => (e.playerId === "p0" ? { ...e, injuryMatchdaysLeft: 6 } : e));
+    const esito = canLoanOut(conInfortunato, { playerId: "p0", age: 21, overall: 70, potential: 84 });
+    expect(esito.ok).toBe(false);
+  });
+
   it("c'è un tetto ai prestiti aperti, così non diventano la scorciatoia universale", () => {
     let conPrestiti = [...roster];
     for (let i = 0; i < MAX_LOANS_OUT; i++) {

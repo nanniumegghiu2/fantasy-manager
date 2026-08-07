@@ -44,6 +44,19 @@ function formattaCifra(kind: Negotiation["kind"], value: number): string {
   return euro(value);
 }
 
+/**
+ * Gli incrementi rapidi della cifra personalizzata: 0,5M/1M/5M per un trasferimento, l'unità
+ * equivalente in partite per un prestito (minuti garantiti, non un prezzo — sez. `formattaCifra`).
+ */
+function passiIncremento(kind: Negotiation["kind"]): number[] {
+  return kind === "prestito" ? [90, 90 * 3, 90 * 5] : [500_000, 1_000_000, 5_000_000];
+}
+
+function etichettaPasso(kind: Negotiation["kind"], passo: number): string {
+  if (kind === "prestito") return `${Math.round(passo / 90)} p.`;
+  return passo >= 1_000_000 ? `${passo / 1_000_000}M` : `${passo / 1000}k`;
+}
+
 export function NegotiationChat({ negotiation, budget, onMove, onClose }: NegotiationChatProps) {
   const fondo = useRef<HTMLDivElement>(null);
   const [scrive, setScrive] = useState(false);
@@ -275,25 +288,37 @@ export function NegotiationChat({ negotiation, budget, onMove, onClose }: Negoti
               </p>
 
               {/* Cifra personalizzata: stessa mossa "rilancia" dei bottoni sopra, stesso costo
-                  in pazienza — solo la cifra la sceglie l'utente invece del passo del motore. */}
+                  in pazienza — solo la cifra la sceglie l'utente, con incrementi rapidi invece
+                  di un input libero (semplificato su richiesta esplicita dell'utente: "1mln,
+                  0,5mln ecc." invece di digitare un numero). */}
               {personalizza ? (
-                <div className="mt-2.5 flex flex-col gap-1.5">
-                  <div className="flex items-center gap-2 rounded-2xl border border-[var(--surface-border)] p-2">
-                    <input
-                      type="number"
-                      inputMode="numeric"
-                      min={0}
-                      step={negotiation.kind === "prestito" ? 1 : 50_000}
-                      value={negotiation.kind === "prestito" ? Math.round(cifra / 90) : cifra}
-                      onChange={(e) => {
-                        const v = Math.max(0, Number(e.target.value) || 0);
-                        setCifra(negotiation.kind === "prestito" ? v * 90 : v);
-                      }}
-                      className="w-0 min-w-0 flex-1 bg-transparent px-1.5 text-sm font-bold tabular-nums outline-none"
-                    />
-                    {negotiation.kind === "prestito" && (
-                      <span className="shrink-0 text-[11px] text-[var(--text-secondary)]">partite</span>
-                    )}
+                <div className="mt-2.5 flex flex-col gap-2">
+                  <p className="text-center text-lg font-extrabold tabular-nums">
+                    {formattaCifra(negotiation.kind, cifra)}
+                  </p>
+                  <div className="flex items-center justify-center gap-1.5">
+                    {passiIncremento(negotiation.kind).map((passo) => (
+                      <button
+                        key={`meno-${passo}`}
+                        type="button"
+                        onClick={() => setCifra((v) => Math.max(0, v - passo))}
+                        className="rounded-lg border border-[var(--surface-border)] px-2.5 py-1.5 text-[11px] font-bold text-[var(--text-secondary)] active:scale-95"
+                      >
+                        −{etichettaPasso(negotiation.kind, passo)}
+                      </button>
+                    ))}
+                    {passiIncremento(negotiation.kind).map((passo) => (
+                      <button
+                        key={`più-${passo}`}
+                        type="button"
+                        onClick={() => setCifra((v) => v + passo)}
+                        className="rounded-lg border border-[var(--brand)]/40 bg-[var(--brand)]/10 px-2.5 py-1.5 text-[11px] font-bold text-[var(--brand)] active:scale-95"
+                      >
+                        +{etichettaPasso(negotiation.kind, passo)}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="flex items-center gap-2">
                     <button
                       type="button"
                       disabled={nonSostenibile({ kind: "rilancia", amount: cifra })}
@@ -301,7 +326,7 @@ export function NegotiationChat({ negotiation, budget, onMove, onClose }: Negoti
                         onMove({ kind: "rilancia", amount: cifra });
                         setPersonalizza(false);
                       }}
-                      className={`shrink-0 rounded-xl px-3 py-1.5 text-[11px] font-bold ${
+                      className={`flex-1 rounded-xl px-3 py-2 text-[11px] font-bold ${
                         nonSostenibile({ kind: "rilancia", amount: cifra })
                           ? "cursor-not-allowed bg-[var(--surface-raised)] text-[var(--text-secondary)] opacity-40"
                           : "bg-[var(--accent)] text-[var(--brand-contrast)]"
@@ -313,7 +338,7 @@ export function NegotiationChat({ negotiation, budget, onMove, onClose }: Negoti
                       type="button"
                       onClick={() => setPersonalizza(false)}
                       aria-label="Annulla cifra personalizzata"
-                      className="shrink-0 rounded-xl border border-[var(--surface-border)] p-1.5 text-[var(--text-secondary)]"
+                      className="shrink-0 rounded-xl border border-[var(--surface-border)] p-2 text-[var(--text-secondary)]"
                     >
                       <X size={13} />
                     </button>

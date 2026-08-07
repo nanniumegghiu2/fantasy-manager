@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from "framer-motion";
-import { ArrowDownLeft, ArrowUpRight, Plane, TriangleAlert } from "lucide-react";
+import { ArrowDownLeft, ArrowUpRight, Gift, Plane, TriangleAlert } from "lucide-react";
 import { euro } from "./format";
 
 /**
@@ -13,7 +13,7 @@ import { euro } from "./format";
  * Vive sopra il pannello di mercato e sparisce da solo: non è una decisione, è un riscontro.
  */
 
-export type DealKind = "acquisto" | "cessione" | "prestito" | "errore";
+export type DealKind = "acquisto" | "cessione" | "prestito" | "premio" | "errore";
 
 export interface Deal {
   /** Cambia a ogni operazione: è ciò che fa ripartire l'animazione. */
@@ -28,6 +28,10 @@ const STILE: Record<DealKind, { colore: string; icona: typeof ArrowUpRight; tito
   acquisto: { colore: "#3ddc6b", icona: ArrowDownLeft, titolo: "Acquisto concluso" },
   cessione: { colore: "#ff8a3d", icona: ArrowUpRight, titolo: "Cessione conclusa" },
   prestito: { colore: "#5aa9e6", icona: Plane, titolo: "Prestito concluso" },
+  // Il premio in denaro a un giocatore in chat (playerStandoff.ts, "premio_denaro") è un
+  // esborso reale dal budget — merita lo stesso riscontro visivo delle operazioni di mercato,
+  // non solo la riga di testo nella chat.
+  premio: { colore: "#f5c518", icona: Gift, titolo: "Premio versato" },
   errore: { colore: "#ff4d4d", icona: TriangleAlert, titolo: "Operazione non riuscita" },
 };
 

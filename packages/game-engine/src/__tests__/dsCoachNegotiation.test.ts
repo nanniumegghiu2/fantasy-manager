@@ -141,6 +141,47 @@ describe("Generazione Dinamica Promesse dell'Allenatore", () => {
     expect(specialista.description).toContain(specialista.targetPlayerName!);
   });
 
+  /**
+   * Bug segnalato dall'utente: alcuni mister chiedevano un ruolo "naturale" (es. QD) che
+   * letteralmente nessuno in database ha come ruolo principale — la richiesta va scelta solo
+   * fra i ruoli con **almeno un candidato reale** (principale o secondario) nel pool passato.
+   */
+  it("non chiede mai un ruolo senza nessun candidato reale (naturale o secondario) nel pool", () => {
+    const inzaghi = findCoach("coach-inzaghi")!; // 3-5-2: QD/QS prioritari
+    const analysis: SquadAnalysis = {
+      squadSize: 24, avgAge: 26, topPlayerOverall: 84, under22Count: 4, over30Count: 3,
+      domesticCount: 6, hasSecondKeeper: true, missingRolesCount: 0,
+    };
+    // Nessun QD/QS naturale o secondario nel pool: solo centrocampisti e difensori centrali.
+    const candidati: RoleCandidate[] = [
+      { playerId: "c1", playerName: "Mediano", overall: 82, role: "CC", secondaryRoles: ["MED"] },
+      { playerId: "c2", playerName: "Centrale", overall: 80, role: "DC", secondaryRoles: [] },
+    ];
+    const random = derivedRandom("copertura-mancante", "coachPromise", 1, inzaghi.id);
+    const promises = generateCoachPromises(inzaghi, [], analysis, 1, undefined, random, candidati);
+    const specialista = promises.find((p) => p.kind === "formation_fit")!;
+    expect(["QD", "QS"]).not.toContain(specialista.targetRole);
+    expect(["CC", "DC"]).toContain(specialista.targetRole);
+  });
+
+  it("un ruolo coperto solo da secondario conta come coperto, e la richiesta lo nomina", () => {
+    const inzaghi = findCoach("coach-inzaghi")!; // 3-5-2: QD/QS prioritari
+    const analysis: SquadAnalysis = {
+      squadSize: 24, avgAge: 26, topPlayerOverall: 84, under22Count: 4, over30Count: 3,
+      domesticCount: 6, hasSecondKeeper: true, missingRolesCount: 0,
+    };
+    // Nessun QD naturale, ma un terzino destro che lo sa coprire da secondario.
+    const candidati: RoleCandidate[] = [
+      { playerId: "c1", playerName: "Terzino Jolly", overall: 83, role: "TD", secondaryRoles: ["QD"] },
+    ];
+    const random = derivedRandom("copertura-secondaria", "coachPromise", 1, inzaghi.id);
+    const promises = generateCoachPromises(inzaghi, [], analysis, 1, undefined, random, candidati);
+    const specialista = promises.find((p) => p.kind === "formation_fit")!;
+    expect(specialista.targetRole).toBe("QD");
+    expect(specialista.targetPlayerId).toBe("c1");
+    expect(specialista.description).not.toContain("naturale");
+  });
+
   it("un giocatore fuori dal sistema di gioco del mister può essere chiesto in cessione (sell_misfit)", () => {
     const coach = findCoach("coach-inzaghi")!; // 3-5-2: niente ED/ES
     const squad = [

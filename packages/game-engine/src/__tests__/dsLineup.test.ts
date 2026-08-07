@@ -228,6 +228,20 @@ describe("libertà di rosa", () => {
     expect(canSell(undici, undici[0]!.playerId, players).ok).toBe(false);
   });
 
+  /**
+   * Richiesta esplicita dell'utente: un infortunato non attira offerte, "neanche mettendolo in
+   * lista trasferimenti o dal tasto cessione rapida" — bloccato alla radice in `canSell`, che
+   * governa sia `buildOffers` (offerte in entrata) sia l'azione "vendi subito".
+   */
+  it("un infortunato non si può vendere, né subito né tramite un'offerta", () => {
+    const { entries, players } = buildSquad();
+    const infortunato = { ...entries[0]!, injuryMatchdaysLeft: 8 };
+    const conInfortunato = [infortunato, ...entries.slice(1)];
+    const esito = canSell(conInfortunato, infortunato.playerId, players);
+    expect(esito.ok).toBe(false);
+    expect(esito.reason).toBe("injured");
+  });
+
   it("si compra fino a un tetto alto, che nell'uso reale non si tocca", () => {
     const { entries } = buildSquad();
     expect(canBuy(entries).ok).toBe(true);

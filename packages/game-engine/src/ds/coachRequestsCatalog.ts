@@ -25,6 +25,8 @@ export interface RoleCandidate {
   playerName: string;
   overall: number;
   role: Role;
+  /** Ruoli secondari: un ruolo coperto solo da qui conta comunque come "coperto". */
+  secondaryRoles?: Role[];
 }
 
 /** Genera id univoco breve per ogni promessa, dal random passato (riproducibile). */
@@ -100,16 +102,30 @@ export function generateCoachPromises(
   const formation = getFormation(coach.formationId);
   const roliInFormazione = new Set(formation?.slots.map((s) => s.role) ?? []);
   const priorita: Role[] = ["ED", "ES", "QD", "QS", "TQD", "TQS", "CC", "MED", "DC"];
-  const targetRole: Role = priorita.find((r) => roliInFormazione.has(r)) ?? "CC";
+  // Il ruolo scelto deve avere **almeno un candidato reale** (principale o secondario) nel
+  // pool passato — altrimenti si chiede un ruolo che letteralmente nessuno in database sa
+  // coprire (es. QD, rarissimo come ruolo naturale). Senza candidati passati (es. ingaggio
+  // iniziale, prima che il mercato sia noto) si ripiega sul vecchio comportamento cieco,
+  // meglio di bloccare la richiesta del tutto.
+  const roliConCopertura = new Set(
+    (roleCandidates ?? []).flatMap((c) => [c.role, ...(c.secondaryRoles ?? [])]),
+  );
+  const targetRole: Role =
+    priorita.find((r) => roliInFormazione.has(r) && (roliConCopertura.size === 0 || roliConCopertura.has(r))) ??
+    priorita.find((r) => roliInFormazione.has(r)) ??
+    "CC";
 
   const reqRoleOverall = Math.max(78, Math.min(85, analysis.topPlayerOverall - 1));
 
   // Se il mercato offre un candidato reale per quel ruolo, la richiesta lo nomina — non più
-  // solo "un ruolo X da almeno Y", ma "quel giocatore lì". Fra i candidati adatti si sceglie
-  // col random passato, non sempre il migliore: altrimenti la stessa richiesta nominerebbe
-  // sempre lo stesso nome ogni volta che il mercato propone la stessa rosa di candidati.
+  // solo "un ruolo X da almeno Y", ma "quel giocatore lì". Accetta anche chi lo copre da
+  // secondario: la verifica di soddisfacimento (`promiseSatisfiedNow`) fa lo stesso, quindi
+  // la ricerca del nominato dev'essere coerente con cosa viene poi accettato davvero. Fra i
+  // candidati adatti si sceglie col random passato, non sempre il migliore: altrimenti la
+  // stessa richiesta nominerebbe sempre lo stesso nome ogni volta che il mercato propone la
+  // stessa rosa di candidati.
   const adattiPerRuolo = (roleCandidates ?? []).filter(
-    (c) => c.role === targetRole && c.overall >= reqRoleOverall,
+    (c) => (c.role === targetRole || (c.secondaryRoles ?? []).includes(targetRole)) && c.overall >= reqRoleOverall,
   );
   const nominato =
     adattiPerRuolo.length > 0
@@ -125,7 +141,7 @@ export function generateCoachPromises(
     targetPlayerName: nominato?.playerName,
     description: nominato
       ? `Acquisto di ${nominato.playerName} (${targetRole}, Overall ${nominato.overall}) per il ${coach.formationId}`
-      : `Acquisto di uno specialista di ruolo ${targetRole} naturale (Overall ≥ ${reqRoleOverall}) per il ${coach.formationId}`,
+      : `Acquisto di uno specialista in grado di coprire il ruolo ${targetRole} (Overall ≥ ${reqRoleOverall}) per il ${coach.formationId}`,
     seasonAccepted: season,
     fulfilled: false,
     priority: "imprescindibile",

@@ -29,6 +29,7 @@ import {
   openPlayerStandoff,
   playNegotiation,
   proposePromiseAlternative,
+  setGuaranteedStarter,
   resolveForcedStandoff,
   seasonObjectiveChoices,
   setSeasonObjective,
@@ -39,6 +40,7 @@ import {
   isKeyMatch,
   keyMatchReason,
   rebuildLeagueState,
+  resolveIncidentDecision,
   searchMarket,
   seasonCalendar,
   type CareerState,
@@ -72,7 +74,7 @@ import { CupProgress } from "./CupProgress";
 import { IncidentDialog } from "./IncidentDialog";
 import { KeyMatchPrompt } from "./KeyMatchPrompt";
 import { MatchTheatre } from "./MatchTheatre";
-import { dealKindOf, type Deal } from "./DealToast";
+import { DealToast, dealKindOf, type Deal } from "./DealToast";
 import { MarketPanel } from "./MarketPanel";
 import { NegotiationChat } from "./NegotiationChat";
 import type { DsWorldData } from "./useDsWorld";
@@ -260,6 +262,20 @@ export function CareerScreen({
     setRipartire(true);
   }, []);
 
+  /**
+   * Il verdetto dei due imprevisti "con decisione" (`incident.requiresDecision`): a differenza
+   * di tutti gli altri, l'effetto non era già scritto nell'oggetto — arriva solo qui, quando il
+   * DS ha scelto se ignorare o punire. `IncidentDialog` chiama anche `chiudiImprevisto` subito
+   * dopo, quindi la corsa riparte da sola come per ogni altro imprevisto.
+   */
+  const decidiImprevisto = useCallback(
+    (scelta: "ignora" | "punizione", giorni?: number) => {
+      if (!incident) return;
+      onChange(resolveIncidentDecision(state, world, incident, scelta, giorni));
+    },
+    [incident, state, world, onChange],
+  );
+
   const salta = useCallback(() => {
     const rimanenti = coda.current;
     coda.current = [];
@@ -345,14 +361,36 @@ export function CareerScreen({
     (playerId: string) => setStandoff(openPlayerStandoff(state, world, playerId)),
     [state, world],
   );
+  /**
+   * Il premio in denaro promesso in chat (`premio_denaro`) scala davvero il budget
+   * (`applyPlayerStandoff`, career.ts) — qui si dà lo stesso riscontro visivo delle operazioni
+   * di mercato, altrimenti l'esborso resterebbe implicito nel solo testo della chat.
+   */
+  const [standoffDeal, setStandoffDeal] = useState<Deal | null>(null);
+  const segnalaPremio = useCallback((budgetPrima: number, budgetDopo: number, playerName: string) => {
+    if (budgetDopo >= budgetPrima) return;
+    setStandoffDeal({
+      id: Date.now(),
+      kind: "premio",
+      message: `Premio versato a ${playerName}`,
+      delta: budgetDopo - budgetPrima,
+    });
+  }, []);
+  useEffect(() => {
+    if (!standoffDeal) return;
+    const timer = setTimeout(() => setStandoffDeal(null), 2600);
+    return () => clearTimeout(timer);
+  }, [standoffDeal]);
+
   const mossaStandoff = useCallback(
     (move: StandoffMove) => {
       if (!standoff) return;
       const { state: next, standoff: dopo } = applyPlayerStandoff(state, world, standoff, move);
+      if (move.kind === "premio_denaro") segnalaPremio(state.budget, next.budget, standoff.playerName);
       onChange(next);
       setStandoff(dopo);
     },
-    [state, world, standoff, onChange],
+    [state, world, standoff, onChange, segnalaPremio],
   );
   const chiudiStandoff = useCallback(() => {
     if (standoff) setStandoffChiuse((prev) => new Set(prev).add(standoff.playerId));
@@ -399,10 +437,11 @@ export function CareerScreen({
     (move: StandoffMove) => {
       if (!standoffForzato) return;
       const { state: next, standoff: dopo } = resolveForcedStandoff(state, world, standoffForzato, move);
+      if (move.kind === "premio_denaro") segnalaPremio(state.budget, next.budget, standoffForzato.playerName);
       onChange(next);
       setStandoffForzato(dopo);
     },
-    [state, world, standoffForzato, onChange],
+    [state, world, standoffForzato, onChange, segnalaPremio],
   );
   // Come per gli imprevisti: la stagione riparte da sola, ma solo quando l'utente ha letto
   // l'esito e chiude la chat — non nell'istante in cui la trattativa si risolve, altrimenti la
@@ -507,9 +546,15 @@ export function CareerScreen({
     () =>
       (world.market?.transferPool ?? [])
         .map((p) => {
-          const role = world.market!.players[p.playerId]?.role;
-          return role
-            ? { playerId: p.playerId, playerName: world.market!.nameOf(p.playerId), overall: p.overall, role }
+          const info = world.market!.players[p.playerId];
+          return info
+            ? {
+                playerId: p.playerId,
+                playerName: world.market!.nameOf(p.playerId),
+                overall: p.overall,
+                role: info.role,
+                secondaryRoles: info.secondaryRoles,
+              }
             : null;
         })
         .filter((c): c is NonNullable<typeof c> => c !== null),
@@ -818,7 +863,7 @@ export function CareerScreen({
         )}
 
         {incident && !teatro && !keyMatch && (
-          <IncidentDialog key="imprevisto" incident={incident} onClose={chiudiImprevisto} />
+          <IncidentDialog key="imprevisto" incident={incident} onClose={chiudiImprevisto} onDecide={decidiImprevisto} />
         )}
 
         {clubVisto && (
@@ -849,6 +894,17 @@ export function CareerScreen({
             onClose={chiudiStandoffForzato}
             forced
           />
+        )}
+
+        {/* Riscontro del premio in denaro: sopra a qualunque chat standoff sia aperta (contenitore
+            dedicato perché `DealToast` è pensato per ancorarsi a un genitore `relative`, come già
+            fa dentro `MarketPanel`). */}
+        {standoffDeal && (
+          <div key="premio-toast" className="pointer-events-none fixed inset-0 z-[60]">
+            <div className="relative h-full w-full">
+              <DealToast deal={standoffDeal} />
+            </div>
+          </div>
         )}
 
         {!correndo && !incident && !teatro && !keyMatch && state.market && !state.pendingRequest && (
@@ -911,15 +967,10 @@ export function CareerScreen({
                 prev
                   ? {
                       ...prev,
-                      nextState: {
-                        ...prev.nextState,
-                        // Sovrascrive la chiave del ruolo: chi era garantito lì prima perde lo
-                        // status a favore del nuovo, invece di restare accodato accanto a lui.
-                        guaranteedStarters: {
-                          ...(prev.nextState.guaranteedStarters ?? {}),
-                          [role]: pId,
-                        },
-                      },
+                      // Un giocatore è garantito in un solo ruolo alla volta: `setGuaranteedStarter`
+                      // sovrascrive la chiave del ruolo richiesto e toglie l'eventuale garanzia
+                      // dello stesso giocatore su qualunque altro ruolo.
+                      nextState: setGuaranteedStarter(prev.nextState, role, pId),
                     }
                   : null,
               );

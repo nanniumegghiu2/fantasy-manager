@@ -118,6 +118,12 @@ describe("regole di ingaggio", () => {
         expect(inc.playerId).toBeUndefined();
         expect(inc.matchdays).toBe(0);
         expect(inc.budgetDelta).toBeDefined();
+      } else if (inc.requiresDecision) {
+        // "nottata_brava"/"intervista_contro": l'effetto non è già scritto nell'oggetto, arriva
+        // solo da `resolveIncidentDecision` quando il DS sceglie — qui restano a zero apposta.
+        expect(inc.message).toContain("Giocatore");
+        expect(inc.matchdays).toBe(0);
+        expect(inc.moraleDelta).toBe(0);
       } else {
         expect(inc.message).toContain("Giocatore");
         expect(inc.matchdays).toBeGreaterThan(0);
@@ -199,5 +205,113 @@ describe("effetto sulla rosa", () => {
       message: "…",
     });
     expect(dopo.find((e) => e.playerId === "p2")!.injuryMatchdaysLeft).toBe(20);
+  });
+
+  /**
+   * Richiesta esplicita dell'utente: "un lungo infortunio influirà sul suo overall facendolo
+   * calare di valore" — applicato una sola volta all'evento, non recupera da solo.
+   */
+  it("un infortunio lungo/gravissimo fa calare l'Overall della vittima; gli altri imprevisti no", () => {
+    const iniziale = rosa();
+    const overallPrima = iniziale.find((e) => e.playerId === "p3")!.overall;
+
+    const dopoLungo = applyIncident(iniziale, {
+      kind: "infortunio_lungo", playerId: "p3", matchdays: 10, moraleDelta: -12, title: "…", message: "…",
+    });
+    expect(dopoLungo.find((e) => e.playerId === "p3")!.overall).toBe(overallPrima - 2);
+
+    const dopoGravissimo = applyIncident(iniziale, {
+      kind: "infortunio_gravissimo", playerId: "p3", matchdays: 25, moraleDelta: -20, title: "…", message: "…",
+    });
+    expect(dopoGravissimo.find((e) => e.playerId === "p3")!.overall).toBe(overallPrima - 4);
+
+    const dopoCondotta = applyIncident(iniziale, {
+      kind: "condotta_antisportiva", playerId: "p3", matchdays: 3, moraleDelta: -8, title: "…", message: "…",
+    });
+    expect(dopoCondotta.find((e) => e.playerId === "p3")!.overall).toBe(overallPrima);
+  });
+});
+
+/**
+ * Richiesta esplicita dell'utente: "un giocatore senza ricambi tenderà ad infortunarsi più
+ * spesso" — il rischio di infortunio (lungo/gravissimo) è pesato dalla profondità di rosa nel
+ * ruolo della vittima.
+ */
+describe("il rischio di infortunio dipende dalla profondità di rosa nel ruolo", () => {
+  it("un giocatore senza alternative nel suo ruolo viene colpito più spesso di uno con tanti ricambi", () => {
+    // Un solo DC (nessun ricambio) contro tanti CC (rosa profonda in quel ruolo).
+    const rosterEntries = [
+      createRosterEntry({ playerId: "solo-dc", overall: 80, potential: 80, sinceSeason: 1 }),
+      ...Array.from({ length: 10 }, (_, i) =>
+        createRosterEntry({ playerId: `cc-${i}`, overall: 80, potential: 80, sinceSeason: 1 }),
+      ),
+    ];
+    const playerRoles: Record<string, { role: "DC" | "CC"; secondaryRoles: [] }> = {
+      "solo-dc": { role: "DC", secondaryRoles: [] },
+    };
+    for (let i = 0; i < 10; i++) playerRoles[`cc-${i}`] = { role: "CC", secondaryRoles: [] };
+
+    let infortuniSoloDc = 0;
+    let infortuniCc = 0;
+    for (let s = 0; s < 3000; s++) {
+      const inc = rollIncident({
+        roster: rosterEntries,
+        nameOf: nomeDi,
+        matchday: 5,
+        random: mulberry32(s),
+        playerRoles,
+      });
+      if (inc?.kind !== "infortunio_lungo" && inc?.kind !== "infortunio_gravissimo") continue;
+      if (inc.playerId === "solo-dc") infortuniSoloDc++;
+      else infortuniCc++;
+    }
+    // "solo-dc" è 1 su 11 giocatori (~9%): se il rischio fosse piatto ci si aspetterebbe una
+    // quota simile. Col rischio pesato dalla profondità, la sua quota individuale deve superare
+    // nettamente quella di un singolo CC (che ha 10 alternative sane).
+    const quotaSoloDc = infortuniSoloDc / (infortuniSoloDc + infortuniCc || 1);
+    const quotaMediaCc = infortuniCc / 10 / (infortuniSoloDc + infortuniCc || 1);
+    expect(quotaSoloDc).toBeGreaterThan(quotaMediaCc);
+  });
+
+  it("senza playerRoles il rischio resta piatto come prima (retrocompatibile)", () => {
+    const r = rosa();
+    for (let s = 0; s < 20; s++) {
+      // Non deve lanciare né comportarsi diversamente senza playerRoles.
+      expect(() => rollIncident({ roster: r, nameOf: nomeDi, matchday: 5, random: mulberry32(s) })).not.toThrow();
+    }
+  });
+});
+
+describe("imprevisti con decisione — 'nottata_brava'/'intervista_contro' non si auto-risolvono", () => {
+  it("produce un incident con requiresDecision e nessun effetto già scritto", () => {
+    let trovato: ReturnType<typeof rollIncident> | undefined;
+    for (let s = 0; s < 20000 && !trovato; s++) {
+      const inc = rollIncident({ roster: rosa(), nameOf: nomeDi, matchday: 5, random: mulberry32(s) });
+      if (inc?.kind === "nottata_brava" || inc?.kind === "intervista_contro") trovato = inc;
+    }
+    expect(trovato, "serve almeno un imprevisto con decisione su 20000 tentativi").toBeDefined();
+    expect(trovato!.requiresDecision).toBe(true);
+    expect(trovato!.matchdays).toBe(0);
+    expect(trovato!.moraleDelta).toBe(0);
+    expect(trovato!.playerId).toBeDefined();
+  });
+
+  it("applyIncident su un imprevisto con decisione è un no-op (matchdays/moraleDelta zero)", () => {
+    const roster = rosa();
+    const vittima = roster[3]!;
+    const incident = {
+      kind: "nottata_brava" as const,
+      playerId: vittima.playerId,
+      matchdays: 0,
+      moraleDelta: 0,
+      requiresDecision: true as const,
+      title: "x",
+      message: "y",
+    };
+    const dopo = applyIncident(roster, incident);
+    const stessa = dopo.find((e) => e.playerId === vittima.playerId)!;
+    expect(stessa.injuryMatchdaysLeft).toBe(vittima.injuryMatchdaysLeft);
+    expect(stessa.morale).toBe(vittima.morale);
+    expect(stessa.overall).toBe(vittima.overall);
   });
 });

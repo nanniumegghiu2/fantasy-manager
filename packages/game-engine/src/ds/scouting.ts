@@ -38,10 +38,16 @@ export interface SearchCriteria {
   query?: string;
   /** Filtro per reparto; `undefined` = tutti. */
   department?: Department;
-  /** Filtro per ruolo puntuale del tabellone. */
-  role?: Role;
+  /**
+   * Filtro per ruolo puntuale del tabellone, **multi-selezione**: un giocatore che copre uno
+   * qualunque dei ruoli scelti (principale o secondario) passa il filtro — "DC o CC" trova chi
+   * sa fare l'uno o l'altro, non solo chi li fa entrambi. Vuoto/assente = nessun filtro.
+   */
+  roles?: Role[];
   maxPrice?: number;
   minOverall?: number;
+  maxOverall?: number;
+  minAge?: number;
   maxAge?: number;
   /** Solo chi il suo club lascerebbe partire in prestito. */
   onlyLoanable?: boolean;
@@ -139,15 +145,18 @@ export function searchPlayers({
     const department = ROLE_DEPARTMENT[player.role];
     if (criteria.department && department !== criteria.department) continue;
     // Un ruolo secondario vale quanto il principale in una ricerca: chi cerca un terzino
-    // sinistro vuole vedere anche chi lo sa fare, non solo chi lo fa di mestiere.
+    // sinistro vuole vedere anche chi lo sa fare, non solo chi lo fa di mestiere. Multi-
+    // selezione: basta coprire **uno qualunque** dei ruoli scelti.
     if (
-      criteria.role &&
-      player.role !== criteria.role &&
-      !player.secondaryRoles.includes(criteria.role)
+      criteria.roles &&
+      criteria.roles.length > 0 &&
+      !criteria.roles.some((r) => player.role === r || player.secondaryRoles.includes(r))
     ) {
       continue;
     }
     if (criteria.minOverall !== undefined && player.overall < criteria.minOverall) continue;
+    if (criteria.maxOverall !== undefined && player.overall > criteria.maxOverall) continue;
+    if (criteria.minAge !== undefined && player.age < criteria.minAge) continue;
     if (criteria.maxAge !== undefined && player.age > criteria.maxAge) continue;
 
     const price = currentValue(player, valuation);
@@ -213,8 +222,10 @@ export function searchPlayers({
  * Sconto dichiarato: chi ha fretta incassa meno. Serve a tenere una differenza fra il mettere
  * in lista e aspettare l'offerta giusta (prezzo pieno o sopra) e il liberarsene adesso per
  * fare cassa — altrimenti la lista trasferimenti non avrebbe alcuna ragione di esistere.
+ * Abbassato da 0.78 a 0.58 su richiesta esplicita dell'utente: deve sentirsi una vera svendita
+ * di saldo, non un piccolo sconto sul valore pieno.
  */
-export const QUICK_SALE_SHARE = 0.78;
+export const QUICK_SALE_SHARE = 0.58;
 
 export function quickSalePrice(value: number): number {
   return Math.max(50_000, Math.round((value * QUICK_SALE_SHARE) / 50_000) * 50_000);
