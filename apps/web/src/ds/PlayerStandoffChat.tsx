@@ -8,11 +8,13 @@ import {
   Coins,
   DollarSign,
   Flame,
+  Handshake,
   Hourglass,
   Plane,
   ShieldAlert,
   Sparkles,
   Star,
+  Target,
   Tag,
   Trophy,
   User,
@@ -64,6 +66,7 @@ export function PlayerStandoffChat({ standoff, onMove, onClose, forced }: Player
   const hasOfferCard = !!(standoff.offerDetails || standoff.offerFromClubName);
   const offerAmount = standoff.offerDetails?.amount ?? 0;
   const offerClub = standoff.offerDetails?.clubName ?? standoff.offerFromClubName ?? "Club offerente";
+  const demand = standoff.demand;
 
   return (
     <motion.div
@@ -77,7 +80,7 @@ export function PlayerStandoffChat({ standoff, onMove, onClose, forced }: Player
         animate={{ y: 0 }}
         exit={{ y: "100%" }}
         transition={{ type: "spring", stiffness: 330, damping: 32 }}
-        className="flex h-[85svh] w-full max-w-md flex-col overflow-hidden rounded-t-3xl border border-[var(--surface-border)] bg-[var(--surface)] sm:h-[78svh] sm:rounded-3xl"
+        className="flex h-[88svh] w-full max-w-md flex-col overflow-hidden rounded-t-3xl border border-[var(--surface-border)] bg-[var(--surface)] sm:h-[80svh] sm:rounded-3xl"
       >
         {/* Header con Profilo Calciatore e Personalità */}
         <header className="flex flex-col gap-2 border-b border-[var(--surface-border)] bg-[var(--surface-raised)]/50 p-4">
@@ -127,6 +130,19 @@ export function PlayerStandoffChat({ standoff, onMove, onClose, forced }: Player
             </div>
           )}
         </header>
+
+        {/* DEMAND CARD - Richiesta Esplicita del Calciatore */}
+        {demand && (
+          <div className="border-b border-amber-500/20 bg-amber-500/10 px-4 py-2.5 flex items-start gap-2.5">
+            <Target size={16} className="shrink-0 text-amber-400 mt-0.5" />
+            <div className="min-w-0 flex-1 text-xs">
+              <p className="font-extrabold text-amber-300 uppercase tracking-wider text-[10px]">
+                Richiesta del Calciatore per Restare
+              </p>
+              <p className="text-amber-100/90 leading-tight font-medium mt-0.5">{demand.description}</p>
+            </div>
+          </div>
+        )}
 
         {/* Barra della Tensione / Pazienza */}
         <div className="flex items-center gap-2 border-b border-[var(--surface-border)] bg-black/20 px-4 py-2">
@@ -291,7 +307,11 @@ export function PlayerStandoffChat({ standoff, onMove, onClose, forced }: Player
                   <button
                     type="button"
                     onClick={() => onMove({ kind: "prometti_spazio" })}
-                    className="flex flex-col items-center justify-center rounded-2xl bg-[var(--brand)] px-3 py-2 text-xs font-bold text-[var(--brand-contrast)] transition-transform active:scale-95"
+                    className={`flex flex-col items-center justify-center rounded-2xl px-3 py-2 text-xs font-bold transition-transform active:scale-95 ${
+                      demand?.kind === "garanzia_titolarita"
+                        ? "bg-emerald-600 text-white shadow-md border border-emerald-400"
+                        : "bg-[var(--brand)] text-[var(--brand-contrast)]"
+                    }`}
                   >
                     <span className="flex items-center gap-1">
                       <Hourglass size={12} /> Prometti Spazio
@@ -303,19 +323,27 @@ export function PlayerStandoffChat({ standoff, onMove, onClose, forced }: Player
                   <button
                     type="button"
                     onClick={() => onMove({ kind: "premio_denaro" })}
-                    className="flex flex-col items-center justify-center rounded-2xl border border-amber-500/50 px-3 py-2 text-xs font-bold text-amber-400 transition-transform active:scale-95"
+                    className={`flex flex-col items-center justify-center rounded-2xl border px-3 py-2 text-xs font-bold transition-transform active:scale-95 ${
+                      demand?.kind === "adeguamento_economico"
+                        ? "border-emerald-500 bg-emerald-500/20 text-emerald-300"
+                        : "border-amber-500/50 text-amber-400"
+                    }`}
                   >
                     <span className="flex items-center gap-1">
                       <Coins size={12} /> Premio in Denaro
                     </span>
-                    <span className="text-[9px] text-amber-300/80 font-normal">Scala dal Budget</span>
+                    <span className="text-[9px] opacity-80 font-normal">Scala dal Budget</span>
                   </button>
                 )}
                 {mosse.has("promessa_rinforzi") && (
                   <button
                     type="button"
                     onClick={() => setScegliReparto(true)}
-                    className="flex items-center justify-center gap-1.5 rounded-2xl border border-[var(--brand)]/50 px-3 py-2.5 text-xs font-bold text-[var(--brand)] transition-transform active:scale-95"
+                    className={`flex items-center justify-center gap-1.5 rounded-2xl border px-3 py-2.5 text-xs font-bold transition-transform active:scale-95 ${
+                      demand?.kind === "promessa_rinforzo"
+                        ? "border-emerald-500 bg-emerald-500/20 text-emerald-300"
+                        : "border-[var(--brand)]/50 text-[var(--brand)]"
+                    }`}
                   >
                     <Sparkles size={13} /> Promessa: Rinforzo
                   </button>
@@ -361,13 +389,24 @@ export function PlayerStandoffChat({ standoff, onMove, onClose, forced }: Player
                 )}
               </div>
 
+              {/* MOSSA PROMETTI TRATTATIVA CESSIONE AL MIGLIOR PREZZO */}
+              {mosse.has("prometti_trattativa_cessione") && (
+                <button
+                  type="button"
+                  onClick={() => onMove({ kind: "prometti_trattativa_cessione" })}
+                  className="flex w-full items-center justify-center gap-2 rounded-2xl bg-cyan-600 px-3 py-2.5 text-xs font-black text-white transition-transform active:scale-95 shadow-md hover:bg-cyan-500"
+                >
+                  <Handshake size={15} /> Prometti di trattare la vendita al miglior prezzo
+                </button>
+              )}
+
               {mosse.has("accetta_cessione") && (standoff.offerFromClubId || standoff.offerDetails) && (
                 <button
                   type="button"
                   onClick={() => onMove({ kind: "accetta_cessione" })}
-                  className="flex w-full items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-3 py-3 text-xs font-black text-white transition-transform active:scale-95 shadow-md hover:bg-emerald-500"
+                  className="flex w-full items-center justify-center gap-2 rounded-2xl border border-emerald-500/60 bg-emerald-950/40 px-3 py-2.5 text-xs font-extrabold text-emerald-300 transition-transform active:scale-95 hover:bg-emerald-900/60"
                 >
-                  <Banknote size={15} /> Accetta Offerta {offerAmount > 0 ? `da ${formatEuroAmount(offerAmount)}` : ""}
+                  <Banknote size={15} /> Accetta subito l'offerta {offerAmount > 0 ? `da ${formatEuroAmount(offerAmount)}` : ""}
                 </button>
               )}
             </div>

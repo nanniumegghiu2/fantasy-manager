@@ -363,5 +363,25 @@ describe("nuove feature: offerDetails, approvazione mister e multa disciplinare"
     const res = applyStandoffMove(s, { kind: "premio_denaro" }, { currentBudget: 100_000, marketValue: 10_000_000 });
     expect(res.errorMessage).toContain("Budget insufficiente");
   });
+
+  it("genera una richiesta esplicita (PlayerDemand) coerente con la situazione", () => {
+    const s = openStandoff(entryWith(50), "X", "vuole_giocare");
+    expect(s.demand).toBeDefined();
+    expect(s.demand?.kind).toBe("garanzia_titolarita");
+  });
+
+  it("la mossa 'prometti_trattativa_cessione' placa il giocatore senza eseguire la vendita immediata", () => {
+    const s = openStandoff(entryWith(40), "X", "richiamato", {
+      clubId: "c1",
+      clubName: "PSG",
+      amount: 40_000_000,
+      kind: "trasferimento",
+    });
+    const res = applyStandoffMove(s, { kind: "prometti_trattativa_cessione" });
+    expect(res.standoff.status).toBe("placata");
+    expect(res.listForTransfer).toBe(true);
+    expect(res.sellNow).toBe(false); // Rimane aperta nel pannello mercato per contrattare col DS avversario!
+  });
 });
+
 

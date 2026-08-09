@@ -40,6 +40,20 @@ export interface PlayerStandoffOfferDetails {
   kind: "trasferimento" | "prestito";
 }
 
+/** Richiesta esplicita formulata dal calciatore per convincerlo a restare. */
+export type PlayerDemandKind =
+  | "adeguamento_economico"
+  | "garanzia_titolarita"
+  | "promessa_rinforzo"
+  | "cessione_irrevocabile";
+
+export interface PlayerDemand {
+  kind: PlayerDemandKind;
+  description: string;
+  department?: Department;
+  amount?: number;
+}
+
 export interface PlayerStandoff {
   playerId: string;
   playerName: string;
@@ -53,6 +67,7 @@ export interface PlayerStandoff {
   offerFromClubName?: string;
   offerDetails?: PlayerStandoffOfferDetails;
   personality?: PlayerPersonality;
+  demand?: PlayerDemand;
   overall?: number;
   marketValue?: number;
   round: number;
@@ -71,6 +86,7 @@ export type StandoffMove =
   | { kind: "lista_cessione" }
   | { kind: "accetta_cessione" }
   | { kind: "concedi_prestito" }
+  | { kind: "prometti_trattativa_cessione" }
   | { kind: "scegli_giocatore" }
   | { kind: "scegli_mister" }
   | { kind: "multa_disciplina" }
@@ -99,6 +115,70 @@ export function formatEuroAmount(amount: number): string {
     return `€ ${mill}M`;
   }
   return `€ ${Math.round(amount / 1_000).toLocaleString("it-IT")}k`;
+}
+
+export function derivePlayerDemand(
+  reason: StandoffReason,
+  entry: RosterEntry,
+  personality: PlayerPersonality,
+  marketValue: number,
+  offer?: PlayerStandoffOfferDetails,
+): PlayerDemand {
+  if (reason === "bivio_mister" || reason === "tradito") {
+    return {
+      kind: "cessione_irrevocabile",
+      description: "Non accetta compromessi: pretende la cessione o il licenziamento del mister.",
+    };
+  }
+
+  if (reason === "richiamato") {
+    if (personality === "mercenario") {
+      const bonus = Math.max(300_000, Math.round(marketValue * 0.04));
+      return {
+        kind: "adeguamento_economico",
+        amount: bonus,
+        description: `Richiede un adeguamento economico di ${formatEuroAmount(bonus)} per rifiutare l'offerta del ${offer?.clubName ?? "club"}.`,
+      };
+    }
+    if (personality === "giovane_ambizioso" || entry.morale < 35) {
+      return {
+        kind: "cessione_irrevocabile",
+        description: `Pretende di essere ceduto al ${offer?.clubName ?? "club offerente"}. Accetta di attendere che trattiate la vendita sul mercato.`,
+      };
+    }
+    return {
+      kind: "garanzia_titolarita",
+      description: "Pretende garanzie di titolarità dall'allenatore per restare al club.",
+    };
+  }
+
+  if (reason === "vuole_giocare") {
+    return {
+      kind: "garanzia_titolarita",
+      description: "Pretende lo spazio da titolare col mister o la cessione.",
+    };
+  }
+
+  if (personality === "mercenario") {
+    const bonus = Math.max(300_000, Math.round(marketValue * 0.04));
+    return {
+      kind: "adeguamento_economico",
+      amount: bonus,
+      description: `Richiede un premio/adeguamento di ${formatEuroAmount(bonus)} per ritrovare motivazioni.`,
+    };
+  }
+  if (personality === "leader") {
+    return {
+      kind: "promessa_rinforzo",
+      department: "ATT",
+      description: "Richiede l'acquisto di un rinforzo nel reparto per alzare le ambizioni del club.",
+    };
+  }
+
+  return {
+    kind: "garanzia_titolarita",
+    description: "Richiede la conferma del suo ruolo principale da titolare.",
+  };
 }
 
 /** Genera la battuta d'apertura dinamica basata su dati reali del calciatore e dell'offerta. */
@@ -140,13 +220,14 @@ export function buildOpeningText(
 export function relevantMoves(reason: StandoffReason): StandoffMove["kind"][] {
   switch (reason) {
     case "vuole_giocare":
-      return ["rassicura", "prometti_spazio", "lista_cessione", "concedi_prestito", "multa_disciplina", "ignora"];
+      return ["rassicura", "prometti_spazio", "prometti_trattativa_cessione", "lista_cessione", "concedi_prestito", "multa_disciplina", "ignora"];
     case "scontento":
       return [
         "rassicura",
         "premio_denaro",
         "promessa_rinforzi",
         "promessa_trionfo",
+        "prometti_trattativa_cessione",
         "lista_cessione",
         "multa_disciplina",
         "ignora",
@@ -156,12 +237,13 @@ export function relevantMoves(reason: StandoffReason): StandoffMove["kind"][] {
         "premio_denaro",
         "promessa_rinforzi",
         "promessa_trionfo",
+        "prometti_trattativa_cessione",
         "accetta_cessione",
         "lista_cessione",
         "ignora",
       ];
     case "tradito":
-      return ["premio_denaro", "rassicura", "lista_cessione", "concedi_prestito", "accetta_cessione", "multa_disciplina", "ignora"];
+      return ["premio_denaro", "rassicura", "prometti_trattativa_cessione", "lista_cessione", "concedi_prestito", "accetta_cessione", "multa_disciplina", "ignora"];
     case "bivio_mister":
       return ["scegli_giocatore", "scegli_mister", "ignora"];
   }
@@ -188,8 +270,10 @@ export function openStandoff(
   const age = context?.age ?? 25;
   const currentSeason = context?.currentSeason ?? entry.sinceSeason;
   const personality = derivePlayerPersonality(entry.playerId, age, entry.overall, entry.sinceSeason, currentSeason);
+  const marketVal = context?.marketValue ?? 5_000_000;
 
   const initialText = buildOpeningText(reason, playerName, fullOffer, personality, entry.stats);
+  const demand = derivePlayerDemand(reason, entry, personality, marketVal, fullOffer);
 
   return {
     playerId: entry.playerId,
@@ -205,8 +289,9 @@ export function openStandoff(
     offerFromClubName: fullOffer?.clubName,
     offerDetails: fullOffer,
     personality,
+    demand,
     overall: entry.overall,
-    marketValue: context?.marketValue,
+    marketValue: marketVal,
     round: 0,
     sameMoveStreak: 0,
   };
@@ -300,7 +385,6 @@ export function applyStandoffMove(
       break;
 
     case "prometti_spazio": {
-      // VALUTAZIONE DELL'OK DEL MISTER NON SCONTATA
       const playerOv = standoff.overall ?? 75;
       const approval = evaluateCoachApprovalForStarter(
         moveCtx?.coachApprovalCtx ?? { playerOverall: playerOv, starterOverallInRole: 77, coachHarmony: 50 },
@@ -317,7 +401,6 @@ export function applyStandoffMove(
         closing = "Questo sì che è un impegno vero. Aspetto di vederlo in campo.";
         rispostaRipetuta = "Un'altra promessa di minuti, la stessa di prima? Vediamo se stavolta conta.";
       } else {
-        // IL MISTER RIFIUTA! La promessa fallisce subito
         perdita = 45;
         moraleDelta = -20;
         promiseMinutes = false;
@@ -328,9 +411,8 @@ export function applyStandoffMove(
     }
 
     case "premio_denaro": {
-      // SCALA REALMENTE EURO DAL BUDGET
       const marketValue = standoff.marketValue ?? 5_000_000;
-      const calculatedBonus = Math.max(300_000, Math.round(marketValue * 0.04));
+      const calculatedBonus = standoff.demand?.amount ?? Math.max(300_000, Math.round(marketValue * 0.04));
 
       if (moveCtx?.currentBudget !== undefined && moveCtx.currentBudget < calculatedBonus) {
         return {
@@ -377,7 +459,7 @@ export function applyStandoffMove(
       dsText = "Ti prometto che lotteremo per le posizioni di vertice quest'anno: fidati del progetto.";
       early = "Belle parole. Le prendo, ma resto con gli occhi aperti.";
       mid = "Continuate a dirmelo, Direttore. Sul campo però si vede ancora poco.";
-      closing = "Va bene, ci sto. Ma non deludetemi: me lo ricorderò.";
+      closing = "Va bene, ci sto. But non deludetemi: me lo ricorderò.";
       rispostaRipetuta = "Lo stesso discorso di prima, Direttore. Le parole le ho già sentite.";
       break;
 
@@ -395,6 +477,15 @@ export function applyStandoffMove(
       listForLoan = true;
       dsText = "Ti mando in prestito: andrai a giocare con continuità altrove.";
       rispostaSecca = "Finalmente il campo vero. Grazie per avermi ascoltato, Direttore.";
+      break;
+
+    case "prometti_trattativa_cessione":
+      perdita = 40;
+      moraleDelta = 12;
+      listForTransfer = true;
+      sellNow = false;
+      dsText = "Accetto la tua volontà di partire: ti prometto che tratterò la tua vendita col club offerente per spuntare le condizioni migliori.";
+      rispostaSecca = "Va bene Direttore, mi fido. Trattate la mia vendita ma non tirate troppo la corda.";
       break;
 
     case "accetta_cessione":
@@ -441,9 +532,15 @@ export function applyStandoffMove(
       break;
   }
 
-  if (ripetuta && move.kind !== "accetta_cessione") perdita *= 2;
+  if (ripetuta && move.kind !== "accetta_cessione" && move.kind !== "prometti_trattativa_cessione") perdita *= 2;
 
-  const mosseSecchePatienzaZero: StandoffMove["kind"][] = ["accetta_cessione", "scegli_giocatore", "scegli_mister", "multa_disciplina"];
+  const mosseSecchePatienzaZero: StandoffMove["kind"][] = [
+    "accetta_cessione",
+    "prometti_trattativa_cessione",
+    "scegli_giocatore",
+    "scegli_mister",
+    "multa_disciplina",
+  ];
   let patience = mosseSecchePatienzaZero.includes(move.kind)
     ? 0
     : Math.max(0, standoff.patience - perdita);
@@ -459,7 +556,11 @@ export function applyStandoffMove(
           : early;
 
   let status: PlayerStandoff["status"] = "aperta";
-  if (move.kind === "accetta_cessione" || move.kind === "scegli_giocatore")
+  if (
+    move.kind === "accetta_cessione" ||
+    move.kind === "prometti_trattativa_cessione" ||
+    move.kind === "scegli_giocatore"
+  )
     status = "placata";
   else if (move.kind === "scegli_mister" || move.kind === "multa_disciplina" || (move.kind === "prometti_spazio" && !coachApproved))
     status = "rotta";
