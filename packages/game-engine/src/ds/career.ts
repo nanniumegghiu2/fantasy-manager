@@ -1805,11 +1805,27 @@ export function openPlayerStandoff(
         ? "vuole_giocare"
         : "scontento";
 
+  const val = playerValue(state, world, playerId);
+  const playerObj = careerPlayers(state, world)[playerId];
+  const eta = ageInSeason(playerObj?.birthDate, state.season) ?? 25;
+
   return openStandoff(
     entry,
     name,
     reason,
-    spinge && offer ? { clubId: offer.fromClubId, clubName: offer.fromClubName } : undefined,
+    spinge && offer
+      ? {
+          clubId: offer.fromClubId,
+          clubName: offer.fromClubName,
+          amount: offer.fee,
+          kind: "trasferimento",
+        }
+      : undefined,
+    {
+      age: eta,
+      currentSeason: state.season,
+      marketValue: val,
+    },
   );
 }
 
@@ -1825,6 +1841,18 @@ export function applyPlayerStandoff(
   standoff: PlayerStandoff,
   move: StandoffMove,
 ): { state: CareerState; standoff: PlayerStandoff } {
+  const val = standoff.marketValue ?? playerValue(state, world, standoff.playerId);
+
+  const moveCtx = {
+    currentBudget: state.budget,
+    marketValue: val,
+    coachApprovalCtx: {
+      playerOverall: standoff.overall ?? 75,
+      starterOverallInRole: 76,
+      coachHarmony: state.coachHarmony ?? 50,
+    },
+  };
+
   const {
     standoff: dopo,
     moraleDelta,
@@ -1832,11 +1860,13 @@ export function applyPlayerStandoff(
     listForLoan,
     promiseMinutes,
     moneyBonus,
+    moneyBonusAmount,
+    moneyEarnedAmount,
     promise,
     sellNow,
     coachResigns,
     coachBenches,
-  } = applyStandoffMove(standoff, move);
+  } = applyStandoffMove(standoff, move, moveCtx);
 
   let next = state;
   // Bivio giocatore-mister, lato mister: schierarsi col giocatore costa la panchina — stesso
@@ -1850,10 +1880,11 @@ export function applyPlayerStandoff(
     next = { ...next, coachBenched: { ...(next.coachBenched ?? {}), [standoff.playerId]: true } };
   }
   if (moneyBonus) {
-    // Premio subito: una percentuale del valore attuale, con un minimo che lo renda un gesto
-    // vero anche per un giocatore che vale poco — non una mancia simbolica.
-    const importo = Math.max(200_000, Math.round(playerValue(state, world, standoff.playerId) * 0.04));
+    const importo = moneyBonusAmount ?? Math.max(200_000, Math.round(val * 0.04));
     next = { ...next, budget: next.budget - importo };
+  }
+  if (moneyEarnedAmount) {
+    next = { ...next, budget: next.budget + moneyEarnedAmount };
   }
   if (promise) {
     next = {
@@ -1978,7 +2009,7 @@ export function openForcedStandoff(state: CareerState): PlayerStandoff | null {
   if (!pending) return null;
   const entry = state.roster.find((e) => e.playerId === pending.playerId);
   if (!entry) return null;
-  return openStandoff(entry, pending.playerName, pending.reason);
+  return openStandoff(entry, pending.playerName, pending.reason, undefined, { currentSeason: state.season });
 }
 
 /**

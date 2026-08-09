@@ -256,3 +256,36 @@ export type CareerPhase =
 
 /** Motivo per cui una carriera è finita. */
 export type CareerEnding = "completata" | "retrocessione" | "abbandono";
+
+/**
+ * Personalità del calciatore (archetipo): governa l'atteggiamento visivo e la reazione
+ * alle varie mosse del Direttore Sportivo nelle chat e trattative.
+ */
+export type PlayerPersonality = "leader" | "giovane_ambizioso" | "mercenario" | "insofferente" | "professionista";
+
+/** Deriva in modo deterministico l'archetipo di personalità di un calciatore dai suoi dati reali. */
+export function derivePlayerPersonality(
+  playerId: string,
+  age: number,
+  overall: number,
+  sinceSeason: number,
+  currentSeason: number,
+): PlayerPersonality {
+  const yearsAtClub = Math.max(0, currentSeason - sinceSeason);
+
+  // Veterano con alta presenza nel club o Overall elevato -> Leader
+  if (age >= 28 && (yearsAtClub >= 3 || overall >= 83)) {
+    return "leader";
+  }
+  // Giovane promettente under 24 -> Giovane Ambizioso
+  if (age <= 24) {
+    return "giovane_ambizioso";
+  }
+  // Algoritmo derivato dal seed dell'id per i restanti profili
+  const hash = playerId.split("").reduce((acc, ch) => acc + ch.charCodeAt(0), 0);
+  const mod = hash % 3;
+  if (mod === 0) return "mercenario";
+  if (mod === 1) return "insofferente";
+  return "professionista";
+}
+

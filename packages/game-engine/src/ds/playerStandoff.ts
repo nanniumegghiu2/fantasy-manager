@@ -5,22 +5,12 @@
  * (`playerTalks.ts`) o aspettare la richiesta throttled del motore (`events.ts`,
  * `pendingRequest`). Richiesta esplicita dell'utente: una vera trattativa, con la **stessa
  * tensione** delle trattative di mercato (`negotiation.ts`) — una barra di pazienza che si
- * consuma, e che porta o alla riappacificazione o alla rottura totale. Qui la posta non è un
- * prezzo ma il rapporto col giocatore: rassicurarlo, promettergli spazio o accontentarlo lo
- * chiude bene; ignorarlo lo esaurisce, e quando la pazienza finisce così il morale crolla al
- * minimo — un costo vero, non solo narrativo, perché `discontentPenalty`/`moraleTeamModifier`
- * (career.ts) lo fanno rendere meno in campo indipendentemente dal suo Overall.
+ * consuma, e che porta o alla riappacificazione o alla rottura totale.
  */
 import type { Department } from "@app/shared-types";
-import type { RosterEntry } from "./types";
+import type { PlayerPersonality, RosterEntry, SeasonStats } from "./types";
+import { derivePlayerPersonality } from "./types";
 
-/**
- * `"tradito"` non nasce da morale/offerta come gli altri: è lo stato di chi ha già subito una
- * promessa infranta (`playerPromises`, career.ts) — una conversazione che parte già compromessa,
- * non una scontentezza qualunque. `"bivio_mister"` è il caso più estremo: un titolare garantito,
- * scontento, in un momento di sintonia già bassa col mister, chiede esplicitamente al DS di
- * scegliere fra i due.
- */
 export type StandoffReason = "vuole_giocare" | "scontento" | "richiamato" | "tradito" | "bivio_mister";
 
 /** Sotto questa soglia di morale un giocatore è candidato al faccia a faccia. */
@@ -42,6 +32,14 @@ export interface StandoffMessage {
   text: string;
 }
 
+/** Dettagli dell'offerta di mercato quando il calciatore è tentato da un altro club. */
+export interface PlayerStandoffOfferDetails {
+  clubId: string;
+  clubName: string;
+  amount: number;
+  kind: "trasferimento" | "prestito";
+}
+
 export interface PlayerStandoff {
   playerId: string;
   playerName: string;
@@ -50,9 +48,13 @@ export interface PlayerStandoff {
   patience: number;
   status: "aperta" | "placata" | "rotta";
   log: StandoffMessage[];
-  /** Se c'è un'offerta di mercato per lui, il club offerente: si può accettarla da qui. */
+  /** Se c'è un'offerta di mercato per lui, il club offerente. */
   offerFromClubId?: string;
   offerFromClubName?: string;
+  offerDetails?: PlayerStandoffOfferDetails;
+  personality?: PlayerPersonality;
+  overall?: number;
+  marketValue?: number;
   round: number;
   /** L'ultima mossa scelta: serve a riconoscere chi ripete la stessa proposta di fila. */
   lastMoveKind?: StandoffMove["kind"];
@@ -68,17 +70,10 @@ export type StandoffMove =
   | { kind: "promessa_trionfo" }
   | { kind: "lista_cessione" }
   | { kind: "accetta_cessione" }
-  /**
-   * Concede un prestito: lo iscrive alla lista prestiti (`CareerState.lists.loanList`), che
-   * grazie alla garanzia di offerta immediata (sez. mercato prestiti) gli trova subito una
-   * destinazione — non è più una cessione istantanea a un club anonimo come nel vecchio popup
-   * a 4 bottoni, è l'ingresso nello stesso canale di mercato dei prestiti volontari.
-   */
   | { kind: "concedi_prestito" }
-  /** Solo per "bivio_mister": il DS si schiera col giocatore. Il mister si dimette. */
   | { kind: "scegli_giocatore" }
-  /** Solo per "bivio_mister": il DS si schiera col mister. Il giocatore crolla, rottura immediata. */
   | { kind: "scegli_mister" }
+  | { kind: "multa_disciplina" }
   | { kind: "ignora" };
 
 const REASON_OPEN: Record<StandoffReason, string> = {
@@ -97,33 +92,66 @@ const DEPARTMENT_IT: Record<Department, string> = {
   ATT: "in attacco",
 };
 
-/**
- * Quali mosse hanno senso in questa conversazione, dato **il vero motivo** per cui il
- * giocatore ha aperto bocca — richiesta esplicita dell'utente: prima il pannello mostrava
- * sempre lo stesso ventaglio di mosse, a prescindere che il problema fosse "voglio giocare" o
- * "mi hanno tradito", e conversazioni così diverse non possono avere le stesse risposte
- * sensate. `ignora` resta sempre disponibile: si può sempre scegliere di non rispondere.
- */
+/** Formatta una cifra in euro per i dialoghi e i riquadri offerta. */
+export function formatEuroAmount(amount: number): string {
+  if (amount >= 1_000_000) {
+    const mill = (amount / 1_000_000).toFixed(1).replace(".0", "");
+    return `€ ${mill}M`;
+  }
+  return `€ ${Math.round(amount / 1_000).toLocaleString("it-IT")}k`;
+}
+
+/** Genera la battuta d'apertura dinamica basata su dati reali del calciatore e dell'offerta. */
+export function buildOpeningText(
+  reason: StandoffReason,
+  _playerName: string,
+  offerDetails?: PlayerStandoffOfferDetails,
+  personality?: PlayerPersonality,
+  stats?: SeasonStats,
+): string {
+  if (reason === "richiamato" && offerDetails) {
+    const importoStr = offerDetails.amount > 0 ? ` da ${formatEuroAmount(offerDetails.amount)}` : "";
+    const operazioneStr = offerDetails.kind === "prestito" ? "in prestito" : "a titolo definitivo";
+    return `Direttore, il ${offerDetails.clubName} ha presentato un'offerta ufficiale${importoStr} per prendermi ${operazioneStr}. Per la mia carriera è un'opportunità enorme, pretendete che la valutiate seriamente!`;
+  }
+  if (reason === "vuole_giocare" && stats) {
+    if (stats.goals > 0) {
+      return `Direttore, ho segnato ${stats.goals} gol in ${stats.appearances} presenze e continuo a marcire in panchina! O gioco o me ne vado.`;
+    }
+    if (stats.appearances > 0) {
+      return `Ho solo ${stats.appearances} presenze in questa stagione. Ho bisogno di giocare con continuità o preferisco cambiare aria.`;
+    }
+  }
+  if (reason === "scontento" && personality) {
+    if (personality === "leader") {
+      return `Sono uno dei senatori di questo gruppo, ma sento che la società non mi sta dando la considerazione che merito.`;
+    }
+    if (personality === "mercenario") {
+      return `Il mio rendimento merita un adempimento economico adeguato. Altri compagni guadagnano più di me facendo meno.`;
+    }
+    if (personality === "giovane_ambizioso") {
+      return `Ho bisogno di garanzie di crescita per il mio futuro. Qui rischia di fermarsi la mia carriera.`;
+    }
+  }
+  return REASON_OPEN[reason];
+}
+
+/** Quali mosse hanno senso in questa conversazione per il motivo reale. */
 export function relevantMoves(reason: StandoffReason): StandoffMove["kind"][] {
   switch (reason) {
     case "vuole_giocare":
-      // Il problema è il minutaggio, non i soldi o un trionfo promesso: motivarlo con un
-      // premio o una promessa di gloria non risponde a quello che sta davvero chiedendo.
-      return ["rassicura", "prometti_spazio", "lista_cessione", "concedi_prestito", "ignora"];
+      return ["rassicura", "prometti_spazio", "lista_cessione", "concedi_prestito", "multa_disciplina", "ignora"];
     case "scontento":
-      // Malessere generico: qui ogni tipo di argomento è pertinente, il problema non è
-      // circoscritto.
       return [
         "rassicura",
         "premio_denaro",
         "promessa_rinforzi",
         "promessa_trionfo",
         "lista_cessione",
+        "multa_disciplina",
         "ignora",
       ];
     case "richiamato":
-      // Lo cerca una big: convincerlo a restare richiede argomenti pesanti, non una semplice
-      // rassicurazione a parole.
       return [
         "premio_denaro",
         "promessa_rinforzi",
@@ -133,12 +161,8 @@ export function relevantMoves(reason: StandoffReason): StandoffMove["kind"][] {
         "ignora",
       ];
     case "tradito":
-      // Chi ha già subito una promessa infranta non si fida di un'altra promessa: niente
-      // `promessa_rinforzi`/`promessa_trionfo`/`prometti_spazio` qui, servono fatti immediati.
-      return ["premio_denaro", "rassicura", "lista_cessione", "concedi_prestito", "accetta_cessione", "ignora"];
+      return ["premio_denaro", "rassicura", "lista_cessione", "concedi_prestito", "accetta_cessione", "multa_disciplina", "ignora"];
     case "bivio_mister":
-      // Non è negoziabile con le mosse morbide delle altre conversazioni: qui la scelta è
-      // secca. Ignorare (tenerli entrambi) è una scelta a sua volta, con una conseguenza vera.
       return ["scegli_giocatore", "scegli_mister", "ignora"];
   }
 }
@@ -147,74 +171,103 @@ export function openStandoff(
   entry: RosterEntry,
   playerName: string,
   reason: StandoffReason,
-  offer?: { clubId: string; clubName: string },
+  offer?: PlayerStandoffOfferDetails | { clubId: string; clubName: string },
+  context?: {
+    age?: number;
+    currentSeason?: number;
+    marketValue?: number;
+  },
 ): PlayerStandoff {
+  const fullOffer: PlayerStandoffOfferDetails | undefined =
+    offer && "amount" in offer
+      ? (offer as PlayerStandoffOfferDetails)
+      : offer
+        ? { clubId: offer.clubId, clubName: offer.clubName, amount: 0, kind: "trasferimento" }
+        : undefined;
+
+  const age = context?.age ?? 25;
+  const currentSeason = context?.currentSeason ?? entry.sinceSeason;
+  const personality = derivePlayerPersonality(entry.playerId, age, entry.overall, entry.sinceSeason, currentSeason);
+
+  const initialText = buildOpeningText(reason, playerName, fullOffer, personality, entry.stats);
+
   return {
     playerId: entry.playerId,
     playerName,
     reason,
-    // Chi ha già poca pazienza (morale basso) regge meno battute prima di rompersi o placarsi.
-    // Chi è già stato tradito, o è arrivato a un ultimatum col mister, parte quasi rotto: non
-    // basta una parola, serve una scelta netta — e anche così è in salita.
     patience:
       reason === "tradito" || reason === "bivio_mister"
         ? Math.max(8, Math.min(20, entry.morale))
         : Math.max(25, Math.min(80, entry.morale)),
     status: "aperta",
-    log: [{ speaker: "giocatore", text: REASON_OPEN[reason] }],
-    offerFromClubId: offer?.clubId,
-    offerFromClubName: offer?.clubName,
+    log: [{ speaker: "giocatore", text: initialText }],
+    offerFromClubId: fullOffer?.clubId,
+    offerFromClubName: fullOffer?.clubName,
+    offerDetails: fullOffer,
+    personality,
+    overall: entry.overall,
+    marketValue: context?.marketValue,
     round: 0,
     sameMoveStreak: 0,
   };
 }
 
+export interface CoachApprovalContext {
+  coachHarmony?: number;
+  starterOverallInRole?: number;
+  playerOverall: number;
+}
+
+export function evaluateCoachApprovalForStarter(ctx: CoachApprovalContext): { approved: boolean; reason: string } {
+  const diff = ctx.playerOverall - (ctx.starterOverallInRole ?? 75);
+  const harmonyBonus = ((ctx.coachHarmony ?? 50) - 50) / 10;
+  const score = diff + harmonyBonus;
+
+  if (score >= -2) {
+    return {
+      approved: true,
+      reason: "Il mister ha accettato: il calciatore entrerà tra i titolari garantiti.",
+    };
+  }
+  return {
+    approved: false,
+    reason: "Il mister si oppone: per lui l'attuale titolare garantisce maggiore equilibrio tattico.",
+  };
+}
+
+export interface StandoffMoveContext {
+  currentBudget?: number;
+  marketValue?: number;
+  coachApprovalCtx?: CoachApprovalContext;
+}
+
 export interface StandoffOutcome {
   standoff: PlayerStandoff;
   moraleDelta: number;
-  /** Va messo in lista trasferimenti. */
   listForTransfer?: boolean;
-  /** Va messo in lista prestiti (mossa `concedi_prestito`). */
   listForLoan?: boolean;
-  /** Va promessa più titolarità (stesso canale di `playerTalks.ts`/`minutesPromises`). */
   promiseMinutes?: boolean;
-  /** Un premio in denaro **subito**: career.ts calcola l'importo vero e lo scala dal budget. */
   moneyBonus?: boolean;
-  /** Una promessa futura, verificata a fine mercato: se infranta, il rapporto si rompe (career.ts). */
+  moneyBonusAmount?: number;
+  moneyEarnedAmount?: number;
+  coachApproved?: boolean;
   promise?: { kind: PlayerPromiseKind; department?: Department };
-  /** Esegui subito la cessione tramite l'offerta collegata. */
   sellNow?: boolean;
-  /** Solo "bivio_mister"/`scegli_giocatore`: il DS si schiera col giocatore, il mister si dimette. */
   coachResigns?: boolean;
-  /**
-   * Solo "bivio_mister" risolto per rottura (patience esaurita, incluso ignorarlo fino in
-   * fondo): il mister smette di schierare questo giocatore, finché non cambia mister o non lo
-   * si vende.
-   */
   coachBenches?: boolean;
+  errorMessage?: string;
 }
 
-/**
- * Applica una mossa alla trattativa. Puro e deterministico: la stessa mossa sullo stesso stato
- * dà sempre lo stesso esito (nessuna casualità qui — è la lettura della situazione a essere il
- * gioco, non un tiro di dado).
- *
- * **Non è più un bottone da ripremere finché la barra non arriva a zero.** Tre cose rendono la
- * conversazione un vero botta e risposta: la risposta del giocatore ha **tre fasce** (apertura,
- * a metà scambio, chiusura) invece di due, così due scambi con la stessa mossa non si leggono
- * identici; ripetere di fila la **stessa** proposta non convince di più — raddoppia il costo di
- * pazienza e il giocatore lo fa notare con una battuta dedicata, invece di ripagare come la
- * prima volta; e per il motivo "richiamato" (lo cerca una big) un premio in denaro pesa meno —
- * un top club non si batte con un bonifico.
- */
-export function applyStandoffMove(standoff: PlayerStandoff, move: StandoffMove): StandoffOutcome {
+export function applyStandoffMove(
+  standoff: PlayerStandoff,
+  move: StandoffMove,
+  moveCtx?: StandoffMoveContext,
+): StandoffOutcome {
   if (standoff.status !== "aperta") {
     return { standoff, moraleDelta: 0 };
   }
 
   const ripetuta = standoff.lastMoveKind === move.kind;
-  // round>=1 = non è il primo scambio di questa conversazione: la risposta cambia registro
-  // anche a parità di mossa, invece di alternare sempre le stesse due righe.
   const scambioInCorso = standoff.round >= 1;
 
   let perdita = 0;
@@ -223,11 +276,12 @@ export function applyStandoffMove(standoff: PlayerStandoff, move: StandoffMove):
   let listForLoan: boolean | undefined;
   let promiseMinutes: boolean | undefined;
   let moneyBonus: boolean | undefined;
+  let moneyBonusAmount: number | undefined;
+  let moneyEarnedAmount: number | undefined;
+  let coachApproved: boolean | undefined;
   let promise: StandoffOutcome["promise"];
   let sellNow: boolean | undefined;
   let dsText = "";
-  // Tre fasce per una mossa "morbida" non ripetuta; le mosse secche (lista/prestito/cessione)
-  // hanno un'unica risposta definitiva, non hanno bisogno di gradazioni.
   let early = "";
   let mid = "";
   let closing = "";
@@ -244,51 +298,89 @@ export function applyStandoffMove(standoff: PlayerStandoff, move: StandoffMove):
       closing = "Va bene, mi fido. Adesso voglio vederlo nei fatti.";
       rispostaRipetuta = "Me lo avete già detto, Direttore. Ripeterlo non lo rende più vero.";
       break;
-    case "prometti_spazio":
-      perdita = 34;
-      moraleDelta = 16;
-      promiseMinutes = true;
-      dsText = "Ti prometto più minuti: da qui alle prossime giornate sei tu la scelta.";
-      early = "Un passo nella direzione giusta, ma voglio vederlo scritto nei fatti.";
-      mid = "La promessa resta lì, Direttore. Aspetto ancora di vederla mantenuta in campo.";
-      closing = "Questo sì che è un impegno vero. Aspetto di vederlo in campo.";
-      rispostaRipetuta = "Un'altra promessa di minuti, la stessa di prima? Vediamo se stavolta conta.";
+
+    case "prometti_spazio": {
+      // VALUTAZIONE DELL'OK DEL MISTER NON SCONTATA
+      const playerOv = standoff.overall ?? 75;
+      const approval = evaluateCoachApprovalForStarter(
+        moveCtx?.coachApprovalCtx ?? { playerOverall: playerOv, starterOverallInRole: 77, coachHarmony: 50 },
+      );
+      coachApproved = approval.approved;
+
+      if (coachApproved) {
+        perdita = 34;
+        moraleDelta = 16;
+        promiseMinutes = true;
+        dsText = "Ho parlato col mister: ti garantiamo lo spazio da titolare d'ora in avanti.";
+        early = "Un passo nella direzione giusta, ma voglio vederlo scritto nei fatti.";
+        mid = "La promessa resta lì, Direttore. Aspetto ancora di vederla mantenuta in campo.";
+        closing = "Questo sì che è un impegno vero. Aspetto di vederlo in campo.";
+        rispostaRipetuta = "Un'altra promessa di minuti, la stessa di prima? Vediamo se stavolta conta.";
+      } else {
+        // IL MISTER RIFIUTA! La promessa fallisce subito
+        perdita = 45;
+        moraleDelta = -20;
+        promiseMinutes = false;
+        dsText = "Ho chiesto al mister di darti spazio da titolare, ma non accetta ingerenze tattiche...";
+        rispostaSecca = "Quindi il mister vi sbarra la strada e voi non contate niente? Non ho più nulla da dirvi!";
+      }
       break;
+    }
+
     case "premio_denaro": {
-      // Tangibile e immediato: non è una promessa, è già successo — nessun rischio di
-      // infrangerla in futuro, ma per lo stesso motivo pesa meno di un vero impegno preso. Per
-      // chi è già corteggiato da una big pesa ancora meno: un top club non si batte a suon di
-      // bonifici.
+      // SCALA REALMENTE EURO DAL BUDGET
+      const marketValue = standoff.marketValue ?? 5_000_000;
+      const calculatedBonus = Math.max(300_000, Math.round(marketValue * 0.04));
+
+      if (moveCtx?.currentBudget !== undefined && moveCtx.currentBudget < calculatedBonus) {
+        return {
+          standoff: {
+            ...standoff,
+            log: [
+              ...standoff.log,
+              { speaker: "ds", text: "Volevo offrirti un premio in denaro, ma la società non ha abbastanza liquidità al momento." },
+              { speaker: "giocatore", text: "Non ci sono neanche le risorse? La situazione è peggio del previsto." },
+            ],
+          },
+          moraleDelta: -5,
+          errorMessage: "Budget insufficiente per offrire questo premio.",
+        };
+      }
+
       perdita = standoff.reason === "richiamato" ? 18 : 28;
       moraleDelta = 20;
       moneyBonus = true;
-      dsText = "Ecco un premio per te, subito: lo riconosco, meriti di più.";
-      early = "Un bel gesto. Ma non è tutto qui che vale, lo sapete.";
-      mid = "Il gesto si vede, Direttore. Ma i soldi da soli non bastano a farmi cambiare idea.";
-      closing = "Apprezzo il gesto, Direttore. Si vede che ci tenete davvero.";
+      moneyBonusAmount = calculatedBonus;
+      dsText = `Ecco un premio di ${formatEuroAmount(calculatedBonus)} per te subito: la società riconosce il tuo valore.`;
+      early = "Un gesto concreto. Ma i soldi non risolvono tutto lo sapete.";
+      mid = "Apprezzo l'adeguamento, Direttore. È un segnale importante.";
+      closing = "Va bene, Direttore. Dimostrate che la società ci tiene.";
       rispostaRipetuta = "Un altro premio? Non sono in vendita a rate, Direttore: qui serve altro.";
       break;
     }
+
     case "promessa_rinforzi":
       perdita = 30;
       moraleDelta = 14;
       promise = { kind: "rinforzi", department: move.department };
-      dsText = `Ti prometto un rinforzo vero ${DEPARTMENT_IT[move.department]}: la squadra si alza con te, non nonostante te.`;
+      dsText = `Ti prometto un rinforzo vero ${DEPARTMENT_IT[move.department]}: alzeremo il livello del reparto.`;
       early = "Bello a dirsi. Vediamo se succede per davvero.";
       mid = "Ancora nessun rinforzo, Direttore. La promessa resta tutta da mantenere.";
       closing = "Bene. Aspetto di vederlo arrivare entro la fine del mercato.";
       rispostaRipetuta = "Mi avete già promesso un rinforzo. Ripeterlo non lo fa arrivare prima.";
       break;
+
     case "promessa_trionfo":
       perdita = 26;
       moraleDelta = 12;
       promise = { kind: "trionfo" };
-      dsText = "Ti prometto che lotteremo per qualcosa di grande quest'anno: fidati del progetto.";
+      dsText = "Ti prometto che lotteremo per le posizioni di vertice quest'anno: fidati del progetto.";
       early = "Belle parole. Le prendo, ma resto con gli occhi aperti.";
       mid = "Continuate a dirmelo, Direttore. Sul campo però si vede ancora poco.";
       closing = "Va bene, ci sto. Ma non deludetemi: me lo ricorderò.";
       rispostaRipetuta = "Lo stesso discorso di prima, Direttore. Le parole le ho già sentite.";
       break;
+
     case "lista_cessione":
       perdita = 40;
       moraleDelta = 14;
@@ -296,6 +388,7 @@ export function applyStandoffMove(standoff: PlayerStandoff, move: StandoffMove):
       dsText = "Ti metto in lista trasferimenti: se arriva l'offerta giusta, ti lascio andare.";
       rispostaSecca = "Era quello che volevo sentire. Grazie, Direttore.";
       break;
+
     case "concedi_prestito":
       perdita = 40;
       moraleDelta = 25;
@@ -303,24 +396,40 @@ export function applyStandoffMove(standoff: PlayerStandoff, move: StandoffMove):
       dsText = "Ti mando in prestito: andrai a giocare con continuità altrove.";
       rispostaSecca = "Finalmente il campo vero. Grazie per avermi ascoltato, Direttore.";
       break;
+
     case "accetta_cessione":
       if (!standoff.offerFromClubId) return { standoff, moraleDelta: 0 };
       sellNow = true;
-      dsText = "Accetto l'offerta: sei libero di andare.";
+      {
+        const importoTxt =
+          standoff.offerDetails && standoff.offerDetails.amount > 0
+            ? ` a ${formatEuroAmount(standoff.offerDetails.amount)}`
+            : "";
+        dsText = `Accetto l'offerta del ${standoff.offerFromClubName ?? "club"}${importoTxt}: sei libero di andare.`;
+      }
       rispostaSecca = "Finalmente. Grazie per avermi ascoltato.";
       break;
+
+    case "multa_disciplina":
+      perdita = 50;
+      moraleDelta = -25;
+      moneyEarnedAmount = 100_000;
+      dsText = "Questo comportamento è inaccettabile. Ti notifico una multa disciplinare per insubordinazione!";
+      rispostaSecca = "Una multa? Con me avete chiuso definitivamente, Direttore!";
+      break;
+
     case "scegli_giocatore":
-      // Conseguenza pesante e voluta: schierarsi col giocatore contro il mister costa la
-      // panchina — non va scelto a cuor leggero.
       moraleDelta = 25;
       dsText = "Ho deciso: resti tu. Il mister lascia il club, la scelta è fatta.";
       rispostaSecca = "Grazie per aver creduto in me, Direttore. Non ve ne pentirete.";
       break;
+
     case "scegli_mister":
       moraleDelta = -30;
       dsText = "Ho deciso: il progetto va avanti col mister. Mi dispiace, ma la scelta è questa.";
       rispostaSecca = "Capisco, Direttore. Ma non mi aspetti lo stesso da me in campo, adesso.";
       break;
+
     case "ignora":
       perdita = 45;
       moraleDelta = -18;
@@ -332,11 +441,9 @@ export function applyStandoffMove(standoff: PlayerStandoff, move: StandoffMove):
       break;
   }
 
-  // Ripetere di fila la stessa proposta non convince di più: raddoppia il costo di pazienza
-  // invece di ripagare come la prima volta — scoraggia il clic ripetuto meccanico.
   if (ripetuta && move.kind !== "accetta_cessione") perdita *= 2;
 
-  const mosseSecchePatienzaZero: StandoffMove["kind"][] = ["accetta_cessione", "scegli_giocatore", "scegli_mister"];
+  const mosseSecchePatienzaZero: StandoffMove["kind"][] = ["accetta_cessione", "scegli_giocatore", "scegli_mister", "multa_disciplina"];
   let patience = mosseSecchePatienzaZero.includes(move.kind)
     ? 0
     : Math.max(0, standoff.patience - perdita);
@@ -352,18 +459,15 @@ export function applyStandoffMove(standoff: PlayerStandoff, move: StandoffMove):
           : early;
 
   let status: PlayerStandoff["status"] = "aperta";
-  if (move.kind === "accetta_cessione" || move.kind === "scegli_giocatore") status = "placata";
-  else if (move.kind === "scegli_mister") status = "rotta";
+  if (move.kind === "accetta_cessione" || move.kind === "scegli_giocatore")
+    status = "placata";
+  else if (move.kind === "scegli_mister" || move.kind === "multa_disciplina" || (move.kind === "prometti_spazio" && !coachApproved))
+    status = "rotta";
   else if (patience <= 0) status = move.kind === "ignora" ? "rotta" : "placata";
 
-  // Una rottura è sempre un colpo pesante, qualunque fosse il calcolo della singola mossa: è il
-  // punto in cui il rapporto si spezza per davvero, non solo un brutto momento. Fa eccezione
-  // "scegli_mister": lì il -30 già scelto sopra è più severo del minimo standard.
-  if (status === "rotta" && move.kind !== "scegli_mister") moraleDelta = Math.min(moraleDelta, -18);
+  if (status === "rotta" && move.kind !== "scegli_mister" && move.kind !== "multa_disciplina") moraleDelta = Math.min(moraleDelta, -18);
 
   const coachResigns = move.kind === "scegli_giocatore";
-  // "Tenerli entrambi" (ignorare fino alla rottura) ha una conseguenza vera: il mister smette
-  // di schierarlo. Non scatta per `scegli_mister`, che è già una scelta esplicita e diversa.
   const coachBenches = standoff.reason === "bivio_mister" && status === "rotta" && move.kind === "ignora";
 
   const log: StandoffMessage[] = [
@@ -385,8 +489,11 @@ export function applyStandoffMove(standoff: PlayerStandoff, move: StandoffMove):
     moraleDelta,
     listForTransfer,
     listForLoan,
-    promiseMinutes,
+    promiseMinutes: promiseMinutes && coachApproved,
     moneyBonus,
+    moneyBonusAmount,
+    moneyEarnedAmount,
+    coachApproved,
     promise,
     sellNow,
     coachResigns: coachResigns || undefined,
@@ -397,21 +504,10 @@ export function applyStandoffMove(standoff: PlayerStandoff, move: StandoffMove):
 export interface PlayerPromiseVerification {
   updatedPromises: Record<string, PlayerPromiseRecord>;
   moraleDelta: Record<string, number>;
-  /** Chi ha appena subito la promessa infranta: entra in `CareerState.brokenTrust`. */
   newlyBroken: string[];
   messages: string[];
 }
 
-/**
- * Verifica le promesse fatte in chat, **a fine finestra di mercato** (career.ts la chiama nello
- * stesso punto in cui già verifica quelle del mister). Una promessa infranta non è un piccolo
- * malus: crolla il morale al minimo e il giocatore finisce in `brokenTrust` — la prossima
- * conversazione con lui parte da un rapporto già rotto (`StandoffReason: "tradito"`).
- *
- * "trionfo" richiede una classifica leggibile: a mercato estivo appena aperto (`leaguePosition
- * === null`, nessuna giornata ancora giocata) non c'è nulla da giudicare — resta in sospeso fino
- * alla prossima verifica, non si estingue né si considera automaticamente infranta.
- */
 export function verifyPlayerPromises(
   promises: Record<string, PlayerPromiseRecord>,
   roster: RosterEntry[],
@@ -426,7 +522,6 @@ export function verifyPlayerPromises(
   const messages: string[] = [];
 
   for (const [playerId, promise] of Object.entries(promises)) {
-    // Ceduto o andato via: la promessa non ha più un destinatario, si estingue senza strascichi.
     if (!roster.some((e) => e.playerId === playerId)) continue;
     const name = players[playerId]?.name ?? "Un giocatore";
 
@@ -447,9 +542,6 @@ export function verifyPlayerPromises(
       continue;
     }
 
-    // "rinforzi": soddisfatta se in questa stessa stagione è arrivato qualcun altro nel reparto
-    // promesso — arrivato, non semplicemente presente: altrimenti la promessa sarebbe già sempre
-    // vera per qualunque rosa con più di un giocatore in quel reparto.
     const fulfilled = roster.some(
       (e) => e.playerId !== playerId && e.sinceSeason === season && players[e.playerId]?.department === promise.department,
     );

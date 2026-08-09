@@ -335,3 +335,33 @@ describe("bivio giocatore-mister — una scelta secca, non negoziabile", () => {
     expect(res.coachBenches).toBeUndefined();
   });
 });
+
+describe("nuove feature: offerDetails, approvazione mister e multa disciplinare", () => {
+  it("le informazioni dell'offerta con importo esplicito vengono conservate", () => {
+    const s = openStandoff(entryWith(40), "X", "richiamato", {
+      clubId: "c1",
+      clubName: "Inter Milan",
+      amount: 25_000_000,
+      kind: "trasferimento",
+    });
+    expect(s.offerDetails?.amount).toBe(25_000_000);
+    expect(s.offerDetails?.kind).toBe("trasferimento");
+    expect(s.log[0]?.text).toContain("Inter Milan");
+    expect(s.log[0]?.text).toContain("25M");
+  });
+
+  it("la sanzione disciplinare riduce il morale e genera entrate societarie", () => {
+    const s = openStandoff(entryWith(50), "X", "scontento");
+    const res = applyStandoffMove(s, { kind: "multa_disciplina" });
+    expect(res.moraleDelta).toBe(-25);
+    expect(res.moneyEarnedAmount).toBe(100_000);
+    expect(res.standoff.status).toBe("rotta");
+  });
+
+  it("premio in denaro con budget insufficiente restituisce un blocco", () => {
+    const s = openStandoff(entryWith(50), "X", "scontento");
+    const res = applyStandoffMove(s, { kind: "premio_denaro" }, { currentBudget: 100_000, marketValue: 10_000_000 });
+    expect(res.errorMessage).toContain("Budget insufficiente");
+  });
+});
+
