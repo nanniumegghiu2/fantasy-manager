@@ -47,6 +47,10 @@ export interface ActionStep {
   fromPlayerId?: string | null;
   /** Chi ce l'ha alla fine della fase. */
   toPlayerId?: string | null;
+  /** Simula l'altezza del pallone durante la traiettoria per la simulazione 2D */
+  ballHeight?: "ground" | "low_arc" | "high_arc" | "rocket";
+  /** Tag d'impatto visivo sul campo per pop-up ed animazioni FX */
+  actionTag?: "GOAL" | "SAVE" | "POST" | "CROSS" | "SHOT" | "CARD" | "DRIBBLE" | "TACKLE";
 }
 
 export interface Highlight {
@@ -377,6 +381,8 @@ function generaSteps(
             activeActor: "passer",
             fromPlayerId: starterId,
             toPlayerId: attori?.passerId,
+            ballHeight: "ground",
+            actionTag: "DRIBBLE",
           },
         ]
       : [];
@@ -393,6 +399,7 @@ function generaSteps(
         activeActor: "passer",
         fromPlayerId: attori?.passerId,
         toPlayerId: attori?.shooterId,
+        ballHeight: "ground",
       },
       {
         fromX: fx(72),
@@ -405,6 +412,8 @@ function generaSteps(
         activeActor: "shooter",
         fromPlayerId: attori?.passerId,
         toPlayerId: attori?.shooterId,
+        ballHeight: "high_arc",
+        actionTag: "CROSS",
       },
       {
         fromX: fx(86),
@@ -417,6 +426,8 @@ function generaSteps(
         activeActor: "keeper",
         fromPlayerId: attori?.shooterId,
         toPlayerId: attori?.keeperId,
+        ballHeight: "rocket",
+        actionTag: "GOAL",
       },
       {
         fromX: target.x,
@@ -429,6 +440,8 @@ function generaSteps(
         activeActor: "shooter",
         fromPlayerId: attori?.shooterId,
         toPlayerId: attori?.shooterId,
+        ballHeight: "ground",
+        actionTag: "GOAL",
       },
     ];
   }
@@ -446,6 +459,7 @@ function generaSteps(
         activeActor: "shooter",
         fromPlayerId: attori?.shooterId,
         toPlayerId: attori?.shooterId,
+        ballHeight: "ground",
       },
       {
         fromX: fx(88),
@@ -458,6 +472,8 @@ function generaSteps(
         activeActor: "keeper",
         fromPlayerId: attori?.shooterId,
         toPlayerId: attori?.keeperId,
+        ballHeight: "rocket",
+        actionTag: "GOAL",
       },
       {
         fromX: target.x,
@@ -470,6 +486,8 @@ function generaSteps(
         activeActor: "shooter",
         fromPlayerId: attori?.shooterId,
         toPlayerId: attori?.shooterId,
+        ballHeight: "ground",
+        actionTag: "GOAL",
       },
     ];
   }
@@ -487,6 +505,8 @@ function generaSteps(
         durationMs: 700,
         phaseLabel: "Incursione al limite dell'area",
         activeActor: "shooter",
+        ballHeight: "ground",
+        actionTag: "DRIBBLE",
       },
       {
         fromX: fx(76),
@@ -497,6 +517,8 @@ function generaSteps(
         durationMs: 450,
         phaseLabel: "Gran tiro diretto all'angolino!",
         activeActor: "keeper",
+        ballHeight: "rocket",
+        actionTag: "SHOT",
       },
       {
         fromX: fx(94),
@@ -507,6 +529,8 @@ function generaSteps(
         durationMs: 750,
         phaseLabel: "VOLO MIRACOLOSO DEL PORTIERE!",
         activeActor: "keeper",
+        ballHeight: "low_arc",
+        actionTag: "SAVE",
       },
     ];
   }
@@ -524,6 +548,7 @@ function generaSteps(
         durationMs: 650,
         phaseLabel: "Smarca l'attaccante al limite",
         activeActor: "shooter",
+        ballHeight: "ground",
       },
       {
         fromX: fx(80),
@@ -534,6 +559,8 @@ function generaSteps(
         durationMs: 450,
         phaseLabel: "Bomba a botta sicura!",
         activeActor: "shooter",
+        ballHeight: "rocket",
+        actionTag: "SHOT",
       },
       {
         fromX: fx(96),
@@ -543,6 +570,8 @@ function generaSteps(
         trajectory: "post_rebound",
         durationMs: 750,
         phaseLabel: "LEGNO PIENO! Sfortuna clamorosa!",
+        ballHeight: "low_arc",
+        actionTag: "POST",
       },
     ];
   }
@@ -558,6 +587,8 @@ function generaSteps(
         durationMs: 800,
         phaseLabel: "Intervento durissimo a centrocampo!",
         activeActor: "defender",
+        ballHeight: "ground",
+        actionTag: "TACKLE",
       },
       {
         fromX: fx(52),
@@ -568,6 +599,8 @@ function generaSteps(
         durationMs: 1200,
         phaseLabel: "L'arbitro estrae il CARTELLINO ROSSO!",
         activeActor: "defender",
+        ballHeight: "ground",
+        actionTag: "CARD",
       },
     ];
   }
@@ -589,6 +622,7 @@ function generaSteps(
           activeActor: "passer",
           fromPlayerId: starterId,
           toPlayerId: attori?.passerId,
+          ballHeight: "ground",
         },
       ]
     : [];
@@ -605,6 +639,7 @@ function generaSteps(
       activeActor: "passer",
       fromPlayerId: attori?.passerId,
       toPlayerId: attori?.shooterId,
+      ballHeight: "ground",
     },
     {
       fromX: fx(74),
@@ -617,6 +652,8 @@ function generaSteps(
       activeActor: "shooter",
       fromPlayerId: attori?.shooterId,
       toPlayerId: attori?.keeperId,
+      ballHeight: "rocket",
+      actionTag: "SHOT",
     },
   ];
 }
