@@ -131,6 +131,7 @@ import {
   type GeneratedPlayer,
   type Lineup,
   type RosterEntry,
+  type SeasonPlayerReport,
   type SessionDeal,
 } from "./types";
 import { ROLE_DEPARTMENT, type Department, type Player, type Role } from "@app/shared-types";
@@ -202,6 +203,8 @@ export interface SeasonSummary {
   coachHarmonyDelta: number;
   /** Entrate meno uscite di mercato nell'intera stagione (entrambe le finestre). */
   netBudget: number;
+  /** Report individuale di ciascun calciatore della rosa per la scheda di fine anno. */
+  playerReports?: SeasonPlayerReport[];
 }
 
 export interface PendingRequest extends TransferRequest {
@@ -2863,6 +2866,36 @@ function closeSeason(
     state.season,
   );
   const byId = new Map(aged.map((a) => [a.playerId, a]));
+
+  const returningSet = new Set(settled.returning.map((r) => r.playerId));
+  const playerReports: SeasonPlayerReport[] = rientrati.map((entry) => {
+    const change = byId.get(entry.playerId);
+    const resolved = players[entry.playerId];
+    const age = ageInSeason(resolved?.birthDate, state.season) ?? 25;
+    const retiredFlag = age !== null && shouldRetire(age + 1, state.season + 1);
+    const overallAfter = change?.after ?? entry.overall;
+    const potentialDelta = change?.potentialDelta ?? 0;
+    return {
+      playerId: entry.playerId,
+      name: resolved?.name ?? "Giocatore",
+      role: resolved?.role ?? "CC",
+      age,
+      overallBefore: entry.overall,
+      overallAfter,
+      overallDelta: overallAfter - entry.overall,
+      potentialBefore: entry.potential,
+      potentialAfter: entry.potential + potentialDelta,
+      potentialDelta,
+      meritDelta: change?.meritDelta ?? 0,
+      margin: change?.margin ?? 0,
+      retired: retiredFlag,
+      morale: entry.morale,
+      unhappy: entry.morale < STANDOFF_MORALE_THRESHOLD,
+      stats: { ...entry.stats },
+      loanReturn: returningSet.has(entry.playerId),
+    };
+  });
+  summary.playerReports = playerReports;
 
   const retired: { entry: RosterEntry; peakOverall: number }[] = [];
   const roster = rientrati

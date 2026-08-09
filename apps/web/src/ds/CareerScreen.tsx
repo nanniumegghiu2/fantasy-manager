@@ -57,6 +57,7 @@ import {
   type SearchResult,
   type SearchCriteria,
   type SessionDeal,
+  type SeasonSummary,
   type StandingRow,
   type StandoffMove,
   type WeekReport,
@@ -80,6 +81,7 @@ import { NegotiationChat } from "./NegotiationChat";
 import type { DsWorldData } from "./useDsWorld";
 import { MiniStandings } from "./MiniStandings";
 import { SeasonEndOverlay } from "./SeasonEndOverlay";
+import { SeasonSquadReportModal } from "./SeasonSquadReportModal";
 import { SquadPanel } from "./SquadPanel";
 import { WeekReportCard } from "./WeekReportCard";
 import { OUTCOME_COLOR, euro, ordinale, outcomeOf } from "./format";
@@ -159,6 +161,7 @@ export function CareerScreen({
   /** La partita che si sta guardando in 2D. */
   const [teatro, setTeatro] = useState<PartitaChiave | null>(null);
   const [seasonEnd, setSeasonEnd] = useState<number | null>(null);
+  const [squadReportSummary, setSquadReportSummary] = useState<SeasonSummary | null>(null);
   const [correndo, setCorrendo] = useState(false);
   /** I referti ancora da mostrare della corsa in atto. */
   const coda = useRef<WeekReport[]>([]);
@@ -1017,10 +1020,20 @@ export function CareerScreen({
             summary={riepilogo}
             teamsInLeague={world.opponents.length + 1}
             onContinue={() => {
+              setSquadReportSummary(riepilogo);
               setSeasonEnd(null);
               setResults([]);
             }}
             onExit={onExit}
+          />
+        )}
+
+        {!correndo && !teatro && !keyMatch && !riepilogo && squadReportSummary && (
+          <SeasonSquadReportModal
+            key="report-rosa-ds"
+            summary={squadReportSummary}
+            clubName={world.clubName}
+            onContinue={() => setSquadReportSummary(null)}
           />
         )}
       </AnimatePresence>

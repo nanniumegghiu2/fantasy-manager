@@ -214,7 +214,7 @@ export function SeasonEndOverlay({
               onClick={onContinue}
               className="w-full rounded-2xl bg-[var(--brand)] py-3.5 text-sm font-extrabold text-[var(--brand-contrast)] transition-transform active:scale-[0.98]"
             >
-              Vai al mercato estivo
+              Analizza la Rosa (Report DS) ➔
             </button>
           )}
           <button

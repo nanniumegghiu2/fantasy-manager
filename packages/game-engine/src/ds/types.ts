@@ -117,6 +117,32 @@ export function emptySeasonStats(): SeasonStats {
 }
 
 /**
+ * Report dettagliato di fine stagione per un calciatore della rosa:
+ * registra le statistiche prodotte, l'evoluzione di Overall e Potenziale,
+ * il morale ed il verdetto (ritiro, prestito).
+ */
+export interface SeasonPlayerReport {
+  playerId: string;
+  name: string;
+  role: Role;
+  age: number;
+  overallBefore: number;
+  overallAfter: number;
+  overallDelta: number;
+  potentialBefore: number;
+  potentialAfter: number;
+  potentialDelta: number;
+  meritDelta: number;
+  margin: number;
+  retired: boolean;
+  morale: number;
+  unhappy: boolean;
+  stats: SeasonStats;
+  loanReturn?: boolean;
+  loanDepart?: boolean;
+}
+
+/**
  * Un giocatore nella rosa di un club durante la carriera.
  *
  * Contiene **solo** l'id e ciò che evolve: nulla di anagrafico, che si risolve dal pool.
