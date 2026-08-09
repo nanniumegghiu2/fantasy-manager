@@ -1155,7 +1155,9 @@ function SchedaRosa({
                 const player = playerId ? world.players[playerId] : undefined;
                 const { x, y } = getSlotPosition(formation, slot);
                 const guaranteed =
-                  !!playerId && state.guaranteedStarters?.[slot.role] === playerId;
+                  !!playerId &&
+                  (state.guaranteedStarters?.[slot.id] === playerId ||
+                    state.guaranteedStarters?.[slot.role] === playerId);
                 return (
                   <PitchDot
                     key={slot.id}
@@ -1223,7 +1225,8 @@ function SchedaRosa({
                               [{starterEntry.overall}]
                             </span>
                             <span className="truncate font-bold">{starterPlayer.name}</span>
-                            {state.guaranteedStarters?.[slot.role] === starterId && (
+                            {(state.guaranteedStarters?.[slot.id] === starterId ||
+                              state.guaranteedStarters?.[slot.role] === starterId) && (
                               <Star
                                 size={11}
                                 fill="#f5c518"

@@ -173,6 +173,28 @@ describe("guaranteedStarters — esclusiva per casella", () => {
     const senzaBoost = playerSlotScore(entry, player, "MED", {});
     expect(conRuoloSecondario).toBe(senzaBoost + 100);
   });
+
+  it("supporta la garanzia di più titolari per ruoli con slot multipli (es. 2x DC) tramite slot.id", () => {
+    const { entries, players } = buildSquad();
+    const formation = getFormation("4-4-2")!;
+    const dcSlots = formation.slots.filter((s) => s.role === "DC");
+    expect(dcSlots.length).toBe(2);
+
+    const primoDC = "p5";
+    const secondoDC = "p6";
+
+    // Garantiamo sia il primo DC che il secondo DC sui rispettivi slot.id
+    const lineup = pickStartingEleven(formation, entries, players, {
+      guaranteedStarters: {
+        [dcSlots[0]!.id]: primoDC,
+        [dcSlots[1]!.id]: secondoDC,
+      },
+    });
+
+    const schierati = Object.values(lineup.starters);
+    expect(schierati).toContain(primoDC);
+    expect(schierati).toContain(secondoDC);
+  });
 });
 
 describe("positionalPenalty", () => {

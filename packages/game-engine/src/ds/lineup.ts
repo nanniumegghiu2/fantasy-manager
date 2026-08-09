@@ -101,12 +101,10 @@ export interface LineupOptions {
   benchSize?: number;
   /**
    * Titolarità imposta dalla direttiva DS-Mister, **esclusiva per casella**: una casella
-   * (ruolo) → al più un giocatore garantito. A differenza di `anyRoleBoost`, qui il bonus
-   * scatta solo per la casella richiesta, non per una qualunque compatibile — è ciò che rende
-   * la sostituzione vera: garantire un altro giocatore per lo stesso ruolo revoca il primo,
-   * perché la entry per quella chiave viene sovrascritta a monte (`career.ts`).
+   * (slot o ruolo) → al più un giocatore garantito. A differenza di `anyRoleBoost`, qui il bonus
+   * scatta solo per la casella richiesta, non per una qualunque compatibile.
    */
-  guaranteedStarters?: Partial<Record<Role, string>>;
+  guaranteedStarters?: Record<string, string>;
   /**
    * Giocatori con un bonus di selezione per **qualunque** ruolo compatibile (principale o
    * secondario) — usato dalle promesse di più spazio (sez. "chat coi giocatori"), che sono una
@@ -142,9 +140,13 @@ export function playerSlotScore(
   player: PlayerRef,
   slotRole: Role,
   options: LineupOptions = {},
+  slotId?: string,
 ): number {
   let score = entry.overall - slotPenalty(entry, player, slotRole, options);
-  if (options.guaranteedStarters?.[slotRole] === entry.playerId) {
+  if (
+    (slotId && options.guaranteedStarters?.[slotId] === entry.playerId) ||
+    options.guaranteedStarters?.[slotRole] === entry.playerId
+  ) {
     score += 100;
   } else if (
     options.anyRoleBoost?.includes(entry.playerId) &&
@@ -204,7 +206,7 @@ export function pickStartingEleven(
   const candidates = availableEntries.filter((entry) => playersById[entry.playerId]);
   const slots = [...formation.slots].sort((a, b) => a.order - b.order);
   const scoreOf = (entry: RosterEntry, slot: FormationSlot) =>
-    playerSlotScore(entry, playersById[entry.playerId]!, slot.role, options);
+    playerSlotScore(entry, playersById[entry.playerId]!, slot.role, options, slot.id);
 
   const assigned = new Map<string, RosterEntry>();
   const used = new Set<string>();

@@ -962,15 +962,12 @@ export function CareerScreen({
             coachResigned={meetingData.coachResigned}
             summaryMessage={meetingData.summaryMessage}
             guaranteedStarters={meetingData.nextState.guaranteedStarters ?? {}}
-            onSetGuaranteedStarter={(role, pId) => {
+            onSetGuaranteedStarter={(role, pId, slotId) => {
               setMeetingData((prev) =>
                 prev
                   ? {
                       ...prev,
-                      // Un giocatore è garantito in un solo ruolo alla volta: `setGuaranteedStarter`
-                      // sovrascrive la chiave del ruolo richiesto e toglie l'eventuale garanzia
-                      // dello stesso giocatore su qualunque altro ruolo.
-                      nextState: setGuaranteedStarter(prev.nextState, role, pId),
+                      nextState: setGuaranteedStarter(prev.nextState, role, pId, slotId),
                     }
                   : null,
               );

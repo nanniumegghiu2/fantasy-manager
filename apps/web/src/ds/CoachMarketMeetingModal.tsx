@@ -30,9 +30,9 @@ interface CoachMarketMeetingModalProps {
   coachResigned: boolean;
   summaryMessage: string;
   /** Chi acconsente sostituisce l'entry per quel ruolo: il primo scelto perde lo status. */
-  onSetGuaranteedStarter?: (role: Role, playerId: string) => void;
-  /** Una casella (ruolo) → al più un titolare garantito. */
-  guaranteedStarters?: Partial<Record<Role, string>>;
+  onSetGuaranteedStarter?: (role: Role, playerId: string, slotId?: string) => void;
+  /** Una casella (slot o ruolo) → al più un titolare garantito. */
+  guaranteedStarters?: Record<string, string>;
   onClose: () => void;
 }
 
@@ -76,6 +76,7 @@ export function CoachMarketMeetingModal({
     [formation],
   );
   const [selectedRole, setSelectedRole] = useState<Role | "">(ruoliModulo[0] ?? "");
+  const [selectedSlotId, setSelectedSlotId] = useState<string>(formation?.slots[0]?.id ?? "");
 
   const idoneiPerRuolo = useMemo(
     () =>
@@ -129,12 +130,14 @@ export function CoachMarketMeetingModal({
     const prospettoDiFuturo =
       (coach?.development ?? 1) >= 1.3 && rosterEntry.potential - migliorAlternativa >= 4;
 
-    // Chi è già garantito per QUESTA casella: la chiave del ruolo dà direttamente l'eventuale
-    // titolare protetto, senza più cercarlo fra gli idonei.
+    // Chi è già garantito per QUESTA casella: la chiave dello slotId (o del ruolo) dà direttamente l'eventuale
+    // titolare protetto.
     const pupilloId =
-      selectedRole && guaranteedStarters[selectedRole] !== selectedPlayerId
-        ? guaranteedStarters[selectedRole]
-        : undefined;
+      selectedSlotId && guaranteedStarters[selectedSlotId] && guaranteedStarters[selectedSlotId] !== selectedPlayerId
+        ? guaranteedStarters[selectedSlotId]
+        : selectedRole && guaranteedStarters[selectedRole] !== selectedPlayerId
+          ? guaranteedStarters[selectedRole]
+          : undefined;
     const pupillo = pupilloId ? roster.find((r) => r.playerId === pupilloId) : undefined;
     const pupilloObj = pupillo ? players[pupillo.playerId] : undefined;
 
@@ -154,7 +157,7 @@ export function CoachMarketMeetingModal({
           : `«Accetto la vostra direttiva, Direttore! ${playerObj?.name ?? "Il giocatore"} ha le qualità giuste e sarà il titolare fisso nel mio modulo.»`,
       );
       if (onSetGuaranteedStarter && selectedRole) {
-        onSetGuaranteedStarter(selectedRole, selectedPlayerId);
+        onSetGuaranteedStarter(selectedRole, selectedPlayerId, selectedSlotId);
       }
     } else {
       setDemandSuccess(false);
@@ -286,7 +289,7 @@ export function CoachMarketMeetingModal({
                   <Pitch>
                     {formation.slots.map((slot) => {
                       const { x, y } = getSlotPosition(formation, slot);
-                      const garantitoId = guaranteedStarters[slot.role];
+                      const garantitoId = guaranteedStarters[slot.id] ?? guaranteedStarters[slot.role];
                       const garantito = garantitoId ? players[garantitoId] : undefined;
                       const garantitoEntry = garantitoId ? roster.find((r) => r.playerId === garantitoId) : undefined;
                       return (
@@ -299,10 +302,11 @@ export function CoachMarketMeetingModal({
                           playerName={garantito?.name}
                           overall={garantitoEntry?.overall}
                           nation={garantito?.nation}
-                          state={selectedRole === slot.role ? "lit" : garantitoId ? "filled" : "empty"}
+                          state={selectedSlotId === slot.id ? "lit" : garantitoId ? "filled" : "empty"}
                           guaranteed={!!garantitoId}
                           onClick={() => {
                             setSelectedRole(slot.role);
+                            setSelectedSlotId(slot.id);
                             const primoIdoneo = roster.find((r) => {
                               const p = players[r.playerId];
                               return p && (p.role === slot.role || (p.secondaryRoles ?? []).includes(slot.role));
@@ -330,7 +334,9 @@ export function CoachMarketMeetingModal({
                     <div className="flex gap-2 overflow-x-auto pb-1">
                       {idoneiPerRuolo.map((r) => {
                         const pl = players[r.playerId];
-                        const isGuaranteed = guaranteedStarters[selectedRole] === r.playerId;
+                        const isGuaranteed =
+                          (selectedSlotId && guaranteedStarters[selectedSlotId] === r.playerId) ||
+                          (selectedRole && guaranteedStarters[selectedRole] === r.playerId);
                         const isSelected = selectedPlayerId === r.playerId;
                         return (
                           <button

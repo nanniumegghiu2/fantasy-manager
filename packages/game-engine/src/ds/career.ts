@@ -273,7 +273,7 @@ export interface CareerState {
    * quel ruolo, invece di limitarsi ad aggiungersi a fianco: prima era un `string[]` a cui si
    * poteva solo aggiungere, quindi "sostituiscilo" non toglieva mai lo status al primo scelto.
    */
-  guaranteedStarters?: Partial<Record<Role, string>>;
+  guaranteedStarters?: Record<string, string>;
   /**
    * Chi il mister ha smesso di schierare per decisione propria — bivio giocatore-mister
    * (`playerStandoff.ts`, `StandoffReason: "bivio_mister"`) ignorato fino alla rottura: tenere
@@ -506,12 +506,18 @@ export function livePromiseStatus(
  * chiave lo contenesse — un giocatore è garantito in **un solo ruolo alla volta**, mai due:
  * chiederla per un nuovo ruolo sposta la garanzia, non la duplica.
  */
-export function setGuaranteedStarter(state: CareerState, role: Role, playerId: string): CareerState {
+export function setGuaranteedStarter(
+  state: CareerState,
+  role: Role,
+  playerId: string,
+  slotId?: string,
+): CareerState {
   const attuali = state.guaranteedStarters ?? {};
+  const key = slotId ?? role;
   const senzaAltrove = Object.fromEntries(
-    Object.entries(attuali).filter(([r, id]) => r === role || id !== playerId),
-  ) as Partial<Record<Role, string>>;
-  return { ...state, guaranteedStarters: { ...senzaAltrove, [role]: playerId } };
+    Object.entries(attuali).filter(([k, id]) => k === key || id !== playerId),
+  ) as Record<string, string>;
+  return { ...state, guaranteedStarters: { ...senzaAltrove, [key]: playerId } };
 }
 
 /** L'undici che l'allenatore schiererebbe oggi, dati infortuni, fatica e morale. */
