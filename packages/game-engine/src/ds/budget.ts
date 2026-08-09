@@ -63,10 +63,45 @@ export const DIFFICULTY_BUDGET_MULTIPLIER: Record<DsDifficulty, number> = {
   difficile: 1,
 };
 
+/**
+ * Tetto massimo al budget base iniziale derivato dall'Overall della rosa per difficoltà.
+ * Evita che rose d'élite (OVR > 82) producano budget base illimitati solo in virtù dei propri campioni.
+ */
+export const DIFFICULTY_BASE_BUDGET_CAP: Record<DsDifficulty, number> = {
+  facile: 135_000_000,
+  normale: 85_000_000,
+  difficile: 60_000_000,
+};
+
+/**
+ * Tetto massimo al moltiplicatore cumulativo dei premi di fine stagione (Piazzamento × Coppa × Miglioramento).
+ */
+export const DIFFICULTY_REWARD_MULTIPLIER_CAP: Record<DsDifficulty, number> = {
+  facile: 2.1,
+  normale: 1.7,
+  difficile: 1.45,
+};
+
+/**
+ * Overall medio di soglia oltre il quale la crescita del budget base diventa logaritmica/smorzata
+ * a rendimenti decrescenti invece che pura esponenziale.
+ */
+export const OVR_DAMPING_THRESHOLD = 76;
+
 /** Budget iniziale a partire dall'Overall medio della rosa. */
 export function initialBudget(averageOverall: number, difficulty: DsDifficulty = "difficile"): number {
-  const raw = BASE_BUDGET * Math.exp((averageOverall - 70) / BUDGET_SCALE);
-  return roundToStep(Math.max(raw, MIN_BUDGET) * DIFFICULTY_BUDGET_MULTIPLIER[difficulty]);
+  let raw: number;
+  if (averageOverall <= OVR_DAMPING_THRESHOLD) {
+    raw = BASE_BUDGET * Math.exp((averageOverall - 70) / BUDGET_SCALE);
+  } else {
+    // Oltre il 76 di media, crescita logaritmica a rendimenti decrescenti
+    const baseAtThreshold = BASE_BUDGET * Math.exp((OVR_DAMPING_THRESHOLD - 70) / BUDGET_SCALE);
+    const excess = averageOverall - OVR_DAMPING_THRESHOLD;
+    raw = baseAtThreshold + 25_000_000 * Math.log1p(excess / 4);
+  }
+  const multiplied = Math.max(raw, MIN_BUDGET) * DIFFICULTY_BUDGET_MULTIPLIER[difficulty];
+  const capped = Math.min(multiplied, DIFFICULTY_BASE_BUDGET_CAP[difficulty]);
+  return roundToStep(capped);
 }
 
 /**
@@ -155,11 +190,15 @@ export function nextSeasonBudget({
   previousPosition,
   difficulty = "difficile",
 }: SeasonBudgetInput): number {
-  const base =
-    initialBudget(averageOverall, difficulty) *
+  const rawRewardMultiplier =
     positionMultiplier(position, teamsInLeague) *
     cupMultiplier(cupOutcome) *
     improvementMultiplier(position, previousPosition);
+  const cappedRewardMultiplier = Math.min(
+    rawRewardMultiplier,
+    DIFFICULTY_REWARD_MULTIPLIER_CAP[difficulty],
+  );
+  const base = initialBudget(averageOverall, difficulty) * cappedRewardMultiplier;
   return roundToStep(base + Math.max(0, leftover) * CARRY_OVER_SHARE);
 }
 

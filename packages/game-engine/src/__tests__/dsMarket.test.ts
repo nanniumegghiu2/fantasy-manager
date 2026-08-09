@@ -133,6 +133,44 @@ describe("budget", () => {
     expect(conAvanzo - senzaAvanzo).toBeGreaterThan(2_000_000);
     expect(conAvanzo - senzaAvanzo).toBeLessThan(4_000_000);
   });
+
+  it("la crescita per rose d'élite è smorzata e limitata dai tetti di difficoltà", () => {
+    // A Overall 86 una rosa d'élite in Difficile non deve superare i 60M di budget base
+    const baseDifficile = initialBudget(86, "difficile");
+    const baseNormale = initialBudget(86, "normale");
+    const baseFacile = initialBudget(86, "facile");
+
+    expect(baseDifficile).toBeLessThanOrEqual(60_000_000);
+    expect(baseNormale).toBeLessThanOrEqual(85_000_000);
+    expect(baseFacile).toBeLessThanOrEqual(135_000_000);
+  });
+
+  it("i premi di fine stagione per una big sono cappati per livello di difficoltà", () => {
+    // Campione d'Italia (1.6) + Vittoria Coppa (1.25) + Salto 8 posti (1.45) = 2.9 raw
+    const topBudgetDifficile = nextSeasonBudget({
+      averageOverall: 84,
+      position: 1,
+      teamsInLeague: 20,
+      cupOutcome: "vittoria",
+      leftover: 0,
+      previousPosition: 9,
+      difficulty: "difficile",
+    });
+    // In difficile 60M * 1.45 cap = 87M max base reward
+    expect(topBudgetDifficile).toBeLessThanOrEqual(87_000_000);
+
+    // Con tesoretto da 40M risparmiati, l'avanzo al 30% (12M) si somma al budget
+    const topBudgetConTesoretto = nextSeasonBudget({
+      averageOverall: 84,
+      position: 1,
+      teamsInLeague: 20,
+      cupOutcome: "vittoria",
+      leftover: 40_000_000,
+      previousPosition: 9,
+      difficulty: "difficile",
+    });
+    expect(topBudgetConTesoretto - topBudgetDifficile).toBe(12_000_000);
+  });
 });
 
 describe("valore di mercato", () => {
