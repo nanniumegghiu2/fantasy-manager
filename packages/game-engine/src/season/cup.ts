@@ -308,6 +308,55 @@ function scaleStrength(strength: TeamStrength, factor: number): TeamStrength {
  * I rigori sono **50/50**, dichiaratamente una lotteria: far vincere il più forte anche dal
  * dischetto toglierebbe alla coppa proprio ciò che la rende memorabile.
  */
+/**
+ * Risolve **una singola sfida secca**: 90 minuti, supplementari, rigori.
+ *
+ * Estratta da `simulateKnockoutRound` perché la Coppa Tricolore (`nationalCup.ts`) ha sei
+ * turni invece di tre e un elenco di fasi tutto suo, ma la sfida in sé è identica — e
+ * riscriverla lì avrebbe significato tenere allineate a mano due copie di supplementari e
+ * rigori, cioè logica calibrata.
+ *
+ * **L'ordine di consumo del generatore casuale è quello di sempre** (partita → eventuali
+ * supplementari → eventuale monetina): è ciò che permette di estrarla senza cambiare di una
+ * virgola i tabelloni di Corona già esistenti.
+ */
+export function resolveKnockoutTie(
+  homeStrength: TeamStrength,
+  awayStrength: TeamStrength,
+  random: () => number,
+): {
+  goalsHome: number;
+  goalsAway: number;
+  extraTime?: { goalsHome: number; goalsAway: number };
+  penalties?: { home: number; away: number };
+  /** `true` se passa il turno chi giocava in casa. */
+  homeAdvances: boolean;
+} {
+  const { goalsA, goalsB } = simulateOpponentMatch(homeStrength, awayStrength, random);
+  if (goalsA !== goalsB) {
+    return { goalsHome: goalsA, goalsAway: goalsB, homeAdvances: goalsA > goalsB };
+  }
+
+  const extra = simulateOpponentMatch(
+    scaleStrength(homeStrength, EXTRA_TIME_FACTOR),
+    scaleStrength(awayStrength, EXTRA_TIME_FACTOR),
+    random,
+  );
+  const extraTime = { goalsHome: extra.goalsA, goalsAway: extra.goalsB };
+  if (extra.goalsA !== extra.goalsB) {
+    return { goalsHome: goalsA, goalsAway: goalsB, extraTime, homeAdvances: extra.goalsA > extra.goalsB };
+  }
+
+  const homeWins = random() < 0.5;
+  return {
+    goalsHome: goalsA,
+    goalsAway: goalsB,
+    extraTime,
+    penalties: homeWins ? { home: 5, away: 4 } : { home: 4, away: 5 },
+    homeAdvances: homeWins,
+  };
+}
+
 export function simulateKnockoutRound(
   state: CupState,
   random: () => number,
@@ -320,34 +369,22 @@ export function simulateKnockoutRound(
   for (let i = 0; i < state.bracket.length; i += 2) {
     const home = state.bracket[i]!;
     const away = state.bracket[i + 1]!;
-    const homeStrength = strengthOf(state.teams[home]!);
-    const awayStrength = strengthOf(state.teams[away]!);
+    const tie = resolveKnockoutTie(
+      strengthOf(state.teams[home]!),
+      strengthOf(state.teams[away]!),
+      random,
+    );
 
-    const { goalsA, goalsB } = simulateOpponentMatch(homeStrength, awayStrength, random);
     const result: KnockoutResult = {
       stage: state.stage,
       home,
       away,
-      goalsHome: goalsA,
-      goalsAway: goalsB,
-      winner: goalsA > goalsB ? home : away,
+      goalsHome: tie.goalsHome,
+      goalsAway: tie.goalsAway,
+      winner: tie.homeAdvances ? home : away,
     };
-
-    if (goalsA === goalsB) {
-      const extra = simulateOpponentMatch(
-        scaleStrength(homeStrength, EXTRA_TIME_FACTOR),
-        scaleStrength(awayStrength, EXTRA_TIME_FACTOR),
-        random,
-      );
-      result.extraTime = { goalsHome: extra.goalsA, goalsAway: extra.goalsB };
-      if (extra.goalsA !== extra.goalsB) {
-        result.winner = extra.goalsA > extra.goalsB ? home : away;
-      } else {
-        const homeWins = random() < 0.5;
-        result.penalties = homeWins ? { home: 5, away: 4 } : { home: 4, away: 5 };
-        result.winner = homeWins ? home : away;
-      }
-    }
+    if (tie.extraTime) result.extraTime = tie.extraTime;
+    if (tie.penalties) result.penalties = tie.penalties;
 
     results.push(result);
     winners.push(result.winner);

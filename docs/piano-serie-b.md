@@ -52,6 +52,8 @@ Costo trascurabile (una volta l'anno, non a ogni clic) e riusa il motore esisten
 | **D4** | **Nessun posto in Corona per il vincitore della coppa** | La Corona resta solo per piazzamento in Serie A. Semplifica: `nextSeasonCup` non va toccata nella sua logica di qualificazione, solo esclusa la Serie B. |
 | **D5** | La coppa si chiama **Coppa Tricolore** | Nome originale, nessun marchio reale. |
 | **D6** | **La Serie B non entra nella Modalità Classica** | Va esclusa esplicitamente: oggi comparirebbe da sola nel selettore, che si costruisce dai campionati del pool. |
+| **D7** | **Schermata di trionfo a scala di livelli**, non solo per il triplete | Un trofeo → card sobria, due → doppietta, tre → trattamento pieno. Stessa implementazione, visibile in ogni carriera vincente. Vedi §5bis. |
+| **D8** | Sulla card condivisibile: **trofei + numeri chiave** | Punti, differenza reti, capocannoniere, finali vinte. |
 
 **Assunzioni che applico se non dici altro:**
 
@@ -61,7 +63,11 @@ Costo trascurabile (una volta l'anno, non a ogni clic) e riusa il motore esisten
   un tabellone in più, non un cambio di modello).
 - Le altre quattro leghe **non hanno seconda divisione**: la coppia promozione/retrocessione
   è una proprietà della sola Italia, dichiarata nel modello e non generalizzata a vuoto.
-- La **Serie B è esclusa dalla Corona Continentale** in ogni caso.
+- La **Serie B è esclusa dalla Corona Continentale** in ogni caso (confermato esplicitamente
+  dall'utente). Va escluso il *campionato*, non i singoli club: un club **retrocesso** in B non
+  gioca la Corona nemmeno se l'anno prima si era qualificato, e uno **promosso** in A vi accede
+  solo col piazzamento della stagione successiva. Conseguenza diretta: **il triplete è
+  irraggiungibile dalla Serie B**, dove i trofei in palio sono due.
 - `leagues.prestige_tier` della Serie B = **1**; `clubs.prestige_tier` fra 1 e 2.
   Conseguenza automatica: valori di mercato bassi, budget bassi, allenatori di fascia bassa.
 - In **Classica la Serie B non esiste** (decisione dell'utente): il selettore resta ai Big 5 +
@@ -188,13 +194,111 @@ Serie A: `nextSeasonCup` non cambia logica, va solo esclusa la Serie B dal pool 
 La coppa vale per sé stessa — e per il triplete.
 
 **Triplete.** `SeasonSummary` guadagna `treble?: true` quando nella stessa stagione si vincono
-campionato + Corona + Coppa Nazionale, con banner dedicato in `SeasonEndOverlay` (riusa
-`CelebrationConfetti`, già esistente).
+campionato + Corona + Coppa Tricolore. Non è però solo un flag: ha una schermata sua — §5bis.
 
 **Deliverable**: motore coppa, `CareerState.nationalCup`, slot di calendario, `CupProgress` a
 due strisce, pannello coppa con selettore, `isKeyMatch` esteso ai turni secchi dai quarti in su
 (coerente col filtro già stretto della Corona), `pnpm probe-coppa-nazionale` per misurare che
 la forza conti davvero — è la misura che ha già corretto una volta il formato della Corona.
+
+---
+
+## 5bis. La schermata di trionfo, condivisibile (richiesta dell'utente)
+
+> "Se si riesce a fare il triplete voglio un festeggiamento speciale per condividere il trionfo
+> con gli amici sui social, una bella schermata di trionfo."
+
+### Cosa c'è già, e cosa manca davvero
+
+`CelebrationConfetti.tsx` (109 righe) e i banner dorati di `SeasonEndOverlay.tsx` esistono e si
+riusano. **Non esiste invece nulla per la condivisione**: nel progetto non c'è una sola
+occorrenza di `navigator.share`, `canvas`, `toBlob` o `clipboard`, e non c'è alcuna dipendenza
+tipo `html2canvas`. Questa parte si costruisce da zero.
+
+### Come si genera l'immagine — e perché non con una libreria
+
+Tre strade, ne scelgo una e dichiaro il perché:
+
+| | Verdetto |
+|---|---|
+| `html2canvas` / `dom-to-image` | **Scartata.** Nuova dipendenza pesante su un bundle che deve restare piccolo (§1), e resa notoriamente incerta su gradienti, filtri e font — cioè esattamente tutto quello che rende bella questa schermata. |
+| SVG serializzato → `Image` → canvas | **Scartata.** Richiede il font Manrope **incorporato in base64** dentro l'SVG, altrimenti il testo esce con un ripiego di sistema. Decine di KB e un punto di rottura silenzioso. |
+| **Canvas imperativo** | **Scelta.** Zero dipendenze nuove, controllo totale, output identico ovunque. Il font non è un problema: Manrope è già caricato nella pagina e il canvas lo usa, a patto di attendere `document.fonts.ready` prima di disegnare — dettaglio che, se dimenticato, produce una card col font sbagliato solo al primo tentativo, cioè il tipo di difetto che sfugge in fase di test. |
+
+Nuovo `apps/web/src/ds/shareCard.ts`: funzione pura-ish che riceve i dati del trionfo e
+restituisce un `Blob` PNG. Sta in `apps/web` e non nel motore perché è disegno, non
+simulazione (§9).
+
+**Due formati**, entrambi generati dallo stesso codice cambiando le proporzioni:
+- **1080×1350** (verticale da feed): il formato che non viene tagliato da nessuna parte.
+- **1080×1920** (storie): a tutto schermo su Instagram/WhatsApp.
+
+### Come si condivide
+
+1. `navigator.canShare({ files })` → **Web Share API** con il file allegato: su mobile apre il
+   foglio di condivisione nativo con WhatsApp, Instagram, Telegram. È il percorso principale,
+   perché l'app è mobile-first.
+2. Se non supportata (desktop, browser vecchi): **scarica il PNG** + **copia il testo** negli
+   appunti, con conferma visibile.
+
+Nessuna integrazione con SDK di terze parti, nessuna chiamata di rete: l'immagine nasce e
+resta sul dispositivo finché non è l'utente a mandarla. Nessun dato lascia l'app da solo.
+
+### Cosa c'è sulla card (D8: trofei + numeri chiave)
+
+Nome del club, stagione, i trofei vinti disegnati da noi, e i numeri che rendono il trionfo
+raccontabile a un amico che al gioco non ha mai giocato: **punti in campionato, differenza
+reti, capocannoniere della rosa, finali vinte**. Più il **wordmark Fantasy Manager con il
+logo**, e in piccolo la riga di disclaimer di §2.
+
+I numeri vengono da `SeasonSummary`, che li ha già tutti tranne il capocannoniere: quello si
+ricava dalla rosa a fine stagione (`stats.goals`), dove `playerReports` lo espone già.
+
+Il disclaimer sulla card **non è pedanteria**: l'immagine porta il nome di un club reale
+**fuori** dall'app, dove non c'è più il contesto che lo qualifica come gioco indipendente.
+In app quel contesto c'è, in un post su Instagram no. Nessuno stemma, nessuna foto: solo
+grafica originale, come sempre. E il wordmark che viaggia con l'immagine è anche l'unica
+promozione gratuita che questa funzione si porta dietro.
+
+### Quando appare: una scala a livelli (D7)
+
+Non una schermata per il solo triplete, ma **la stessa schermata a intensità crescente** —
+decisione dell'utente dopo aver visto il rischio qui sotto:
+
+| Trofei nella stagione | Trattamento |
+|---|---|
+| 1 | Card sobria, un trofeo, coriandoli leggeri. Titolo: il nome del trofeo vinto. |
+| 2 | Due coppe affiancate, coriandoli più densi, accento rame/oro. Titolo: "Doppietta". |
+| 3 | Trattamento completo: oro pieno, coriandoli al massimo, i tre trofei in sequenza a molla, fasci di luce. Titolo: "TRIPLETE". |
+
+È una sola implementazione con tre gradi di intensità, non tre schermate — così il lavoro si
+vede in ogni carriera che vinca qualcosa, e il triplete resta comunque riconoscibile a colpo
+d'occhio come la cosa più rara.
+
+### Il rischio che ha portato a quella scelta: quanto spesso si vedrebbe il solo triplete?
+
+Il triplete richiede campionato + Corona + Coppa Tricolore **nella stessa stagione**. Con i
+numeri già misurati nel progetto (una rosa da titolo vince il campionato nel ~59% dei casi, la
+Corona nell'ordine del ~10% anche partendo fortissimi dopo il girone, e una coppa a
+eliminazione secca su cinque turni sta nella stessa fascia) l'ordine di grandezza è **~1% a
+stagione**, cioè circa **una carriera su dieci** ne vede uno.
+
+Costruire una schermata elaborata che quasi nessuno vedrà sarebbe un cattivo affare — ed è
+esattamente perché la macchina è **identica** per qualunque trofeo che si adotta la scala a
+livelli qui sopra.
+
+### Deliverable
+
+- `apps/web/src/ds/shareCard.ts` — generazione PNG su canvas, due formati.
+- `apps/web/src/ds/TriumphScreen.tsx` — presa a tutto schermo: trofei in ingresso a molla,
+  numeri che salgono, coriandoli, e i due pulsanti (condividi / salva immagine).
+- Estensione di `CelebrationConfetti` per il livello "triplete" (più denso, oro pieno).
+- `SeasonSummary.trophies: { league: boolean; continental: boolean; national: boolean }`,
+  con `treble` derivato — un solo campo che risponde a tutte le domande, invece di tre flag
+  sparsi che poi non concordano.
+- Test sul motore: `treble` è vero **solo** con tutti e tre, e mai raggiungibile dalla Serie B
+  (dove la Corona non si gioca) — il caso limite che un flag booleano scritto a mano
+  sbaglierebbe.
 
 ---
 
@@ -204,8 +308,8 @@ la forza conti davvero — è la misura che ha già corretto una volta il format
 |---|---|---|
 | 1 | Club + rose Serie B, **Overall editoriali uno per uno**, import, `recompute` | Basso tecnicamente, **molto lungo**. Da chiudere per prima: le fasi 2-5 la presuppongono |
 | 2 | `divisions.ts`, lega gemella, carriera che continua in B, budget di promozione/retrocessione | **Alto**: tocca il cuore della carriera |
-| 3 | Coppa Nazionale a 40, calendario a due coppe, triplete | Medio |
-| 4 | UI (club picker, classifiche, overlay promozione/retrocessione, pannello coppa) | Basso |
+| 3 | Coppa Tricolore a 40, calendario a due coppe, flag trofei | Medio |
+| 4 | UI (club picker, classifiche, overlay promozione/retrocessione, pannello coppa) + **schermata di trionfo condivisibile** (§5bis) | Basso il primo gruppo, medio la card su canvas |
 | 5 | Calibrazione (`calibrate-promozione`, `probe-coppa-nazionale`), test, pubblicazione | Medio |
 
 La Fase 1 è la sola non parallelizzabile: con Overall editoriali completi (D1) la Serie B non

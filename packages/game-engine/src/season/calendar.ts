@@ -13,10 +13,12 @@
  * vale ovunque.
  */
 import { GROUP_ROUNDS } from "./cup";
+import { NATIONAL_CUP_STAGES, type NationalCupStage } from "./nationalCup";
 
 export type WeekSlot =
   | { kind: "campionato"; round: number }
   | { kind: "coppa"; stage: "girone" | "quarti" | "semifinali" | "finale"; round: number }
+  | { kind: "coppa_nazionale"; stage: NationalCupStage; round: number }
   | { kind: "mercato"; window: "riparazione" };
 
 export interface SeasonWeek {
@@ -50,10 +52,37 @@ export function midSeasonRound(leagueRounds: number): number {
   return Math.floor(leagueRounds / 2);
 }
 
+/**
+ * Dove cadono i sei turni di **Coppa Tricolore**, come frazione della stagione.
+ *
+ * Sono incastrati fra quelli di Corona, non sovrapposti: chi gioca entrambe arriva a
+ * **quindici** impegni infrasettimanali su trentotto settimane, ed è voluto — la rotazione
+ * della rosa smette di essere un consiglio e diventa una necessità, che è esattamente ciò che
+ * la fatica (`fatigueTeamModifier`) modella da tempo senza aver mai pesato davvero.
+ *
+ * Il preliminare sta prestissimo (è agosto, prima che il campionato entri nel vivo) e la
+ * finale a stagione quasi conclusa.
+ */
+const NATIONAL_CUP_FRACTIONS: { stage: NationalCupStage; at: number }[] = [
+  { stage: "preliminare", at: 0.03 },
+  { stage: "sedicesimi", at: 0.18 },
+  { stage: "ottavi", at: 0.33 },
+  { stage: "quarti", at: 0.55 },
+  { stage: "semifinale", at: 0.72 },
+  { stage: "finale", at: 0.9 },
+];
+
 export interface SeasonCalendarOptions {
   leagueRounds: number;
   /** La squadra partecipa alla Corona in questa stagione? */
   inCup: boolean;
+  /**
+   * La squadra partecipa alla Coppa Tricolore?
+   *
+   * Vero per tutti i club di Serie A e Serie B, cioè quasi sempre nelle carriere italiane.
+   * Assente = falso, così i campionati esteri e i salvataggi precedenti non cambiano di nulla.
+   */
+  inNationalCup?: boolean;
 }
 
 /**
@@ -63,7 +92,11 @@ export interface SeasonCalendarOptions {
  * vicina alla loro frazione, spostandosi in avanti se quella è già occupata dal mercato o da
  * un altro turno di coppa.
  */
-export function buildSeasonCalendar({ leagueRounds, inCup }: SeasonCalendarOptions): SeasonWeek[] {
+export function buildSeasonCalendar({
+  leagueRounds,
+  inCup,
+  inNationalCup = false,
+}: SeasonCalendarOptions): SeasonWeek[] {
   const weeks: SeasonWeek[] = Array.from({ length: leagueRounds }, (_, i) => ({
     index: i,
     slots: [{ kind: "campionato", round: i } as WeekSlot],
@@ -73,17 +106,45 @@ export function buildSeasonCalendar({ leagueRounds, inCup }: SeasonCalendarOptio
   const marketWeek = midSeasonRound(leagueRounds);
   weeks[marketWeek]!.slots.push({ kind: "mercato", window: "riparazione" });
 
-  if (!inCup) return weeks;
-
   const taken = new Set<number>([marketWeek]);
-  let cupRound = 0;
-  for (const { stage, at } of CUP_FRACTIONS) {
+
+  /**
+   * Trova la settimana libera più vicina alla frazione voluta.
+   *
+   * Una settimana ospita **al più una coppa**: mercoledì è uno solo, e accumulare due turni
+   * infrasettimanali nella stessa settimana significherebbe far giocare tre partite in sette
+   * giorni senza che il giocatore possa farci nulla.
+   */
+  const prenota = (at: number): number => {
     let week = Math.min(Math.max(Math.round(at * leagueRounds), 0), leagueRounds - 1);
     while (taken.has(week) && week < leagueRounds - 1) week++;
     // Se la coda è satura si torna indietro: meglio anticipare un turno che perderlo.
     while (taken.has(week) && week > 0) week--;
     taken.add(week);
-    weeks[week]!.slots.push({ kind: "coppa", stage, round: cupRound++ });
+    return week;
+  };
+
+  /**
+   * La **Coppa Tricolore si prenota per prima**, e non è indifferente.
+   *
+   * Chi prenota per primo ottiene la settimana più vicina alla frazione voluta; chi arriva
+   * dopo scivola in avanti. La coppa nazionale ha turni molto più radi (sei contro nove) e
+   * spalmati su tutta la stagione, quindi lasciarle scegliere per prima produce meno
+   * spostamenti che il contrario — e soprattutto tiene il **preliminare in agosto**, dove
+   * deve stare, invece di farlo scivolare dentro il girone di Corona.
+   */
+  if (inNationalCup) {
+    let round = 0;
+    for (const { stage, at } of NATIONAL_CUP_FRACTIONS) {
+      weeks[prenota(at)]!.slots.push({ kind: "coppa_nazionale", stage, round: round++ });
+    }
+  }
+
+  if (inCup) {
+    let cupRound = 0;
+    for (const { stage, at } of CUP_FRACTIONS) {
+      weeks[prenota(at)]!.slots.push({ kind: "coppa", stage, round: cupRound++ });
+    }
   }
 
   return weeks;
@@ -91,6 +152,17 @@ export function buildSeasonCalendar({ leagueRounds, inCup }: SeasonCalendarOptio
 
 /** Quanti turni di coppa prevede il formato (6 di girone + quarti, semifinali, finale). */
 export const TOTAL_CUP_ROUNDS = GROUP_ROUNDS + 3;
+
+/** Quanti turni ha la Coppa Tricolore: preliminare, sedicesimi, ottavi, quarti, semifinale, finale. */
+export const TOTAL_NATIONAL_ROUNDS = NATIONAL_CUP_STAGES.length;
+
+/** La settimana contiene un turno di Coppa Tricolore? */
+export function nationalCupSlotOf(
+  week: SeasonWeek,
+): Extract<WeekSlot, { kind: "coppa_nazionale" }> | undefined {
+  const slot = week.slots.find((s) => s.kind === "coppa_nazionale");
+  return slot?.kind === "coppa_nazionale" ? slot : undefined;
+}
 
 /** La settimana contiene una giornata di campionato? */
 export function leagueRoundOf(week: SeasonWeek): number | undefined {

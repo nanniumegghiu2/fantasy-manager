@@ -178,7 +178,35 @@ export interface SeasonBudgetInput {
   /** Piazzamento della stagione precedente, per premiare il miglioramento. */
   previousPosition?: number;
   difficulty?: DsDifficulty;
+  /**
+   * Come è finita rispetto alle due divisioni, se il campionato ne fa parte.
+   *
+   * Non è un premio in più accanto al piazzamento: è **il** fatto economico dell'anno. Salire
+   * o scendere di categoria cambia i ricavi di una società molto più di due posizioni in
+   * classifica, ed è ciò che rende la retrocessione una ferita da curare per stagioni e la
+   * promozione un trampolino vero.
+   */
+  divisionOutcome?: "promosso" | "retrocesso" | "resta";
 }
+
+/**
+ * Quanto pesa il cambio di categoria sul fatturato dell'anno dopo.
+ *
+ * **Retrocedere quasi dimezza i mezzi** (0,55): è la sanzione che dà peso alla lotta salvezza e
+ * che rende la risalita una vera impresa invece di un rimbalzo automatico. **Promuovere quasi
+ * raddoppia** (1,85), perché una neopromossa che entrasse in Serie A col budget della B
+ * sarebbe condannata in partenza — e la modalità vuole raccontare la scalata, non un ciclo di
+ * sali-e-scendi.
+ *
+ * L'asimmetria (1,85 contro 0,55) è voluta e non è generosità: chi sale deve **rifondare**
+ * mezza rosa in una sola finestra, chi scende si ritrova con una rosa già sovradimensionata
+ * per la categoria e con giocatori da vendere. I due lati partono da bisogni diversi.
+ */
+export const DIVISION_BUDGET_MULTIPLIER: Record<"promosso" | "retrocesso" | "resta", number> = {
+  promosso: 1.85,
+  retrocesso: 0.55,
+  resta: 1,
+};
 
 /** Il budget della stagione successiva. */
 export function nextSeasonBudget({
@@ -189,6 +217,7 @@ export function nextSeasonBudget({
   leftover,
   previousPosition,
   difficulty = "difficile",
+  divisionOutcome,
 }: SeasonBudgetInput): number {
   const rawRewardMultiplier =
     positionMultiplier(position, teamsInLeague) *
@@ -198,7 +227,20 @@ export function nextSeasonBudget({
     rawRewardMultiplier,
     DIFFICULTY_REWARD_MULTIPLIER_CAP[difficulty],
   );
-  const base = initialBudget(averageOverall, difficulty) * cappedRewardMultiplier;
+  /**
+   * Il cambio di categoria si applica **fuori dal tetto** dei premi.
+   *
+   * Dentro sarebbe stato assorbito: il tetto esiste per impedire che piazzamento, coppa e
+   * miglioramento si moltiplichino fra loro fino a gonfiare il mercato (voce del 2026-08-09d),
+   * ed è tarato su quei tre. Salire di categoria non è un premio della stessa famiglia — è un
+   * cambio di scala dei ricavi — e schiacciarlo sotto lo stesso tetto avrebbe reso una
+   * promozione quasi indistinguibile da un buon piazzamento.
+   *
+   * Per la stessa ragione **la retrocessione non è protetta dal pavimento** dei premi: deve
+   * poter mordere.
+   */
+  const division = DIVISION_BUDGET_MULTIPLIER[divisionOutcome ?? "resta"];
+  const base = initialBudget(averageOverall, difficulty) * cappedRewardMultiplier * division;
   return roundToStep(base + Math.max(0, leftover) * CARRY_OVER_SHARE);
 }
 

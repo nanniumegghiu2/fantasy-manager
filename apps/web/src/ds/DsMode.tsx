@@ -77,6 +77,9 @@ export function DsMode({ userId, onExit }: { userId: string | null; onExit: () =
       ownedByUser: new Set(step.state.roster.map((e) => e.playerId)),
       difficulty: step.state.difficulty ?? "normale",
       generated: step.state.generated ?? [],
+      // Promozioni e retrocessioni già avvenute: decidono in quale delle due divisioni si
+      // gioca adesso e chi sono le avversarie.
+      divisionMoves: step.state.divisionMoves ?? [],
     });
     /**
      * L'anagrafica deve includere i **regen**, che non esistono nel database.

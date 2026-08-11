@@ -11,6 +11,7 @@
     "apply-editorial": "tsx src/applyEditorialOveralls.ts",
     "prune-roles": "tsx src/pruneAndNormalizeRoles.ts",
     "import-big5": "tsx src/importBig5Leagues.ts",
+    "import-serie-b": "tsx src/importSerieB.ts",
     "apply-editorial-big5": "tsx src/applyEditorialBig5.ts",
     "calibrate": "tsx src/calibratePerfectSeason.ts",
     "calibrate-difficolta": "tsx src/calibrateDifficulty.ts",

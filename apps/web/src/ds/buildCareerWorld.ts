@@ -6,11 +6,16 @@ import {
   bestElevenByDepartment,
   careerOpponentTeam,
   createRosterEntry,
+  DIVISION_PAIRS,
   estimatePotential,
   evolveWorld,
   initialBudget,
+  isContinentalEligible,
+  leagueOfClub,
   planWorldTransfers,
   type CareerWorld,
+  type DivisionMove,
+  type DivisionWorld,
   type DsDifficulty,
   type GeneratedPlayer,
   type LeagueTeam,
@@ -41,9 +46,57 @@ function leagueSize(clubs: DsClub[]): number {
   return clubs.length % 2 === 0 ? clubs.length : clubs.length - 1;
 }
 
-/** I club di un campionato, ordinati per forza dei loro undici migliori. */
-export function clubsOfLeague(world: DsWorldData, leagueId: string): DsClub[] {
-  return world.clubs.filter((club) => club.leagueId === leagueId);
+/**
+ * I club di un campionato, **dopo** le promozioni e retrocessioni già avvenute.
+ *
+ * `club.leagueId` è l'appartenenza del database, cioè quella della prima stagione. Da quando
+ * esistono le due divisioni italiane non basta più: alla terza stagione di una carriera il
+ * Palermo può essere in Serie A e il Venezia in Serie B, e leggere il campo grezzo darebbe il
+ * campionato del 2025/26 invece di quello che si sta giocando.
+ *
+ * `moves` vuoto (il caso di ogni carriera in Premier, Liga, Bundesliga o Ligue 1, e di ogni
+ * salvataggio precedente) riporta esattamente al comportamento di prima.
+ */
+export function clubsOfLeague(
+  world: DsWorldData,
+  leagueId: string,
+  moves: readonly DivisionMove[] = [],
+): DsClub[] {
+  if (moves.length === 0) return world.clubs.filter((club) => club.leagueId === leagueId);
+
+  const pair = divisionPairIds(world);
+  if (!pair) return world.clubs.filter((club) => club.leagueId === leagueId);
+
+  return world.clubs.filter(
+    (club) =>
+      leagueOfClub(club.id, club.leagueId, moves, pair.topLeagueId, pair.secondLeagueId) ===
+      leagueId,
+  );
+}
+
+/**
+ * Gli id delle due leghe collegate da promozione/retrocessione, se entrambe sono nel database.
+ *
+ * Torna `null` quando la seconda divisione non è stata ancora importata: in quel caso la
+ * carriera si comporta come prima dell'introduzione del sistema, senza movimenti. È ciò che
+ * permette di girare su un database parziale senza casi speciali sparsi.
+ */
+export function divisionPairIds(
+  world: DsWorldData,
+): { topLeagueId: string; secondLeagueId: string; topLeagueName: string; secondLeagueName: string } | null {
+  for (const pair of DIVISION_PAIRS) {
+    const top = world.leagues.find((l) => l.name === pair.top);
+    const second = world.leagues.find((l) => l.name === pair.second);
+    if (top && second) {
+      return {
+        topLeagueId: top.id,
+        secondLeagueId: second.id,
+        topLeagueName: top.name,
+        secondLeagueName: second.name,
+      };
+    }
+  }
+  return null;
 }
 
 /** Forza di un club, dai suoi undici migliori: è il numero mostrato nel selettore. */
@@ -69,6 +122,15 @@ export function continentalEntrants(world: DsWorldData): { clubIds: string[]; le
   const escluse: { id: string; leagueId: string; rating: number }[] = [];
 
   for (const league of world.leagues) {
+    /**
+     * **Le seconde divisioni non entrano in Corona** (`divisions.ts`).
+     *
+     * Senza questo filtro il giro qui sotto prenderebbe le prime tre di *ogni* campionato
+     * presente nel database, Serie B compresa: tre club di seconda divisione si sarebbero
+     * trovati nel torneo continentale il giorno stesso in cui la Serie B è stata importata.
+     */
+    if (!isContinentalEligible(league.name)) continue;
+
     const ordinati = clubsOfLeague(world, league.id)
       .map((club) => ({ club, rating: clubRating(world, club.id) }))
       .sort((a, b) => b.rating - a.rating);
@@ -118,6 +180,14 @@ export interface CareerWorldInput {
    * per l'anagrafica generale, ricomparso nel **mondo del mercato**, che è un secondo indice.
    */
   generated?: readonly GeneratedPlayer[];
+  /**
+   * Le promozioni e retrocessioni già avvenute in questa carriera.
+   *
+   * Senza, il mondo continuerebbe a leggere l'appartenenza del database — cioè quella della
+   * prima stagione — e alla terza annata di una carriera in Serie B si giocherebbe contro le
+   * squadre di Serie A del 2025/26.
+   */
+  divisionMoves?: readonly DivisionMove[];
 }
 
 /** Traduce il pool del database nella forma che il mondo vivo si aspetta. */
@@ -159,10 +229,20 @@ export function buildCareerWorld({
   transfers,
   ownedByUser,
   generated = [],
+  divisionMoves = [],
 }: CareerWorldInput): CareerWorld {
   const club = world.clubsById.get(clubId);
-  const leagueId = club?.leagueId ?? "";
-  const leagueClubs = clubsOfLeague(world, leagueId);
+  const pair = divisionPairIds(world);
+  /**
+   * **Dove giochiamo adesso**, non dove eravamo nel database: dopo una retrocessione il nostro
+   * club appartiene all'altra lega, e da quel campionato devono uscire le avversarie.
+   */
+  const leagueId = club
+    ? pair
+      ? leagueOfClub(club.id, club.leagueId, divisionMoves, pair.topLeagueId, pair.secondLeagueId)
+      : club.leagueId
+    : "";
+  const leagueClubs = clubsOfLeague(world, leagueId, divisionMoves);
   const size = leagueSize(leagueClubs);
 
   /**
@@ -254,9 +334,55 @@ export function buildCareerWorld({
 
   const ageOf = (playerId: string) => ageInSeason(players[playerId]?.birthDate, season) ?? 25;
 
+  /**
+   * Le due divisioni, quando entrambe sono nel database.
+   *
+   * `teams` copre **tutti** i club di Serie A e Serie B, non solo quelli del nostro campionato:
+   * a fine stagione il motore simula la lega gemella per sapere chi sale e chi scende, e senza
+   * le loro forze non avrebbe con cosa giocarla.
+   */
+  const divisions: DivisionWorld | undefined = pair
+    ? {
+        topLeagueId: pair.topLeagueId,
+        secondLeagueId: pair.secondLeagueId,
+        topLeagueName: pair.topLeagueName,
+        secondLeagueName: pair.secondLeagueName,
+        clubsByLeague: {
+          [pair.topLeagueId]: clubsOfLeague(world, pair.topLeagueId, divisionMoves).map((c) => c.id),
+          [pair.secondLeagueId]: clubsOfLeague(world, pair.secondLeagueId, divisionMoves).map(
+            (c) => c.id,
+          ),
+        },
+        teams: Object.fromEntries(
+          [
+            ...clubsOfLeague(world, pair.topLeagueId, divisionMoves),
+            ...clubsOfLeague(world, pair.secondLeagueId, divisionMoves),
+          ].map((c) => [
+            c.id,
+            careerOpponentTeam({
+              id: c.id,
+              name: c.name,
+              /**
+               * Per **noi** si legge il pool grezzo, non il mondo evoluto: `evolveWorld` esclude
+               * i nostri giocatori (li gestisce la carriera), quindi `rosaDi(nostroClub)` è
+               * vuoto e ci attribuirebbe la forza di ripiego. È lo stesso difetto già corretto
+               * una volta sulle iscritte alla Corona, dove ci iscriveva come la più debole del
+               * torneo. Qui il valore serve solo da anagrafica di riserva — nel campionato la
+               * nostra forza vera la mette il riduttore — ma sbagliarlo sarebbe una trappola
+               * pronta a scattare al primo uso nuovo di questa mappa.
+               */
+              players: c.id === clubId ? ((world.playersByClub.get(c.id) ?? []) as Player[]) : rosaDi(c.id),
+            }),
+          ]),
+        ),
+      }
+    : undefined;
+
   return {
     players,
     opponents,
+    divisions,
+    leagueName: world.leaguesById.get(leagueId)?.name,
     clubName: club?.name ?? "La mia squadra",
     leagueRounds: (size - 1) * 2,
     /**
@@ -270,7 +396,7 @@ export function buildCareerWorld({
      */
     cupTeams,
     cupEntrants: entrants,
-    market: buildMarketWorld(world, evolved, clubId, ageOf, generated, ownedByUser),
+    market: buildMarketWorld(world, evolved, clubId, ageOf, generated, ownedByUser, divisionMoves),
     // Il mercato del mondo si ricalcola sulla fotografia di **questa** stagione.
     planTransfers: (stagione) =>
       planWorldTransfers({
@@ -297,20 +423,33 @@ function buildMarketWorld(
   ageOf: (playerId: string) => number,
   generated: readonly GeneratedPlayer[],
   ownedByUser: ReadonlySet<string>,
+  divisionMoves: readonly DivisionMove[],
 ): NonNullable<CareerWorld["market"]> {
   const clubs: NonNullable<CareerWorld["market"]>["clubs"] = {};
   const leaguePrestigeByClub: Record<string, number> = {};
   const clubPrestige: Record<string, number> = {};
 
+  const pair = divisionPairIds(world);
   for (const club of world.clubs) {
     const rosa = (evolved.byClub.get(club.id) ?? []) as unknown as Player[];
+    /**
+     * Il campionato **attuale** del club, movimenti applicati.
+     *
+     * Conta sul serio: da qui esce il prestigio di lega che entra nel valore di mercato. Chi è
+     * appena retrocesso deve valere come una squadra di Serie B — è metà del motivo per cui la
+     * retrocessione fa male e la promozione conviene.
+     */
+    const leagueId = pair
+      ? leagueOfClub(club.id, club.leagueId, divisionMoves, pair.topLeagueId, pair.secondLeagueId)
+      : club.leagueId;
+
     clubs[club.id] = {
       id: club.id,
       name: club.name,
-      leagueId: club.leagueId,
+      leagueId,
       startingEleven: bestElevenByDepartment(rosa).map((p) => p.overall),
     };
-    leaguePrestigeByClub[club.id] = world.leaguesById.get(club.leagueId)?.prestigeTier ?? 3;
+    leaguePrestigeByClub[club.id] = world.leaguesById.get(leagueId)?.prestigeTier ?? 3;
     clubPrestige[club.id] = club.prestigeTier;
   }
 

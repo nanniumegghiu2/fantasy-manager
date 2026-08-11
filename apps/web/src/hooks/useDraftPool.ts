@@ -3,7 +3,7 @@ import { ROLE_DEPARTMENT } from "@app/shared-types";
 import type { Player, Role } from "@app/shared-types";
 import { fetchAllRows } from "../lib/fetchAllRows";
 import { supabase } from "../lib/supabaseClient";
-import type { ClubPackage } from "@app/game-engine";
+import { isClassicEligible, type ClubPackage } from "@app/game-engine";
 
 interface PlayerRow {
   id: string;
@@ -81,7 +81,15 @@ export function useDraftPool() {
 
       if (cancelled) return;
 
-      const allPlayers = data.map(fromRow);
+      /**
+       * **La Serie B non entra nella Classica** (decisione dell'utente, `docs/piano-serie-b.md`).
+       *
+       * Il filtro sta qui e non nel selettore per una ragione precisa: da qui escono sia
+       * l'elenco delle competizioni (`ClassicMode` lo deriva dai campionati che trova nel
+       * pool) sia i giocatori pescabili dall'opzione "tutto il database". Filtrare solo il
+       * selettore avrebbe tolto la voce dal menù lasciando i giocatori nei pacchetti.
+       */
+      const allPlayers = data.map(fromRow).filter((p) => isClassicEligible(p.league));
       const byClub = new Map<string, Player[]>();
       for (const player of allPlayers) {
         const existing = byClub.get(player.clubId);

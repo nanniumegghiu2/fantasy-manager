@@ -91,6 +91,7 @@ import type { DsWorldData } from "./useDsWorld";
 import { MiniStandings } from "./MiniStandings";
 import { SeasonEndOverlay } from "./SeasonEndOverlay";
 import { SeasonSquadReportModal } from "./SeasonSquadReportModal";
+import { TriumphScreen } from "./TriumphScreen";
 import { SquadPanel } from "./SquadPanel";
 import { WeekReportCard } from "./WeekReportCard";
 import { OUTCOME_COLOR, euro, ordinale, outcomeOf } from "./format";
@@ -171,6 +172,8 @@ export function CareerScreen({
   const [teatro, setTeatro] = useState<PartitaChiave | null>(null);
   const [seasonEnd, setSeasonEnd] = useState<number | null>(null);
   const [squadReportSummary, setSquadReportSummary] = useState<SeasonSummary | null>(null);
+  /** L'ultima stagione per cui la schermata di trionfo è già stata mostrata e chiusa. */
+  const [trionfoVisto, setTrionfoVisto] = useState<number | null>(null);
   const [correndo, setCorrendo] = useState(false);
   /** I referti ancora da mostrare della corsa in atto. */
   const coda = useRef<WeekReport[]>([]);
@@ -637,6 +640,19 @@ export function CareerScreen({
   const settimane = calendar.length;
   const progresso = settimane > 0 ? Math.min(100, (state.week / settimane) * 100) : 0;
   const riepilogo = seasonEnd !== null ? state.history.find((h) => h.season === seasonEnd) : undefined;
+
+  /**
+   * La schermata di trionfo si apre **una volta per stagione**, e solo se c'è un trofeo.
+   *
+   * Il flag tiene la stagione già festeggiata invece di un booleano: un booleano resterebbe
+   * acceso e alla stagione dopo il trionfo non si vedrebbe più.
+   */
+  const trofeiVinti = riepilogo?.trophies
+    ? Number(riepilogo.trophies.league) +
+      Number(riepilogo.trophies.continental) +
+      Number(riepilogo.trophies.national)
+    : 0;
+  const mostraTrionfo = !!riepilogo && trofeiVinti > 0 && trionfoVisto !== riepilogo.season;
   const bloccato =
     !!state.market || !!state.pendingRequest || bisognaRinnovare || !!state.coachDeparture || bisognaObiettivo;
 
@@ -1107,7 +1123,31 @@ export function CareerScreen({
           />
         )}
 
-        {!correndo && !teatro && !keyMatch && riepilogo && (
+        {/* Il trionfo viene **prima** del resoconto: è il momento da festeggiare, e leggere i
+            numeri di fine stagione prima toglierebbe la sorpresa. */}
+        {!correndo && !teatro && !keyMatch && mostraTrionfo && riepilogo && (
+          <TriumphScreen
+            key="trionfo"
+            data={{
+              clubName: world.clubName,
+              season: riepilogo.season,
+              leagueName: riepilogo.leagueName ?? world.leagueName ?? "Campionato",
+              trophies: riepilogo.trophies ?? {
+                league: false,
+                continental: false,
+                national: false,
+              },
+              points: riepilogo.points,
+              goalsFor: riepilogo.goalsFor,
+              goalsAgainst: riepilogo.goalsAgainst,
+              position: riepilogo.position,
+              topScorer: capocannoniere(riepilogo),
+            }}
+            onClose={() => setTrionfoVisto(riepilogo.season)}
+          />
+        )}
+
+        {!correndo && !teatro && !keyMatch && !mostraTrionfo && riepilogo && (
           <SeasonEndOverlay
             key="fine-stagione"
             state={state}
@@ -1254,4 +1294,18 @@ function aggiungiRisultati(prev: RisultatoScorso[], report: WeekReport): Risulta
   }
   if (nuovi.length === 0) return prev;
   return [...nuovi, ...prev].slice(0, 20);
+}
+
+/**
+ * Il capocannoniere della rosa nella stagione appena chiusa.
+ *
+ * Si legge da `playerReports`, che il motore compila già a fine stagione con le statistiche
+ * individuali: non serve un secondo calcolo, e soprattutto non serve tenere un'altra classifica
+ * marcatori che potrebbe non concordare con quella.
+ */
+function capocannoniere(summary: SeasonSummary): { name: string; goals: number } | undefined {
+  const migliore = (summary.playerReports ?? [])
+    .filter((r) => r.stats.goals > 0)
+    .sort((a, b) => b.stats.goals - a.stats.goals)[0];
+  return migliore ? { name: migliore.name, goals: migliore.stats.goals } : undefined;
 }

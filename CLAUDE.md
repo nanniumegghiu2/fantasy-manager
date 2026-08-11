@@ -112,7 +112,13 @@ La prima versione si è rivelata non veritiera sul pool reale, per tre difetti m
 
 **Pool ripulito sotto Overall 65** (`pnpm prune-roles`, `pruneAndNormalizeRoles.ts`): rimossi 108 giocatori (primavera, terzi portieri, fondo rosa) che allungavano le liste del draft senza mai essere una scelta sensata. Restano **472 giocatori**, media 73.2, rose più corte a 21 — sufficienti per un draft da 11. Insieme alla cancellazione va applicata **obbligatoriamente** la regola "ogni terzino sa fare il quinto" (`TD`→`QD`, `TS`→`QS` tra i secondari): **tutti** i giocatori con Quinto come ruolo primario stavano sotto 65, quindi da soli i due interventi si annullerebbero — senza la regola, i moduli a tre difensori (3-5-2, 3-4-3, 3-4-2-1) diventerebbero impossibili da riempire. Tatticamente è corretto (un terzino gioca da quinto quando la squadra passa a tre dietro) ed entra come secondario, quindi col malus di sez. 3.1.
 
-**Stato del popolamento (aggiornato ad ogni sessione)**: **tutti i Big 5 popolati e tutti valutati individualmente — 2.586 giocatori, 96 club.** Serie A (472), Premier League (547), La Liga (554), Bundesliga (525) e Ligue 1 (488), importati da `Cartel1.xlsx` con `pnpm import-big5` usando **solo le colonne fattuali** (nome, data di nascita, nazionalità, club, posizione) e i **nostri** calcoli per Overall e valore di mercato.
+**Stato del popolamento (aggiornato ad ogni sessione)**: **Big 5 + Serie B — 3.077 giocatori, 116 club.**
+
+**Serie B italiana 2025/26** (`packages/data-scripts/seeds/serie-b-2025-26/`, `pnpm import-serie-b`): 20 club, **491 giocatori**, tutti valutati uno per uno. I dati **non erano in `Cartel1.xlsx`** (verificato: il foglio contiene solo i Big 5), quindi le rose sono compilate da [footballsquads.co.uk](https://www.footballsquads.co.uk/italy/2025-2026/serieb.htm) — nome, data di nascita, nazionalità e posizione grossa, cioè fatti — e Overall e casella puntuale sono **stime editoriali nostre dichiarate**, come per i Big 5. Banda **60-74**: il pavimento è 60 perché è il minimo della scala del progetto e il database lo impone con un `check`. Verifica di coerenza superata: **mediana Serie B 63 contro il 25° percentile della Serie A a 70**, cioè la B sta sotto la A senza sovrapposizioni improprie. Due regole vivono nell'importer e non nei dati, perché una regola scritta una volta non può andare fuori sincrono con sé stessa: terzino↔quinto e **esterno alto↔esterno di centrocampo** (`TQD`↔`ED`, `TQS`↔`ES`) — quest'ultima aggiunta dopo che il controllo di copertura ha misurato **15 soli candidati `ED` su 20 club**, cioè moduli irriempibili.
+
+⚠️ **`pnpm prune-roles` non va rilanciato**: tagliava sotto Overall 65, e cancellerebbe quasi tutta la Serie B, che per costruzione sta sotto quella soglia.
+
+**Stato precedente**, per riferimento: tutti i Big 5 popolati e valutati individualmente — 2.586 giocatori, 96 club. Serie A (472), Premier League (547), La Liga (554), Bundesliga (525) e Ligue 1 (488), importati da `Cartel1.xlsx` con `pnpm import-big5` usando **solo le colonne fattuali** (nome, data di nascita, nazionalità, club, posizione) e i **nostri** calcoli per Overall e valore di mercato.
 
 **Overall editoriali completi su tutti e 5 i campionati** (`packages/data-scripts/seeds/editorial-overalls-*.ts`, applicati con `pnpm apply-editorial-big5 -- --apply`): **1.777 giocatori valutati uno per uno**, i restanti 337 (giovanili che nel campionato non giocano) prendono il valore da fondo rosa per tier di club (`DEPTH_CAP_BY_TIER`). Con l'arrivo di Bundesliga e Ligue 1 la riscalatura temporanea `RESCALE_BAND` è stata **rimossa del tutto**: non esiste più nessun campionato sul prior, quindi il codice che li riportava sulla scala giusta non ha più ragione d'essere.
 
@@ -431,6 +437,89 @@ Ora ci sono quattro livelli, e due regole che rendono il caso assurdo impossibil
 
 Gli esiti hanno conseguenze durature: riappacificazione, accordo con debito, stallo, **rottura** (feud permanente, pazienza dimezzata a vita, e per un leader **contagio al reparto**), bivio col mister.
 
+### 3.7.12ter Due divisioni, Coppa Tricolore e il triplete (dal 2026-08-11)
+
+Piano completo in `docs/piano-serie-b.md`, scritto e approvato prima di toccare il codice.
+
+**Serie A e Serie B sono collegate** (`divisions.ts`, `ds/siblingLeague.ts`): tre salgono, tre
+scendono. Due scelte reggono tutto il resto:
+
+- **Si salva solo lo scostamento.** `CareerState.divisionMoves` registra chi è salito e chi è
+  sceso, stagione per stagione: sessanta id in dieci anni invece di quaranta club per dieci
+  anni. L'appartenenza attuale si ricostruisce applicando i movimenti a quella del database —
+  stesso principio di `aiWorld.ts` e dei contratti.
+- **La lega gemella si simula davvero.** Giocando in Serie B qualcuno deve pur decidere chi
+  retrocede dalla A: si gioca una stagione intera col modello attacco-contro-difesa già
+  calibrato, una volta l'anno e seedata dal seme di carriera. Un sorteggio sarebbe costato meno
+  ma avrebbe buttato via la gerarchia costruita con gli Overall editoriali — prima o poi il
+  Milan sarebbe sceso mentre una neopromossa vinceva lo scudetto.
+
+**Retrocedere dalla Serie A non chiude più la carriera**: si continua in B, e la carriera
+finisce solo scendendo *dalla* B (`ending: "retrocessione"`). Non perché il club sparisca — non
+esiste una terza serie nel mondo — ma perché è il pavimento. Le due leghe restano a venti **per
+costruzione**: la A perde tre e ne riceve tre, la B specularmente, senza dover inventare una
+Serie C per far quadrare i conti.
+
+**Il budget sente il salto di categoria** (`DIVISION_BUDGET_MULTIPLIER`): promozione ×1,85,
+retrocessione ×0,55, applicati **fuori dal tetto dei premi** — dentro sarebbero stati assorbiti,
+e una promozione sarebbe risultata indistinguibile da un buon piazzamento. L'asimmetria è voluta:
+chi sale deve rifondare mezza rosa in una finestra, chi scende ha già una rosa sovradimensionata
+da vendere.
+
+**La Serie B è esclusa dalla Corona e dalla Classica.** Si esclude il *campionato*, non i club:
+un retrocesso non gioca la Corona nemmeno se l'anno prima si era qualificato, e un promosso vi
+accede solo col piazzamento successivo. Entrambe le esclusioni sono **attive, non per
+omissione** — la Corona prende le prime tre di *ogni* lega e la Classica costruisce il selettore
+dai campionati che trova nel pool, quindi senza filtro la Serie B sarebbe entrata in entrambe il
+giorno stesso dell'import.
+
+**Coppa Tricolore** (`season/nationalCup.ts`, `ds/careerNationalCup.ts`): nome originale, mai
+"Coppa Italia". Quaranta squadre, tutte: le 16 più deboli di B al preliminare, poi 32 → 16 → 8 →
+4 → finale. Cinque turni per un club di A, sei per uno partito dal preliminare. **Sorteggio
+libero a ogni turno**, nessuna testa di serie: è ciò che rende la coppa interessante per chi sta
+in B, e senza non ci sarebbe mai la serata della piccola. La singola sfida riusa
+`resolveKnockoutTie`, estratta da `cup.ts` senza cambiare l'ordine di consumo del generatore —
+quindi i tabelloni di Corona esistenti sono identici, e il characterization test lo dimostra.
+
+A differenza della Corona **il tabellone si salva**: il sorteggio libero consuma estrazioni turno
+per turno, e rideriverlo richiederebbe di rigiocare tutti i turni precedenti a ogni
+ricostruzione. Si salvano `bracket` e `byes`, due elenchi di numeri.
+
+Chi gioca entrambe le coppe arriva a **quindici impegni infrasettimanali** su trentotto
+settimane. È voluto: la rotazione della rosa smette di essere un consiglio, e la fatica
+(`fatigueTeamModifier`) comincia a pesare davvero.
+
+**Il triplete** è campionato + Corona + Coppa Tricolore nella stessa stagione, e in Serie B è
+**irraggiungibile per costruzione** (la Corona non si gioca lì). `SeasonSummary.trophies` tiene i
+tre booleani in un campo solo e `treble` si deriva da lì: non può esistere uno stato in cui i
+flag dicono una cosa e il triplete un'altra.
+
+### 3.7.12quater La schermata di trionfo, condivisibile
+
+`TriumphScreen.tsx` + `shareCard.ts`. Richiesta esplicita dell'utente: *"un festeggiamento
+speciale per condividere il trionfo con gli amici sui social"*.
+
+**Una schermata sola a tre intensità**, non una riservata al triplete: un trofeo → card sobria,
+due → doppietta, tre → oro pieno e coppe che entrano una dopo l'altra. La ragione è misurata: il
+triplete capita nell'ordine di **una carriera su dieci**, e una schermata elaborata riservata a
+quel caso non la vedrebbe quasi nessuno — mentre la macchina è identica per qualunque trofeo.
+
+**L'immagine si disegna a mano su canvas.** Scartate le due alternative e vale la pena dire
+perché: `html2canvas` è una dipendenza pesante su un bundle che deve restare piccolo e rende male
+proprio gradienti e font; un SVG serializzato richiederebbe **Manrope incorporato in base64**,
+perché un `<img>` SVG non vede i font della pagina. Col canvas il font non è un problema **a
+patto di attendere `document.fonts.ready` prima di disegnare** — dimenticarlo produce la prima
+card col font di sistema e le successive no, il difetto più facile da non vedere.
+
+Condivisione: `navigator.share` col file allegato (foglio nativo su mobile), fallback download
+PNG + testo negli appunti. **Nessuna chiamata di rete**: l'immagine nasce e resta sul dispositivo
+finché non è l'utente a mandarla. Due formati, 1080×1350 e 1080×1920.
+
+Sulla card: club, stagione, trofei disegnati da noi, punti, differenza reti, posizione,
+capocannoniere — più **wordmark e disclaimer**. Quest'ultimo non è pedanteria: l'immagine porta
+il nome di un club reale *fuori* dall'app, dove sparisce il contesto che la qualifica come gioco
+indipendente (sez. 2).
+
 ### 3.7.13 Salvataggio
 
 Tabella `ds_careers` (JSONB versionato, RLS per proprietario), autosave con ritardo di 2,5s più scrittura immediata a fine stagione e all'uscita. Lo stato contiene **solo id e numeri** — l'unica eccezione sono i regen, che non esistono nel database e quindi vivono nel salvataggio (`state.generated`).
@@ -687,6 +776,8 @@ Mancante oltre ai dati: draft/match realtime (PvP), Edge Function di persistenza
 ## 13. Idee future (fuori dallo scope attuale)
 
 - **Champions League del gioco**: competizione stagionale tra i migliori mister (rimossa dallo scope attuale- **2026-08-11 — Spogliatoio, Contratti e Finanze: la riscrittura più grande della DS mode.** Piano completo in `docs/piano-spogliatoio-contratti.md`, scritto e approvato prima di toccare il codice. **(1) Il bug dei mister duplicati, risolto alla radice.** La correzione precedente deduplicava per nome *dentro* `availableCoaches`, ma lasciava gli alias `c-01`..`c-24` dentro `COACHES`: `CoachPickerScreen.tsx:167` leggeva il catalogo grezzo per la scheda Svincolati e i doppioni tornavano (Klopp, Allegri, Tuchel, Sarri, De Rossi, Knutsen due volte). Ora gli alias vivono in `LEGACY_COACH_IDS`, una mappa consultata **solo** da `findCoach`: la duplicazione è impossibile per costruzione, non evitata a valle. Aggiunta `canonicalCoachId`, usata in `createCareer`/`hireCoach` — senza, `findCoach("c-10").id` e `state.coachId` erano due stringhe diverse per la stessa persona (difetto emerso da un test sul poaching). **(2) Catalogo mister da 34 a 101**, tutti gli 11 moduli rappresentati, tutte e 5 le fasce di reputazione, 24 svincolati, 15+ nazioni. **(3) Ricerca mister filtrata** (`searchCoaches` + `CoachSearchScreen.tsx`): modulo multi-selezione, stato contrattuale (svincolati / sotto contratto **con penale** derivata dalle stagioni residue), reputazione minima, stile, attitudine ai giovani, quattro ordinamenti. **Le pretese non si vedono più in lista**, richiesta esplicita dell'utente: si scoprono al tavolo insieme alle richieste tecniche. **(4) Contratti degli allenatori**: `hireCost` reinterpretato come **ingaggio annuo** (le cifre erano già plausibili come stipendio, nessuna tabella nuova), durata scelta alla firma (1-5 stagioni, `ContractLengthPicker`), buonuscita **derivata** dalle stagioni residue al posto del campo fisso, e `computeCoachBuyoutFee` — scritta in `coaches.ts` e **mai usata da nessuno** — finalmente collegata. Il contratto lungo costa meno all'anno ma lega; quello corto costa di più e a scadenza te lo portano via a zero. **(5) Contratti dei giocatori** (`contracts.ts`): durata in stagioni intere, ingaggio annuo, e soprattutto **derivati dal seme** invece che salvati — 2.586 record avrebbero sfondato da soli il tetto dei 100 KB (stesso principio di `aiWorld.ts`). Da questa scelta esce gratis la regola che l'utente aveva chiesto a parte: **ogni carriera è unica**, perché *chi* va in scadenza nella stagione 3 dipende dal seme. Si salva solo la decisione (rinnovo, svincolo, firma). **(6) Le finanze a due casse** (`finances.ts`): `budget.ts` produce ora il **fatturato**, che il DS ripartisce con uno slider fra cassa mercato e cassa ingaggi — quest'ultima comprende **lo stipendio del mister**. Pavimento invalicabile agli impegni firmati (disegnato sul binario, non un errore dopo il rilascio), limite del 25% allo spostamento invernale, sforamento permesso ma scontato dal fatturato successivo. È anche ciò che disinnesca il rischio principale dei parametri zero: non costano cartellino ma consumano cassa ingaggi, e quella cassa l'hai riempita togliendo soldi al mercato. **(7) Mercato dei parametri zero** (`freeAgents.ts`): pool derivato dalle scadenze + svincoli + giovani senza squadra, con decadimento (−1 Overall a finestra, fino a −4) e concorrenza IA. La trattativa si gioca su **cinque assi** (ingaggio, durata, minuti garantiti, ambizione, ruolo) pesati dalla personalità: una piccola batte il Real offrendo il campo, e quei minuti diventano un impegno verificato. **(8) Lo Spogliatoio riscritto da zero** (`playerFacts.ts` → `playerTopics.ts` → `playerDialogue.ts` → `commitments.ts`). Il difetto che l'ha imposto: `openPlayerStandoff` sceglieva il motivo con tre `if` e un fallback generico `"scontento"`, la cui richiesta di default era *"conferma il mio ruolo da titolare"* — quindi **un titolare inamovibile col morale basso apriva la chat chiedendo di giocare**. Ora ogni tema dichiara le sue **precondizioni sui fatti** e, se nessuno è ammissibile, **la conversazione non si apre**: la categoria residuale è sparita. 17 temi (11 di campo, 6 di contratto), due risorse invece di una (pazienza nella singola chat, **fiducia persistente** fra le chat), mosse che dichiarano il costo esatto e, se bloccate, **il motivo** (prima "Premio in Denaro" falliva *dopo* il clic), esiti con conseguenze durature (feud permanente, contagio al reparto per i leader). Registro unico degli impegni al posto dei tre canali paralleli. **(9) L'IA con un bilancio** (`aiStrategy.ts`): profili strategici (assalto/consolidamento/ricostruzione/sopravvivenza) derivati dai risultati veri, due casse anche per lei, e un piano stagionale a otto passi con **i parametri zero prima degli acquisti** — è ciò che la mette in gara con noi invece di lasciarci il mercato libero. `planWorldTransfers` non aveva alcun budget: con i parametri zero sarebbe stato insostenibile. **(10) Nessuna rete di sicurezza** (decisione esplicita dell'utente, presa in corsa): la prima versione faceva rinnovare d'ufficio i migliori quando la rosa sarebbe scesa sotto il minimo. Rimossa: chi non è stato rinnovato se ne va, e **se alla chiusura del mercato mancano gli undici schierabili la società esonera il DS e la carriera finisce** (`ending: "esonero"`). **Due difetti veri trovati dai test, non ipotizzati**: (a) chi arrivava dopo la stagione 1 (un acquisto, un regen) riceveva una scadenza calcolata sulla scala della stagione 1, cioè **già scaduta**, e usciva dalla rosa il giorno dopo essere entrato — `contractExpiryOf` ha ora un `fromSeason`; (b) `giovane_crescita` e `poco_impiego` scattavano alla giornata zero, quando nessuno aveva ancora giocato: aggiunta la soglia di giornate disponibili, e i **minuti si normalizzano per gli infortuni** (senza, ogni infortunato lungo apriva un caso di minutaggio). Un terzo l'ha trovato un test sulle urgenze: una lamentela ordinaria molto acuta scavalcava un **precontratto** di un rivale, quindi le urgenze hanno ora fasce con un tetto e le emergenze una banda riservata. **Nota su CLAUDE.md**: la riga di sez. 3.7.5 che diceva "il gioco non modella stipendi dei giocatori" è **superata** da questa implementazione — resta vero solo che non esistono contratti *nel senso di trattative individuali multiple*, mentre ingaggio e durata ora esistono per tutti. **Verifica**: 685 test verdi (da 614), `tsc -b --force` pulito su `apps/web`, build di produzione riuscita. Nessuna verifica nel browser reale in questa sessione (richiede le credenziali Google dell'utente) — da fare in-app soprattutto su slider finanze, ricerca mister e prima conversazione dello Spogliatoio.
+
+- **2026-08-11b — Serie B, promozioni/retrocessioni, Coppa Tricolore e la schermata di trionfo.** Piano in `docs/piano-serie-b.md`, approvato prima di scrivere codice, con otto decisioni registrate dall'utente (D1-D8). **(1) I dati non c'erano.** Prima di pianificare ho ispezionato `Cartel1.xlsx`: 3.204 righe, cinque campionati, **zero Serie B**. Non era un dettaglio — cambiava l'ampiezza della fase 1 da "import" a "compilazione da zero di 491 giocatori", e l'utente ha scelto consapevolmente gli Overall editoriali completi sapendo il costo. Rose da footballsquads (fatti), Overall e casella puntuale nostri e dichiarati. **(2) Tre difetti trovati dai controlli, non ipotizzati.** Il validatore dell'importer ha misurato **15 soli candidati `ED` su 20 club** — moduli con centrocampo a quattro irriempibili — risolto con la regola `TQD`↔`ED`/`TQS`↔`ES` scritta **nel codice** e non copiata in quaranta righe di dati, come già si era fatto per terzino↔quinto. Il vincolo `check` del database ha respinto il pavimento a 58: la scala del progetto parte da 60 (sez. 2.2), quindi ho alzato il pavimento invece di allentare il vincolo, appiattendo 52 valori 58/59 su 60 — perdita di granularità reale ma innocua, sono le ultime riserve di squadre di Serie B. E un test ha colto un errore mio nel motore: il controllo "in seconda divisione niente Corona" guardava `state.leagueId`, che a fine stagione è **già** quello dell'anno prossimo — quindi vincere la Serie B qualificava alla Corona, perché nel frattempo eravamo "di Serie A". Corretto passando la lega in cui la stagione è stata **giocata**. **(3) Due regressioni chiuse subito**, perché l'import le aveva aperte all'istante: `continentalEntrants` prende le prime tre di *ogni* lega (tre club di Serie B in Corona) e la Classica costruisce il selettore dai campionati del pool (Serie B comparsa da sola). Entrambe le esclusioni sono attive e coperte da test. **(4) La lega gemella si simula davvero** invece di sorteggiare tre nomi: costa una stagione l'anno e preserva la gerarchia costruita con gli Overall editoriali, che un sorteggio avrebbe buttato via. **(5) `resolveKnockoutTie` estratta da `cup.ts`** mantenendo identico l'ordine di consumo del generatore — il characterization test è passato senza modifiche, che è la prova che l'estrazione non ha cambiato nulla. **(6) La schermata di trionfo è a scala di livelli**, non solo per il triplete: ho misurato che il triplete capita in circa una carriera su dieci e l'ho detto all'utente prima di costruirla, e la scelta è stata di estenderla a ogni trofeo — stessa implementazione, visibile in ogni carriera vincente. **Verifica**: 732 test verdi (da 685 a inizio sessione), `tsc -b --force` pulito su `apps/web`, build di produzione riuscita, `pnpm recompute` sui 3.077 giocatori con zero Overall sovrascritti (gli override editoriali hanno tenuto). **Non verificato nel browser reale** in questa sessione (richiede le credenziali Google dell'utente): da provare in-app soprattutto la Coppa Tricolore dentro una carriera vera e la condivisione della card da telefono, che è l'unico posto dove il foglio nativo esiste davvero.
 
 - **2026-08-09d — Rebalancing Economico e Freno al Budget Acquisti nella Modalità DS**: Implementato un sistema di contenimento e calibrazione della crescita del budget di mercato nelle stagioni avanzate (`budget.ts`, `dsMarket.test.ts`). **(1) Problema affrontato**: l'Overall medio della rosa calcolava il budget base con un'esponenziale pura senza tetto (`BASE_BUDGET * Math.exp((overall - 70) / 7.5)`). Raggiunto un Overall di 82-88, il budget automatizzato s'impennava oltre i 150-200M€ a stagione, e moltiplicato per i premi di fine stagione consentiva di acquistare qualunque fuoriclasse ogni estate annullando la sfida tattica del mercato. **(2) Smorzamento Logaritmico sull'Overall Rosa (`OVR_DAMPING_THRESHOLD = 76`)**: per Overall $\le 76$ la formula esponenziale resta invariata (preservando il bilanciamento e la giocabilità della salvezza per le piccole squadre con `MIN_BUDGET = 20M€`). Oltre il 76 di media rosa, la crescita automatica passa a rendimenti decrescenti logaritmici (`baseAtThreshold + 25M * Math.log1p(excess / 4)`). **(3) Tetti Fisiologici sul Budget Base per Difficoltà (`DIFFICULTY_BASE_BUDGET_CAP`)**: impostato un cap al budget base automatico derivato dall'Overall rosa per ciascuna difficoltà: **Difficile max 60M€**, **Normale max 85M€**, **Facile max 135M€**. **(4) Cap sui Moltiplicatori Premio (`DIFFICULTY_REWARD_MULTIPLIER_CAP`)**: limitato il prodotto dei moltiplicatori di fine stagione (Piazzamento × Coppa × Miglioramento) a **max 1.45x in Difficile**, **1.70x in Normale**, **2.10x in Facile**. **(5) 100% Cessioni & Tesoretti Intatti**: mantenuto al 100% l'accredito delle vendite calciatori ed il 30% del riporto degli avanzi stagionali (`CARRY_OVER_SHARE = 0.3`), premiando esplicitamente chi sceglie di risparmiare per creare un tesoretto di mercato. **Verifica**: 599 test unitari verdi (`pnpm --filter game-engine test`), build di produzione web completato con successo (`pnpm --filter web build`).
 

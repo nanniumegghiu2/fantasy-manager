@@ -21,9 +21,19 @@ import {
 } from "../season/leagueState";
 import type { MatchResult } from "../season/matchModel";
 import { computeSquadStrength } from "../squadStrength";
+import { PROMOTION_SLOTS, promotionAndRelegation, type DivisionMove } from "../divisions";
+import { orderedClubIds, simulateSiblingSeason } from "./siblingLeague";
+import {
+  createNationalCupSave,
+  ownNationalCupOutcome,
+  playNationalCupWeek,
+  withOwnStrength,
+  type NationalCupSave,
+} from "./careerNationalCup";
 import {
   buildSeasonCalendar,
   cupSlotOf,
+  nationalCupSlotOf,
   hasMarketWindow,
   leagueRoundOf,
   type SeasonWeek,
@@ -218,12 +228,38 @@ export interface ResolvedPlayer {
   birthDate?: string | null;
 }
 
+/**
+ * Le due divisioni collegate, come le vede il riduttore.
+ *
+ * Contiene solo ciò che serve a **chiudere una stagione**: chi sta in quale lega adesso, e
+ * quanto vale ogni club, per poter simulare il campionato in cui non giochiamo
+ * (`siblingLeague.ts`). Il resto — nomi, rose, prestigi — resta nell'app.
+ */
+export interface DivisionWorld {
+  /** Id della lega di prima divisione (Serie A). */
+  topLeagueId: string;
+  /** Id della lega di seconda divisione (Serie B). */
+  secondLeagueId: string;
+  /** Nomi delle due leghe, per i messaggi ("Promossi in Serie A!"). */
+  topLeagueName: string;
+  secondLeagueName: string;
+  /**
+   * Chi milita in ciascuna delle due leghe **in questa stagione**, movimenti già applicati.
+   * La chiave è l'id della lega; i valori sono id di club, il nostro compreso.
+   */
+  clubsByLeague: Record<string, string[]>;
+  /** Forza di ogni club delle due divisioni, per simulare la lega gemella. */
+  teams: Record<string, LeagueTeam>;
+}
+
 export interface CareerWorld {
   players: Record<string, ResolvedPlayer>;
   /** Le 19 avversarie del campionato dell'utente, già pronte. */
   opponents: LeagueTeam[];
   /** Nome del club dell'utente, per il referto. */
   clubName: string;
+  /** Nome del campionato in cui si gioca ora, per il referto e la card del trionfo. */
+  leagueName?: string;
   /** Quante giornate ha il campionato: 38 a 20 squadre, 34 a 18. */
   leagueRounds: number;
   /**
@@ -235,6 +271,15 @@ export interface CareerWorld {
   cupTeams?: Record<string, LeagueTeam>;
   /** Le venti iscritte alla Corona: servono a ricostruire il torneo a ogni qualificazione. */
   cupEntrants?: { clubIds: string[]; leagues: string[] };
+  /**
+   * Le due divisioni collegate da promozione/retrocessione, quando il nostro campionato ne fa
+   * parte (oggi solo Serie A ↔ Serie B).
+   *
+   * Assente = campionato **senza** seconda divisione, cioè il comportamento di sempre: nessun
+   * movimento, e la retrocessione resta la fine della carriera. È così che i salvataggi
+   * precedenti e i test che guardano solo il campo continuano a funzionare senza modifiche.
+   */
+  divisions?: DivisionWorld;
   /** Il mondo del mercato. Assente = finestre disattivate (utile nei test del solo campo). */
   market?: MarketWorld;
   /**
@@ -272,6 +317,38 @@ export interface SeasonSummary {
   netBudget: number;
   /** Report individuale di ciascun calciatore della rosa per la scheda di fine anno. */
   playerReports?: SeasonPlayerReport[];
+  /**
+   * Come è finita rispetto alle due divisioni, quando il campionato ne fa parte.
+   *
+   * Assente per i campionati senza seconda divisione (Premier, Liga, Bundesliga, Ligue 1) e
+   * per i salvataggi precedenti: in entrambi i casi non c'è nulla da dire.
+   */
+  divisionOutcome?: "promosso" | "retrocesso" | "resta";
+  /** Fin dove siamo arrivati in Coppa Tricolore, se l'abbiamo giocata. */
+  nationalCupOutcome?: string;
+  /**
+   * I tre trofei della stagione, come un unico fatto.
+   *
+   * Tre booleani in un campo solo e non tre campi sparsi: il triplete si deriva da qui
+   * (`treble`), quindi non può esistere uno stato in cui i flag dicono una cosa e il triplete
+   * un'altra. È lo stesso motivo per cui `SquadLists` sta in un posto solo.
+   */
+  trophies?: { league: boolean; continental: boolean; national: boolean };
+  /**
+   * Campionato + Corona + Coppa Tricolore nella stessa stagione.
+   *
+   * **Irraggiungibile dalla Serie B**, dove la Corona non si gioca: è una conseguenza della
+   * regola, non un controllo a parte.
+   */
+  treble?: boolean;
+  /**
+   * Il campionato in cui la stagione **è stata giocata**.
+   *
+   * Registrato qui e non ricavato dallo stato perché a fine stagione `leagueId` può essere già
+   * quello dell'anno prossimo: una squadra promossa mostrerebbe altrimenti "Serie A" su una
+   * stagione vinta in Serie B.
+   */
+  leagueName?: string;
 }
 
 export interface PendingRequest extends TransferRequest {
@@ -295,8 +372,25 @@ export interface CareerState {
   league: { round: number; tallies: LeagueState["tallies"] };
   /** La Corona di questa stagione, se ci siamo qualificati. */
   cup?: CupSave;
+  /**
+   * La Coppa Tricolore di questa stagione.
+   *
+   * A differenza della Corona **non si vince l'accesso**: ci sono dentro tutti i club di Serie
+   * A e Serie B, ogni anno. Assente = campionato senza coppa nazionale (gli esteri) o
+   * salvataggio precedente all'introduzione.
+   */
+  nationalCup?: NationalCupSave;
   /** Difficoltà scelta in avvio: agisce sul budget di mercato. */
   difficulty: DsDifficulty;
+  /**
+   * Promozioni e retrocessioni avvenute finora, stagione per stagione.
+   *
+   * Si salva **solo lo scostamento** dall'appartenenza del database: sessanta id in dieci
+   * stagioni invece di quaranta club per dieci anni (stesso principio di `worldTransfers` e
+   * dei contratti). Assente = carriera senza seconda divisione, o salvataggio precedente
+   * all'introduzione del sistema.
+   */
+  divisionMoves?: DivisionMove[];
   /** La finestra di mercato aperta in questo momento, se ce n'è una. */
   market?: MarketSnapshot | null;
   /**
@@ -555,7 +649,11 @@ export function rebuildLeagueState(state: CareerState, world: CareerWorld): Leag
 export function seasonCalendar(state: CareerState, world: CareerWorld): SeasonWeek[] {
   // Chi non è in Corona ha una stagione senza turni infrasettimanali: meno partite, meno
   // rotazione necessaria, ed è una differenza che si sente in campo.
-  return buildSeasonCalendar({ leagueRounds: world.leagueRounds, inCup: !!state.cup });
+  return buildSeasonCalendar({
+    leagueRounds: world.leagueRounds,
+    inCup: !!state.cup,
+    inNationalCup: !!state.nationalCup,
+  });
 }
 
 /* -------------------------------------------------------------------------- */
@@ -742,6 +840,14 @@ export interface WeekReport {
     wentToPenalties?: boolean;
     weWonPenalties?: boolean;
   };
+  /** La partita di Coppa Tricolore, se questa settimana c'è un turno e siamo ancora in corsa. */
+  nationalCupMatch?: {
+    result: MatchResult;
+    opponent: string;
+    stage: string;
+    wentToPenalties?: boolean;
+    weWonPenalties?: boolean;
+  };
   standings?: StandingRow[];
   injuries: Injury[];
   /** Richiesta di cessione appena aperta: è una decisione, la UI deve fermarsi. */
@@ -824,6 +930,23 @@ export function advanceWeek(
 ): { state: CareerState; report: WeekReport } {
   const messages: string[] = [];
   let next: CareerState = { ...state, roster: [...state.roster] };
+
+  /**
+   * **La Coppa Tricolore si compone qui, non alla creazione della carriera.**
+   *
+   * `createCareer` non ha il mondo fra le mani — riceve solo la rosa e il budget — mentre il
+   * tabellone ha bisogno delle forze di tutti e quaranta i club. Comporla alla prima settimana
+   * risolve la dipendenza e in più **retrofitta i salvataggi già esistenti**, che non avevano
+   * questa coppa: chi riprende una carriera avviata se la ritrova dalla stagione in corso,
+   * invece di dover ricominciare.
+   *
+   * Il calendario si costruisce più sotto e legge `next.nationalCup`, quindi l'ordine conta:
+   * comporla dopo significherebbe una stagione senza turni prenotati.
+   */
+  if (!next.nationalCup && world.divisions && next.phase !== "conclusa") {
+    const nuova = buildNationalCup(next, world, next.season);
+    if (nuova) next = { ...next, nationalCup: nuova };
+  }
 
   if (next.phase === "conclusa") {
     return {
@@ -1164,6 +1287,35 @@ export function advanceWeek(
     if (outcome.won) messages.push("Abbiamo vinto la Corona Continentale!");
   }
 
+  /**
+   * Turno di **Coppa Tricolore**, con la stessa regola della Corona: si scende in campo con la
+   * rosa vera (`squadStrengthOf`), non con la fotografia del database, altrimenti il mercato
+   * fatto durante la carriera non conterebbe nulla in coppa.
+   */
+  let nationalCupMatch: WeekReport["nationalCupMatch"];
+  const nazionaleSlot = nationalCupSlotOf(week);
+  if (nazionaleSlot && next.nationalCup && world.divisions) {
+    const squadre = withOwnStrength(
+      world.divisions.teams,
+      next.clubId,
+      world.clubName,
+      squadStrengthOf(next, world),
+    );
+    const esito = playNationalCupWeek(
+      next.nationalCup,
+      squadre,
+      next.clubId,
+      scorerPoolOf(next, currentLineup(next, world), world),
+      next.seed,
+      next.season,
+      nazionaleSlot.round,
+    );
+    next = { ...next, nationalCup: esito.save };
+    if (esito.ownMatch) nationalCupMatch = esito.ownMatch;
+    if (esito.eliminated) messages.push("Eliminati dalla Coppa Tricolore.");
+    if (esito.won) messages.push("Abbiamo vinto la Coppa Tricolore!");
+  }
+
   // Finestra di riparazione: si apre a fine settimana e blocca l'avanzamento successivo.
   if (hasMarketWindow(week)) {
     const snapshot = openWindow(next, world, "riparazione");
@@ -1251,6 +1403,7 @@ export function advanceWeek(
       season: state.season,
       match,
       cupMatch,
+      nationalCupMatch,
       incident: daMostrare,
       standings: buildStandings(league, 0),
       injuries,
@@ -2935,6 +3088,139 @@ export function resolveIncidentDecision(
  * La retrocessione **chiude la carriera**, come deciso dall'utente: è la scelta che dà peso
  * ad ogni stagione, soprattutto scegliendo un club piccolo.
  */
+/**
+ * Compone la Coppa Tricolore di una stagione: tutti i club delle due divisioni.
+ *
+ * Restituisce `undefined` quando il mondo non ha due divisioni collegate — carriere estere e
+ * salvataggi precedenti, che continuano a non avere coppa nazionale.
+ *
+ * **Le divisioni si leggono dal mondo, che è già aggiornato ai movimenti**: `buildCareerWorld`
+ * ricostruisce `clubsByLeague` applicando `divisionMoves` a ogni stagione, quindi una
+ * neopromossa entra in coppa dalla parte giusta senza che qui serva saperne nulla.
+ */
+function buildNationalCup(
+  state: CareerState,
+  world: CareerWorld,
+  season: number,
+): NationalCupSave | undefined {
+  const div = world.divisions;
+  if (!div) return undefined;
+
+  const inA = div.clubsByLeague[div.topLeagueId] ?? [];
+  const inB = div.clubsByLeague[div.secondLeagueId] ?? [];
+  if (inA.length + inB.length < 4) return undefined;
+
+  return createNationalCupSave({
+    clubIds: [...inA, ...inB],
+    teamsById: div.teams,
+    secondDivisionIds: inB,
+    seed: state.seed,
+    season,
+  });
+}
+
+/** Come si è chiusa la stagione rispetto alle due divisioni collegate. */
+interface DivisionOutcome {
+  move: DivisionMove;
+  /** La lega in cui giocheremo la prossima stagione. */
+  newLeagueId: string;
+  newLeagueName: string;
+  ourFate: "promosso" | "retrocesso" | "resta";
+  /** Retrocessi dalla seconda divisione: sotto non c'è nulla, la carriera finisce. */
+  careerOver: boolean;
+}
+
+/**
+ * Chi sale e chi scende, a fine stagione.
+ *
+ * ## Le due classifiche non arrivano dalla stessa parte
+ *
+ * Del **nostro** campionato la classifica c'è già: l'abbiamo giocata giornata per giornata.
+ * Dell'altro no — è il campionato in cui non militiamo, e nessuno l'ha mai simulato. Si gioca
+ * quindi lì e ora (`simulateSiblingSeason`), una volta sola, col seme di carriera.
+ *
+ * Da questa asimmetria discende tutto il resto: **chi sale viene sempre dalla seconda
+ * divisione e chi scende sempre dalla prima**, quindi a seconda di dove stiamo una delle due
+ * metà del movimento la leggiamo dalla nostra classifica e l'altra da quella simulata.
+ *
+ * ## Perché la Serie B non retrocede nessuno
+ *
+ * Il mondo non ha una terza serie, e non serve: la Serie A perde tre squadre e ne riceve tre,
+ * la Serie B specularmente — entrambe restano a venti **per costruzione**, senza dover
+ * inventare una Serie C solo per far quadrare i conti. Le ultime tre di Serie B semplicemente
+ * restano dove sono.
+ *
+ * L'unica eccezione è **noi**: se finiamo negli ultimi tre posti della Serie B la carriera
+ * chiude. Non è il club a sparire, è il nostro incarico a finire — ed è ciò che dà un fondo
+ * alla discesa, altrimenti si potrebbe galleggiare in basso per dieci stagioni senza rischio.
+ */
+function resolveDivisions(
+  state: CareerState,
+  world: CareerWorld,
+  standings: StandingRow[],
+): DivisionOutcome | null {
+  const div = world.divisions;
+  if (!div) return null;
+
+  const inTop = state.leagueId === div.topLeagueId;
+  const inSecond = state.leagueId === div.secondLeagueId;
+  // Un campionato che non fa parte della coppia non ha promozioni: regola di sempre.
+  if (!inTop && !inSecond) return null;
+
+  const nostra = promotionAndRelegation(standings.map((r) => r.teamId));
+
+  const siblingId = inTop ? div.secondLeagueId : div.topLeagueId;
+  const siblingTeams = (div.clubsByLeague[siblingId] ?? [])
+    .map((id) => div.teams[id])
+    .filter((t): t is LeagueTeam => !!t);
+  const gemella = promotionAndRelegation(
+    orderedClubIds(
+      simulateSiblingSeason(
+        siblingTeams,
+        derivedRandom(state.seed, "sibling", siblingId, state.season),
+      ),
+    ),
+  );
+
+  const promoted = inTop ? gemella.promoted : nostra.promoted;
+  const relegated = inTop ? nostra.relegated : gemella.relegated;
+  const move: DivisionMove = { season: state.season, promoted, relegated };
+
+  if (inSecond) {
+    // In seconda divisione ci interessa una cosa sola oltre alla promozione: essere fra le
+    // ultime tre, che qui non significa scendere ancora ma essere sollevati dall'incarico.
+    const ultimiTre = standings
+      .slice(Math.max(0, standings.length - PROMOTION_SLOTS))
+      .some((r) => r.teamId === state.clubId);
+    if (ultimiTre) {
+      return {
+        move,
+        newLeagueId: div.secondLeagueId,
+        newLeagueName: div.secondLeagueName,
+        ourFate: "retrocesso",
+        careerOver: true,
+      };
+    }
+    const saliti = promoted.includes(state.clubId);
+    return {
+      move,
+      newLeagueId: saliti ? div.topLeagueId : div.secondLeagueId,
+      newLeagueName: saliti ? div.topLeagueName : div.secondLeagueName,
+      ourFate: saliti ? "promosso" : "resta",
+      careerOver: false,
+    };
+  }
+
+  const scesi = relegated.includes(state.clubId);
+  return {
+    move,
+    newLeagueId: scesi ? div.secondLeagueId : div.topLeagueId,
+    newLeagueName: scesi ? div.secondLeagueName : div.topLeagueName,
+    ourFate: scesi ? "retrocesso" : "resta",
+    careerOver: false,
+  };
+}
+
 function closeSeason(
   state: CareerState,
   world: CareerWorld,
@@ -2959,6 +3245,25 @@ function closeSeason(
       ? ownCupOutcome(state.cup, world.cupTeams, state.clubId, state.seed, state.season)
       : undefined;
 
+  const nationalOutcome =
+    state.nationalCup && world.divisions
+      ? ownNationalCupOutcome(state.nationalCup, world.divisions.teams, state.clubId)
+      : undefined;
+
+  /**
+   * I tre trofei della stagione.
+   *
+   * `league` è il primo posto, non "la zona alta": in Serie B vale la promozione come titolo di
+   * categoria, ma il campionato vinto resta il campionato vinto — è la stessa riga per entrambe
+   * le divisioni, senza casi speciali.
+   */
+  const trophies = {
+    league: row.position === 1,
+    continental: cupOutcome === "vittoria",
+    national: nationalOutcome === "vittoria",
+  };
+  const treble = trophies.league && trophies.continental && trophies.national;
+
   const rosaAttuale = state.roster;
   const avgMorale = rosaAttuale.length > 0 ? rosaAttuale.reduce((s, e) => s + e.morale, 0) / rosaAttuale.length : 0;
   const unhappyCount = rosaAttuale.filter((e) => e.morale < STANDOFF_MORALE_THRESHOLD).length;
@@ -2971,6 +3276,11 @@ function closeSeason(
     goalsFor: row.goalsFor,
     goalsAgainst: row.goalsAgainst,
     cupOutcome: cupOutcome && cupOutcome !== "assente" ? cupOutcome : undefined,
+    nationalCupOutcome:
+      nationalOutcome && nationalOutcome !== "assente" ? nationalOutcome : undefined,
+    trophies,
+    treble,
+    leagueName: world.leagueName,
     objective: state.seasonObjective
       ? {
           label: state.seasonObjective.label,
@@ -2987,16 +3297,65 @@ function closeSeason(
   messages.push(`Stagione ${state.season}: ${row.position}º posto con ${row.points} punti.`);
   if (summary.cupOutcome) messages.push(`Corona Continentale: ${summary.cupOutcome}.`);
 
-  // Retrocessione: ultimi tre posti.
-  if (row.position > teamsInLeague - 3) {
-    return {
-      state: {
-        ...state,
-        phase: "conclusa",
-        ending: "retrocessione",
-        history: [...state.history, summary],
-      },
-      messages: [...messages, "Retrocessione: la carriera finisce qui."],
+  /**
+   * **Promozioni e retrocessioni** (`docs/piano-serie-b.md`).
+   *
+   * Senza una seconda divisione collegata resta la regola di sempre: gli ultimi tre posti
+   * chiudono la carriera. È il caso di Premier, Liga, Bundesliga e Ligue 1, che nel database
+   * non hanno un campionato sotto.
+   */
+  const divisioni = resolveDivisions(state, world, standings);
+  /**
+   * La lega in cui la stagione **è stata giocata**, catturata prima che una promozione o una
+   * retrocessione riscriva `state.leagueId`. Serve alla qualificazione in Corona, che premia il
+   * piazzamento ottenuto in un certo campionato e non quello in cui si andrà a giocare.
+   */
+  const legaGiocata = state.leagueId;
+
+  if (!divisioni) {
+    if (row.position > teamsInLeague - PROMOTION_SLOTS) {
+      return {
+        state: {
+          ...state,
+          phase: "conclusa",
+          ending: "retrocessione",
+          history: [...state.history, summary],
+        },
+        messages: [...messages, "Retrocessione: la carriera finisce qui."],
+      };
+    }
+  } else {
+    /**
+     * **Scendere dalla seconda divisione chiude comunque la carriera.**
+     *
+     * Non perché il club sparisca — il mondo non modella una terza serie — ma perché sotto la
+     * Serie B non c'è nulla che valga la pena giocare: è il pavimento, e toccarlo è il modo in
+     * cui questa modalità ti dice che hai fallito. Sopra, invece, si continua: la retrocessione
+     * dalla Serie A ora è un capitolo della carriera, non la sua fine.
+     */
+    if (divisioni.careerOver) {
+      return {
+        state: {
+          ...state,
+          phase: "conclusa",
+          ending: "retrocessione",
+          history: [...state.history, { ...summary, divisionOutcome: "retrocesso" }],
+        },
+        messages: [...messages, "Retrocessi dalla Serie B: la carriera finisce qui."],
+      };
+    }
+
+    summary.divisionOutcome = divisioni.ourFate;
+    if (divisioni.ourFate === "promosso") {
+      messages.push(`Promossi in ${divisioni.newLeagueName}!`);
+    } else if (divisioni.ourFate === "retrocesso") {
+      messages.push(`Retrocessi in ${divisioni.newLeagueName}: si riparte da lì.`);
+    }
+
+    state = {
+      ...state,
+      leagueId: divisioni.newLeagueId,
+      divisionMoves: [...(state.divisionMoves ?? []), divisioni.move],
     };
   }
 
@@ -3210,10 +3569,13 @@ function closeSeason(
     // dieci volte la stessa stagione.
     previousPosition: state.history[state.history.length - 1]?.position,
     difficulty: state.difficulty ?? "normale",
+    // Salire o scendere di categoria è il fatto economico dell'anno, non un premio fra gli altri.
+    divisionOutcome: divisioni?.ourFate,
   });
 
-  // Qualificazione alla Corona: le prime quattro del campionato.
-  const cup = nextSeasonCup(state, world, row.position);
+  // Qualificazione alla Corona: le prime quattro del campionato **appena giocato**, non di
+  // quello in cui militeremo l'anno prossimo (vedi `nextSeasonCup`).
+  const cup = nextSeasonCup(state, world, row.position, legaGiocata);
   if (cup && !state.cup) messages.push("Ci siamo qualificati per la Corona Continentale.");
   if (!cup && state.cup) messages.push("Niente Corona Continentale la prossima stagione.");
 
@@ -3245,6 +3607,10 @@ function closeSeason(
       roster,
       league: { round: 0, tallies: [] },
       cup,
+      // Nuova edizione della Coppa Tricolore: ci sono dentro tutti, ogni anno, quindi non c'è
+      // nulla da qualificare — si ricompone il tabellone con le due divisioni aggiornate dai
+      // movimenti appena registrati.
+      nationalCup: buildNationalCup(state, world, season),
       market: null,
       coachRequest: null,
       // Le liste sopravvivono alla stagione, ma non possono contenere chi non è più in rosa:
@@ -3307,9 +3673,26 @@ function nextSeasonCup(
   state: CareerState,
   world: CareerWorld,
   position: number,
+  /** La lega in cui la stagione è stata giocata; per default quella corrente dello stato. */
+  playedLeagueId: string = state.leagueId,
 ): CupSave | undefined {
   const pool = world.cupEntrants;
   if (!pool || position > CUP_QUALIFY_POSITION) return undefined;
+
+  /**
+   * **In seconda divisione la Corona non si gioca**, a prescindere dal piazzamento
+   * (`divisions.ts`, decisione dell'utente).
+   *
+   * Il campionato da guardare è **quello in cui la stagione è stata giocata**, non quello in
+   * cui militeremo: a questo punto `state.leagueId` è già stato riscritto dall'eventuale
+   * promozione. Guardando il campo dello stato, vincere la Serie B qualificava alla Corona —
+   * perché nel frattempo eravamo già "di Serie A". Trovato da un test, non ipotizzato.
+   *
+   * Ne discende anche il caso simmetrico: chi retrocede dalla Serie A arrivando comunque fra
+   * le prime quattro (possibile solo in scenari di prova) non porta il pass in Serie B, perché
+   * lì la Corona non esiste — se ne riparla risalendo.
+   */
+  if (world.divisions && playedLeagueId === world.divisions.secondLeagueId) return undefined;
 
   const clubIds = [...pool.clubIds];
   const leagues = [...pool.leagues];
