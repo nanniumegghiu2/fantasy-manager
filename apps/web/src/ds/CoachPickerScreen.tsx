@@ -1,9 +1,7 @@
 import { useMemo, useState } from "react";
 import { motion } from "framer-motion";
-import { ArrowLeft, MessageSquare, Shield, Sprout, Swords, UserCheck } from "lucide-react";
+import { ArrowLeft, MessageSquare, Search, Shield, Sprout, Swords, UserCheck } from "lucide-react";
 import {
-  COACHES,
-  availableCoaches,
   computeCoachBuyoutFee,
   getClubDefaultCoach,
   getFormation,
@@ -13,6 +11,8 @@ import {
 } from "@app/game-engine";
 import { NationFlag } from "../classic/NationFlag";
 import { CoachNegotiationChat } from "./CoachNegotiationChat";
+import { CoachSearchScreen } from "./CoachSearchScreen";
+import { ContractLengthPicker } from "./ContractLengthPicker";
 import { euro } from "./format";
 
 function StyleBar({
@@ -144,7 +144,7 @@ interface CoachPickerScreenProps {
   roster?: RosterEntry[];
   season?: number;
   players?: Record<string, { name: string; role: any }>;
-  onPick: (coachId: string, promises?: CoachPromise[], totalCost?: number) => void;
+  onPick: (coachId: string, promises?: CoachPromise[], totalCost?: number, seasons?: number) => void;
   onBack: () => void;
 }
 
@@ -161,15 +161,78 @@ export function CoachPickerScreen({
 }: CoachPickerScreenProps) {
   const defaultCoach = useMemo(() => getClubDefaultCoach(clubId, clubName), [clubId, clubName]);
 
-  const [tab, setTab] = useState<"default" | "free" | "all">("default");
+  /**
+   * Tre passi, non tre schede: **scegli chi** (dossier o ricerca), **per quanto** (durata), e poi
+   * **a quali condizioni** (trattativa). Le pretese economiche compaiono solo all'ultimo passo,
+   * mai nella lista — richiesta esplicita dell'utente.
+   */
+  const [vista, setVista] = useState<"scelta" | "ricerca">("scelta");
   const [chatCoach, setChatCoach] = useState<Coach | null>(null);
+  const [durata, setDurata] = useState(3);
+  const [penale, setPenale] = useState(0);
+  const [candidato, setCandidato] = useState<Coach | null>(null);
 
-  const freeAgents = useMemo(() => COACHES.filter((c) => c.isFreeAgent), []);
-  const allCoaches = useMemo(() => availableCoaches(clubPrestige), [clubPrestige]);
+  const apri = (coach: Coach, buyout: number) => {
+    setCandidato(coach);
+    setPenale(buyout);
+    setDurata(coach.reputation >= 4 ? 3 : 2);
+  };
+
+  if (vista === "ricerca" && !candidato && !chatCoach) {
+    return (
+      <CoachSearchScreen
+        clubPrestige={clubPrestige}
+        currentCoachId={defaultCoach?.id ?? null}
+        title="Mercato allenatori"
+        subtitle={clubName}
+        onOpen={apri}
+        onBack={() => setVista("scelta")}
+      />
+    );
+  }
+
+  if (candidato && !chatCoach) {
+    const isDef = defaultCoach?.id === candidato.id;
+    return (
+      <div className="flex min-h-svh flex-col items-center justify-center gap-4 bg-[var(--surface)] p-4 text-[var(--text-primary)]">
+        <div className="w-full max-w-sm space-y-3">
+          <div className="rounded-2xl border border-[var(--surface-border)] bg-[var(--surface-raised)] p-4">
+            <p className="text-lg font-extrabold">{candidato.name}</p>
+            <p className="text-xs text-[var(--text-secondary)]">
+              {candidato.formationId} · {candidato.tacticalPhilosophy ?? candidato.nation}
+            </p>
+          </div>
+
+          <ContractLengthPicker coach={candidato} seasons={durata} onChange={setDurata} />
+
+          {penale > 0 && (
+            <p className="rounded-xl bg-[#ff8a3d]/15 px-3 py-2 text-[11px] font-bold text-[#ff8a3d]">
+              È sotto contratto: per liberarlo servono {euro(penale)} al suo club, oltre all'ingaggio.
+            </p>
+          )}
+
+          <button
+            type="button"
+            onClick={() => setChatCoach(candidato)}
+            className="w-full rounded-2xl bg-[var(--brand)] py-3 text-sm font-extrabold text-[var(--brand-contrast)]"
+          >
+            {isDef ? "Parla col tuo mister" : "Siediti al tavolo"}
+          </button>
+          <button
+            type="button"
+            onClick={() => setCandidato(null)}
+            className="w-full rounded-2xl border border-[var(--surface-border)] py-2.5 text-xs font-bold text-[var(--text-secondary)]"
+          >
+            Scegli un altro tecnico
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   if (chatCoach) {
     const isDefault = defaultCoach?.id === chatCoach.id;
-    const buyoutFee = isDefault || chatCoach.isFreeAgent ? 0 : computeCoachBuyoutFee(chatCoach);
+    const buyoutFee = isDefault || chatCoach.isFreeAgent ? 0 : penale || computeCoachBuyoutFee(chatCoach, 2);
 
     return (
       <CoachNegotiationChat
@@ -183,9 +246,12 @@ export function CoachPickerScreen({
         isDefaultCoach={isDefault}
         buyoutFee={buyoutFee}
         onAgree={(c, promises, cost) => {
-          onPick(c.id, promises, cost);
+          onPick(c.id, promises, cost, durata);
         }}
-        onCancel={() => setChatCoach(null)}
+        onCancel={() => {
+          setChatCoach(null);
+          setCandidato(null);
+        }}
       />
     );
   }
@@ -216,90 +282,33 @@ export function CoachPickerScreen({
           </span>
         </div>
 
-        {/* Schede Filtro */}
-        <div className="mx-auto flex w-full max-w-4xl gap-2 px-4 pb-3 pt-1">
-          <button
-            type="button"
-            onClick={() => setTab("default")}
-            className={`flex-1 rounded-xl py-2 text-xs font-extrabold transition-colors ${
-              tab === "default"
-                ? "bg-[var(--brand)] text-[var(--brand-contrast)]"
-                : "bg-[var(--surface-raised)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
-            }`}
-          >
-            Mister Reale {defaultCoach ? `(${defaultCoach.name})` : ""}
-          </button>
-          <button
-            type="button"
-            onClick={() => setTab("free")}
-            className={`flex-1 rounded-xl py-2 text-xs font-extrabold transition-colors ${
-              tab === "free"
-                ? "bg-[var(--brand)] text-[var(--brand-contrast)]"
-                : "bg-[var(--surface-raised)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
-            }`}
-          >
-            Svincolati ({freeAgents.length})
-          </button>
-          <button
-            type="button"
-            onClick={() => setTab("all")}
-            className={`flex-1 rounded-xl py-2 text-xs font-extrabold transition-colors ${
-              tab === "all"
-                ? "bg-[var(--brand)] text-[var(--brand-contrast)]"
-                : "bg-[var(--surface-raised)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
-            }`}
-          >
-            Tutti i Tecnici ({allCoaches.length})
-          </button>
-        </div>
       </header>
 
       <main className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-4 px-4 py-4 pb-28">
         <p className="text-sm leading-relaxed text-[var(--text-secondary)]">
-          Puoi confermare l'allenatore reale di <strong>{clubName}</strong> gratuitamente, oppure trattare con uno Svincolato o soffiare un tecnico a un altro club pagando l'indennizzo. Clicca su un mister per avviare la trattativa in chat!
+          Puoi confermare il tecnico di <strong>{clubName}</strong>, oppure cercarne un altro fra
+          oltre cento allenatori: svincolati o sotto contratto, questi ultimi pagando una penale al
+          loro club. <strong>Le richieste economiche e tecniche si scoprono al tavolo</strong>, non
+          nella lista.
         </p>
 
-        <div className="grid gap-3 sm:grid-cols-2">
-          {tab === "default" && defaultCoach && (
-            <CoachCard
-              coach={defaultCoach}
-              isDefault
-              selected={false}
-              affordable={true}
-              onSelect={() => setChatCoach(defaultCoach)}
-            />
-          )}
+        {defaultCoach && (
+          <CoachCard
+            coach={defaultCoach}
+            isDefault
+            selected={false}
+            affordable
+            onSelect={() => apri(defaultCoach, 0)}
+          />
+        )}
 
-          {tab === "free" &&
-            freeAgents.map((coach) => (
-              <CoachCard
-                key={coach.id}
-                coach={coach}
-                selected={false}
-                affordable={coach.hireCost <= budget}
-                onSelect={() => setChatCoach(coach)}
-              />
-            ))}
-
-          {tab === "all" &&
-            allCoaches.map((coach) => {
-              const isDef = defaultCoach?.id === coach.id;
-              const buyout = isDef || coach.isFreeAgent ? 0 : computeCoachBuyoutFee(coach);
-              const totalCost = isDef ? 0 : coach.hireCost + buyout;
-
-              return (
-                <CoachCard
-                  key={coach.id}
-                  coach={coach}
-                  isDefault={isDef}
-                  selected={false}
-                  affordable={totalCost <= budget}
-                  buyoutFee={buyout}
-                  onSelect={() => setChatCoach(coach)}
-                />
-              );
-            })}
-        </div>
+        <button
+          type="button"
+          onClick={() => setVista("ricerca")}
+          className="flex items-center justify-center gap-2 rounded-2xl border border-[var(--brand)]/60 bg-[var(--brand)]/10 py-3.5 text-sm font-extrabold text-[var(--brand)] transition-transform active:scale-98"
+        >
+          <Search size={16} /> Cerca nel mercato allenatori
+        </button>
       </main>
     </div>
   );

@@ -33,8 +33,13 @@ describe("Real Coaches & Default Club Mapping", () => {
 
   it("calcola l'indennizzo di riscatto (buyout fee) per il poaching di un mister sotto contratto", () => {
     const coach = findCoach("coach-gasperini")!;
-    const buyout = computeCoachBuyoutFee(coach);
-    expect(buyout).toBe(Math.round(coach.hireCost * 1.5));
+    // La penale non è più un multiplo fisso dell'ingaggio: scala con le stagioni che restano al
+    // contratto del tecnico (`coaches.ts`), quindi si verifica la proprietà, non la costante.
+    const unAnno = computeCoachBuyoutFee(coach, 1);
+    const treAnni = computeCoachBuyoutFee(coach, 3);
+    expect(computeCoachBuyoutFee(coach, 0)).toBe(0);
+    expect(unAnno).toBeGreaterThan(coach.hireCost);
+    expect(treAnni).toBeGreaterThan(unAnno);
   });
 });
 

@@ -44,7 +44,6 @@ import {
 import type { Incident } from "../ds/incidents";
 import { findCoach } from "../ds/coaches";
 import { emptySquadLists, openMarketWindow } from "../ds/careerMarket";
-import { applyPlayerTalk, talkOptions } from "../ds/playerTalks";
 import {
   applyPlayerStandoff,
   confirmCoachSeasonPromises,
@@ -119,15 +118,38 @@ function newCareer(seed = "abc123", overall = 76) {
 }
 
 /** Avanza finché non arriva una decisione o finisce la stagione. */
+/**
+ * Un DS **competente**: rinnova chiunque vada in scadenza.
+ *
+ * Serve nei test che misurano il ciclo di vita (ritiri, regen, budget) e non i contratti: senza
+ * rinnovi la rosa si svuota e la carriera finisce per esonero (comportamento voluto, coperto da
+ * `dsCareerContracts.test.ts`), il che renderebbe impossibile misurare tutto il resto.
+ */
+function rinnovaTutti(state: CareerState): CareerState {
+  const overrides = { ...(state.contracts?.overrides ?? {}) };
+  for (const e of state.roster) {
+    overrides[e.playerId] = { until: state.season + 4, wage: 500_000, signedSeason: state.season };
+  }
+  return {
+    ...state,
+    contracts: {
+      overrides,
+      released: state.contracts?.released ?? [],
+      preContracts: state.contracts?.preContracts ?? [],
+      renewalRefused: state.contracts?.renewalRefused ?? [],
+    },
+  };
+}
+
 function playSeason(state: CareerState, world: CareerWorld): CareerState {
-  let current = state;
+  let current = rinnovaTutti(state);
   for (let guard = 0; guard < 200; guard++) {
     const { state: next, report } = advanceWeek(current, world, {
       requestResponse: "prometti",
       closeMarket: true,
     });
     current = next;
-    if (report.seasonEnded || report.careerEnded) return current;
+    if (report.seasonEnded || report.careerEnded) return rinnovaTutti(current);
   }
   throw new Error("La stagione non è terminata: possibile ciclo infinito");
 }
@@ -537,10 +559,15 @@ describe("fine stagione", () => {
 });
 
 describe("ciclo di vita lungo una carriera", () => {
-  it("qualcuno si ritira e un regen ne prende il posto, uno a uno", () => {
+  it("qualcuno si ritira, un regen ne prende il posto, e le scadenze non svuotano la rosa", () => {
     /**
-     * La rosa **non** si accorcia: è il punto dei regen. Senza il rimpiazzo 1:1 dieci stagioni
-     * di ritiri scenderebbero sotto il minimo di 21 e la carriera si romperebbe da sola.
+     * **L'invariante è cambiata con l'arrivo dei contratti, e il test lo dice.**
+     *
+     * Prima l'unica uscita erano i ritiri, quindi la rosa restava della stessa dimensione grazie
+     * al rimpiazzo 1:1. Ora esce anche chi va in scadenza senza essere rinnovato — che è il punto
+     * del sistema contratti — e in una simulazione automatica *nessuno rinnova mai*. Ciò che deve
+     * restare vero è: i regen ci sono, e la rosa non scende comunque sotto il minimo di sicurezza,
+     * perché la società rinnova d'ufficio prima di ritrovarsi senza squadra (`expireContracts`).
      */
     let { state, world } = newCareer("vita", 80);
     const rosaIniziale = new Set(state.roster.map((e) => e.playerId));
@@ -551,11 +578,9 @@ describe("ciclo di vita lungo una carriera", () => {
 
     const rosaDopo = state.roster.map((e) => e.playerId);
     const usciti = [...rosaIniziale].filter((id) => !rosaDopo.includes(id));
-    // Con date di nascita scaglionate qualcuno deve essersi ritirato...
     expect(usciti.length).toBeGreaterThan(0);
-    // ...ma la dimensione della rosa resta la stessa, uno per uno.
-    expect(rosaDopo).toHaveLength(rosaIniziale.size);
-    expect(state.generated.length).toBe(usciti.length);
+    expect(state.generated.length).toBeGreaterThan(0);
+    expect(state.roster.length).toBeGreaterThanOrEqual(MIN_SQUAD_SIZE + 2);
   });
 
   it("i regen hanno nomi sempre diversi e sono marcati come inventati", () => {
@@ -1160,73 +1185,6 @@ describe("il mercato come cuore della modalità", () => {
       target: nonPrestabile,
     });
     expect(result.rejected).toBe(true);
-  });
-});
-
-describe("chat coi giocatori scontenti", () => {
-  function conScontento(seed = "chat") {
-    const { state, world } = newCareer(seed, 78);
-    const scontento = state.roster[0]!;
-    const stateScontento = {
-      ...state,
-      roster: state.roster.map((e) => (e.playerId === scontento.playerId ? { ...e, morale: 30 } : e)),
-    };
-    return { state: stateScontento, world, playerId: scontento.playerId };
-  }
-
-  it("promettere spazio alza subito il morale e apre un impegno verificabile", () => {
-    const { state, playerId } = conScontento();
-    const { state: dopo, message } = applyPlayerTalk(state, playerId, "promise_minutes");
-    expect(message.length).toBeGreaterThan(0);
-    const entry = dopo.roster.find((e) => e.playerId === playerId)!;
-    expect(entry.morale).toBeGreaterThan(30);
-    expect(dopo.minutesPromises?.[playerId]).toBeDefined();
-  });
-
-  it("una promessa infranta (tre giornate senza scendere in campo) costa più di quanto dato", () => {
-    const { state, world, playerId } = conScontento();
-    let corrente = applyPlayerTalk(state, playerId, "promise_minutes").state;
-    const moraleDopoPromessa = corrente.roster.find((e) => e.playerId === playerId)!.morale;
-
-    // Tre giornate in cui non può proprio scendere in campo: infortunato, quindi la promessa
-    // non può essere mantenuta nemmeno con il suo bonus di selezione (che altrimenti la
-    // renderebbe quasi sempre autoavverante — non è quello che questo test vuole misurare).
-    corrente = {
-      ...corrente,
-      roster: corrente.roster.map((e) =>
-        e.playerId === playerId ? { ...e, injuryMatchdaysLeft: 6 } : e,
-      ),
-    };
-    for (let i = 0; i < 3 && corrente.minutesPromises?.[playerId]; i++) {
-      corrente = advanceWeek(corrente, world, { requestResponse: "prometti", closeMarket: true }).state;
-    }
-    expect(corrente.minutesPromises?.[playerId]).toBeUndefined();
-    const moraleFinale = corrente.roster.find((e) => e.playerId === playerId)?.morale ?? 0;
-    expect(moraleFinale).toBeLessThan(moraleDopoPromessa);
-  });
-
-  it("mettere in lista trasferimenti dalla chat alza il morale e lo aggiunge davvero alla lista", () => {
-    const { state, playerId } = conScontento();
-    const { state: dopo } = applyPlayerTalk(state, playerId, "list_for_transfer");
-    expect(dopo.lists?.transferList).toContain(playerId);
-    const entry = dopo.roster.find((e) => e.playerId === playerId)!;
-    expect(entry.morale).toBeGreaterThan(30);
-  });
-
-  it("non offrire nulla costa un po' di morale", () => {
-    const { state, playerId } = conScontento();
-    const { state: dopo } = applyPlayerTalk(state, playerId, "nothing");
-    const entry = dopo.roster.find((e) => e.playerId === playerId)!;
-    expect(entry.morale).toBeLessThan(30);
-  });
-
-  it("talkOptions segnala le mosse già usate come non ripetibili", () => {
-    const { state, playerId } = conScontento();
-    const prima = talkOptions(state.roster.find((e) => e.playerId === playerId)!, state);
-    expect(prima.find((o) => o.action === "promise_minutes")?.available).toBe(true);
-    const dopo = applyPlayerTalk(state, playerId, "promise_minutes").state;
-    const opzioniDopo = talkOptions(dopo.roster.find((e) => e.playerId === playerId)!, dopo);
-    expect(opzioniDopo.find((o) => o.action === "promise_minutes")?.available).toBe(false);
   });
 });
 

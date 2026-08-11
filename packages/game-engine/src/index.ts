@@ -42,7 +42,15 @@ export * from "./ds/coachSynergy";
 export * from "./ds/negotiation";
 export * from "./ds/careerCup";
 export * from "./ds/careerMarket";
-export * from "./ds/playerTalks";
+export * from "./ds/contracts";
+export * from "./ds/money";
+export * from "./ds/aiStrategy";
+export * from "./ds/finances";
+export * from "./ds/freeAgents";
+export * from "./ds/commitments";
+export * from "./ds/playerFacts";
+export * from "./ds/playerTopics";
+export * from "./ds/playerDialogue";
 export * from "./ds/playerStandoff";
 export * from "./ds/career";
 

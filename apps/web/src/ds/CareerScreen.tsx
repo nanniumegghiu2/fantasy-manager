@@ -17,8 +17,13 @@ import {
   advanceToNextStop,
   advanceWeek,
   applyMarket,
-  applyPlayerStandoff,
+  applyPlayerDialogue,
   buildStandings,
+  openPlayerDialogue,
+  setWageShare,
+  signFreeAgent,
+  type Dialogue,
+  type DialogueMove,
   closeNegotiation,
   confirmCoachSeasonPromises,
   declineCoachSeasonMeeting,
@@ -26,7 +31,6 @@ import {
   negotiateOffer,
   negotiatePurchase,
   openForcedStandoff,
-  openPlayerStandoff,
   playNegotiation,
   proposePromiseAlternative,
   setGuaranteedStarter,
@@ -68,6 +72,7 @@ import { CoachDepartureDialog } from "./CoachDepartureDialog";
 import { CoachMarketMeetingModal } from "./CoachMarketMeetingModal";
 import { CoachNegotiationChat } from "./CoachNegotiationChat";
 import { PlayerStandoffChat } from "./PlayerStandoffChat";
+import { PlayerDialogueChat } from "./PlayerDialogueChat";
 import { SeasonObjectiveScreen } from "./SeasonObjectiveScreen";
 import { StandingsTable } from "../classic/StandingsTable";
 import { CupPanel } from "./CupPanel";
@@ -350,7 +355,6 @@ export function CareerScreen({
    * esistono solo mentre la chat è aperta. Ogni mossa applica comunque i suoi effetti veri
    * (morale, liste, promesse, eventuale cessione) tramite `applyPlayerStandoff`.
    */
-  const [standoff, setStandoff] = useState<PlayerStandoff | null>(null);
   /**
    * **Chi ha già chiuso la sua chat in questa finestra non deve restare nel badge.**
    * Il morale di un giocatore appena riappacificato può restare comunque sotto la soglia (una
@@ -360,9 +364,51 @@ export function CareerScreen({
    * nuova occasione di parlargli.
    */
   const [standoffChiuse, setStandoffChiuse] = useState<ReadonlySet<string>>(new Set());
+
+  /**
+   * **La conversazione nuova** (`playerDialogue.ts`), che sostituisce lo standoff volontario.
+   *
+   * Lo standoff vecchio resta in vita solo per la richiesta **forzata**, che ha ancora il suo
+   * cancello in `pendingRequest`: le due strade convivono finché anche quella non passerà al
+   * nuovo motore.
+   */
+  const [dialogo, setDialogo] = useState<Dialogue | null>(null);
   const apriStandoff = useCallback(
-    (playerId: string) => setStandoff(openPlayerStandoff(state, world, playerId)),
+    (playerId: string) => setDialogo(openPlayerDialogue(state, world, playerId)),
     [state, world],
+  );
+  const mossaDialogo = useCallback(
+    (move: DialogueMove) => {
+      if (!dialogo) return;
+      const budgetPrima = state.budget;
+      const esito = applyPlayerDialogue(state, world, dialogo, move);
+      if (esito.state.budget !== budgetPrima) {
+        segnalaPremio(budgetPrima, esito.state.budget, dialogo.playerName);
+      }
+      setDialogo(esito.dialogue);
+      onChange(esito.state);
+    },
+    [dialogo, state, world, onChange],
+  );
+  const chiudiDialogo = useCallback(() => {
+    if (dialogo) setStandoffChiuse((prev) => new Set(prev).add(dialogo.playerId));
+    setDialogo(null);
+  }, [dialogo]);
+
+  /** Ripartizione delle finanze e firma di uno svincolato: due azioni del pannello mercato. */
+  const spostaFinanze = useCallback(
+    (share: number) => {
+      const esito = setWageShare(state, world, share);
+      if (esito.ok) onChange(esito.state);
+    },
+    [state, world, onChange],
+  );
+  const firmaSvincolato = useCallback(
+    (agentId: string, offer: { wage: number; seasons: number; guaranteedStarter: boolean }) => {
+      const esito = signFreeAgent(state, world, agentId, offer);
+      if (esito.ok) onChange(esito.state);
+    },
+    [state, world, onChange],
   );
   /**
    * Il premio in denaro promesso in chat (`premio_denaro`) scala davvero il budget
@@ -385,20 +431,6 @@ export function CareerScreen({
     return () => clearTimeout(timer);
   }, [standoffDeal]);
 
-  const mossaStandoff = useCallback(
-    (move: StandoffMove) => {
-      if (!standoff) return;
-      const { state: next, standoff: dopo } = applyPlayerStandoff(state, world, standoff, move);
-      if (move.kind === "premio_denaro") segnalaPremio(state.budget, next.budget, standoff.playerName);
-      onChange(next);
-      setStandoff(dopo);
-    },
-    [state, world, standoff, onChange, segnalaPremio],
-  );
-  const chiudiStandoff = useCallback(() => {
-    if (standoff) setStandoffChiuse((prev) => new Set(prev).add(standoff.playerId));
-    setStandoff(null);
-  }, [standoff]);
 
   /**
    * **Alternativa a una promessa del mister, scelta dal database, a mercato aperto.**
@@ -927,18 +959,22 @@ export function CareerScreen({
             onNegotiatePurchase={trattaAcquisto}
             onNegotiateLoan={trattaPrestito}
             onOpenStandoff={apriStandoff}
+            onShiftFinances={spostaFinanze}
+            onSignFreeAgent={firmaSvincolato}
             standoffChiuse={standoffChiuse}
             onProposePromiseAlternative={proponiAlternativaPromessa}
             onClose={chiudiMercato}
           />
         )}
 
-        {standoff && (
-          <PlayerStandoffChat
-            key="standoff"
-            standoff={standoff}
-            onMove={mossaStandoff}
-            onClose={chiudiStandoff}
+        {dialogo && (
+          <PlayerDialogueChat
+            key="dialogo"
+            state={state}
+            world={world}
+            dialogue={dialogo}
+            onMove={mossaDialogo}
+            onClose={chiudiDialogo}
           />
         )}
 

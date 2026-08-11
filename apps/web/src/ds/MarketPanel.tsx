@@ -7,6 +7,7 @@ import {
   Check,
   ClipboardList,
   Globe,
+  Landmark,
   LayoutGrid,
   MessagesSquare,
   Plane,
@@ -17,6 +18,7 @@ import {
   Tag,
   TriangleAlert,
   UserCog,
+  UserPlus,
   Wallet,
   X,
 } from "lucide-react";
@@ -53,6 +55,9 @@ import { MarketBriefing } from "./MarketBriefing";
 import { WorldMarketPanel } from "./WorldMarketPanel";
 import { CoachPromisesPanel, type LiveCoachPromise } from "./CoachPromisesPanel";
 import { CoachNegotiationChat } from "./CoachNegotiationChat";
+import { FinancesPanel } from "./FinancesPanel";
+import { FreeAgentsPanel } from "./FreeAgentsPanel";
+import { SpogliatoioPanel } from "./SpogliatoioPanel";
 import type { CoachPromise } from "@app/game-engine";
 import type { DsWorldData } from "./useDsWorld";
 import { DEPARTMENT_LABEL, RoleChips } from "./RoleChips";
@@ -71,12 +76,16 @@ import { euro, moraleLabel } from "./format";
  * di mercato. È questo a trasformare il mercato da vetrina in caccia.
  */
 
-type Tab = "offerte" | "ricerca" | "rosa" | "mister" | "mondo";
+type Tab = "finanze" | "offerte" | "ricerca" | "svincolati" | "rosa" | "spogliatoio" | "mister" | "mondo";
 
 const TAB: { key: Tab; label: string; icon: typeof Search }[] = [
+  // Le finanze vengono per prime: il bilancio si decide **prima** di operare, non dopo.
+  { key: "finanze", label: "Finanze", icon: Landmark },
   { key: "offerte", label: "Offerte", icon: ArrowUpRight },
   { key: "ricerca", label: "Ricerca", icon: Search },
+  { key: "svincolati", label: "Svincolati", icon: UserPlus },
   { key: "rosa", label: "Rosa", icon: ClipboardList },
+  { key: "spogliatoio", label: "Spogliatoio", icon: MessagesSquare },
   { key: "mister", label: "Mister", icon: UserCog },
   { key: "mondo", label: "Mondo", icon: Globe },
 ];
@@ -117,8 +126,12 @@ interface MarketPanelProps {
   onNegotiatePurchase: (target: SearchResult) => void;
   /** Apre la trattativa per una destinazione di prestito proposta (minuti garantiti, non prezzo). */
   onNegotiateLoan: (playerId: string) => void;
-  /** Apre il faccia a faccia con un giocatore (scheda Rosa → Chat). */
+  /** Apre il faccia a faccia con un giocatore (scheda Spogliatoio). */
   onOpenStandoff: (playerId: string) => void;
+  /** Sposta la ripartizione fra cassa mercato e cassa ingaggi. */
+  onShiftFinances: (share: number) => void;
+  /** Tessera uno svincolato alle condizioni proposte. */
+  onSignFreeAgent: (agentId: string, offer: { wage: number; seasons: number; guaranteedStarter: boolean }) => void;
   /** Chi ha già chiuso la sua chat in questa finestra: non deve restare nel badge/nell'elenco. */
   standoffChiuse: ReadonlySet<string>;
   /**
@@ -145,6 +158,8 @@ export function MarketPanel({
   onHireCoach,
   onSearch,
   onOpenStandoff,
+  onShiftFinances,
+  onSignFreeAgent,
   standoffChiuse,
   onProposePromiseAlternative,
   onNegotiateOffer,
@@ -327,6 +342,15 @@ export function MarketPanel({
           )}
           {tab === "mister" && (
             <SchedaMister state={state} world={world} choices={coachChoices} onHire={onHireCoach} />
+          )}
+          {tab === "finanze" && (
+            <FinancesPanel state={state} world={world} onShift={onShiftFinances} />
+          )}
+          {tab === "svincolati" && (
+            <FreeAgentsPanel state={state} world={world} onSign={onSignFreeAgent} />
+          )}
+          {tab === "spogliatoio" && (
+            <SpogliatoioPanel state={state} world={world} onApri={onOpenStandoff} />
           )}
           {tab === "mondo" && (
             <WorldMarketPanel

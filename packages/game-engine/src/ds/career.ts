@@ -46,7 +46,64 @@ import {
   type MarketWorld,
   type SquadLists,
 } from "./careerMarket";
-import { availableCoaches, severanceCost } from "./coaches";
+import {
+  availableCoaches,
+  canonicalCoachId,
+  coachSeasonsLeft,
+  computeCoachBuyoutFee,
+  makeCoachContract,
+  severanceCost,
+  type CoachContract,
+} from "./coaches";
+import {
+  contractOf,
+  renewalOfferScore,
+  renewalTerms,
+  seasonsLeftOf,
+  RENEWAL_ACCEPT_SCORE,
+  type Contract,
+  type ContractOverrides,
+} from "./contracts";
+import { formatContractTotal, formatEuro, formatWage } from "./money";
+import {
+  DEFAULT_WAGE_SHARE,
+  defaultFinances,
+  financesView,
+  shiftWageShare,
+  type FinancesState,
+  type FinancesView,
+} from "./finances";
+import {
+  buildFreeAgentPool,
+  resolveFreeAgentBids,
+  rivalBidsFor,
+  type FreeAgent,
+  type FreeAgentBid,
+  type RivalClubInfo,
+} from "./freeAgents";
+import {
+  commitmentsFor,
+  makeCommitment,
+  verifyCommitments,
+  type Commitment,
+  type CommitmentWhen,
+} from "./commitments";
+import {
+  buildPlayerFacts,
+  DEFAULT_TRUST,
+  type PlayerFacts,
+  type RelationshipState,
+} from "./playerFacts";
+import { blockingTopic, pickTopic, talkUrgency } from "./playerTopics";
+import {
+  applyDialogueMove,
+  openDialogue,
+  type Dialogue,
+  type DialogueMove,
+  type DialogueStatus,
+  type MoveContext,
+} from "./playerDialogue";
+
 import {
   searchPlayers,
   type SearchCriteria,
@@ -133,6 +190,7 @@ import {
   type RosterEntry,
   type SeasonPlayerReport,
   type SessionDeal,
+  emptySeasonStats,
 } from "./types";
 import { ROLE_DEPARTMENT, type Department, type Player, type Role } from "@app/shared-types";
 
@@ -351,9 +409,46 @@ export interface CareerState {
   pendingRequest: PendingRequest | null;
   lastResolvedMatchday?: number;
   /** Motivo per cui la carriera è finita, se è finita. */
-  ending?: "completata" | "retrocessione";
+  ending?: "completata" | "retrocessione" | "esonero";
   /** Se la trattativa stagionale col mister è stata completata per questa stagione. */
   seasonNegotiationDone?: boolean;
+
+  /* ---------------------------------------------------------------------- */
+  /* Contratti, finanze e spogliatoio (sez. docs/piano-spogliatoio-contratti) */
+  /* ---------------------------------------------------------------------- */
+
+  /**
+   * Il **fatturato** della stagione: `budget` non è più "il budget di mercato" ma la liquidità
+   * residua della sola cassa mercato. Assente nei salvataggi vecchi, dove si ricava dal budget.
+   */
+  seasonRevenue?: number;
+  /** Come il DS ha ripartito il fatturato fra mercato e ingaggi. */
+  finances?: FinancesState;
+  /**
+   * **Solo i contratti che qualcuno ha cambiato.** Gli altri si derivano dal seme
+   * (`contracts.ts`): tenere 2.586 record renderebbe il salvataggio impossibile.
+   */
+  contracts?: {
+    overrides: ContractOverrides;
+    /** Chi è stato svincolato: non è derivabile, dipende da una decisione. */
+    released: string[];
+    /** Precontratti firmati da club altrui sui nostri in scadenza. */
+    preContracts: { playerId: string; toClubId: string; clubName: string; season: number }[];
+    /** Chi ha rifiutato il rinnovo: da qui in poi parla da uno che se ne va a zero. */
+    renewalRefused: string[];
+  };
+  /** Il contratto del mister: durata in stagioni, ingaggio annuo dentro il monte. */
+  coachContract?: CoachContract;
+  /** La memoria del rapporto con ciascun giocatore. Solo le voci diverse dal default. */
+  relationships?: Record<string, RelationshipState>;
+  /** Il registro unico degli impegni presi (sostituisce i tre canali separati). */
+  commitments?: Commitment[];
+  /** Il capitano, uno solo. */
+  captainId?: string;
+  /** Gli svincolati che abbiamo tesserato: escono dal pool derivato. */
+  freeAgentsSigned?: string[];
+  /** Chi il DS ha mandato a riposo, e per quante giornate ancora. */
+  resting?: Record<string, number>;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -370,6 +465,8 @@ export interface CreateCareerInput {
   /** Partecipanti alla Corona della prima stagione, se il club è fra i qualificati. */
   cupEntrants?: { clubIds: string[]; leagues: string[] };
   difficulty?: DsDifficulty;
+  /** Durata in stagioni del contratto firmato col mister alla firma iniziale. */
+  coachSeasons?: number;
 }
 
 export function createCareer(input: CreateCareerInput): CareerState {
@@ -381,7 +478,16 @@ export function createCareer(input: CreateCareerInput): CareerState {
     season: 1,
     week: 0,
     phase: "mercato_estivo",
-    coachId: input.coachId,
+    // Canonicalizzato all'ingresso: un salvataggio vecchio può portare un alias (`c-10`), e da
+    // lì in poi `coach.id` e `state.coachId` sarebbero due stringhe diverse per la stessa persona.
+    coachId: input.coachId ? canonicalCoachId(input.coachId) : input.coachId,
+    coachContract: input.coachId
+      ? makeCoachContract(findCoach(canonicalCoachId(input.coachId))!, input.coachSeasons ?? 2, 1)
+      : undefined,
+    finances: defaultFinances(),
+    contracts: { overrides: {}, released: [], preContracts: [], renewalRefused: [] },
+    commitments: [],
+    relationships: {},
     budget: input.budget,
     roster: input.roster,
     league: { round: 0, tallies: [] },
@@ -744,6 +850,26 @@ export function advanceWeek(
   }
   let coachResigned = false;
   if (next.market && decisions.closeMarket) {
+    /**
+     * **Chiudere il mercato senza una rosa schierabile costa la panchina.**
+     *
+     * Decisione esplicita dell'utente: niente rinnovi d'ufficio, niente giocatori regalati dalla
+     * società. Se alla chiusura della finestra non ci sono nemmeno undici giocatori, la carriera
+     * finisce qui — è il mestiere del direttore sportivo, e questo è il modo in cui il gioco lo
+     * dice. Il controllo sta **alla chiusura** e non a ogni istante proprio perché durante il
+     * mercato la rosa può legittimamente scendere: si vende prima e si compra dopo.
+     */
+    if (next.roster.length < MIN_SQUAD_SIZE) {
+      return {
+        state: { ...next, phase: "conclusa", ending: "esonero", market: null },
+        report: emptyReport(next, {
+          careerEnded: true,
+          messages: [
+            `La società ti solleva dall'incarico: hai chiuso il mercato con ${next.roster.length} giocatori in rosa, sotto i ${MIN_SQUAD_SIZE} necessari per scendere in campo.`,
+          ],
+        }),
+      };
+    }
     const eraEstiva = next.phase === "mercato_estivo";
 
     /**
@@ -798,6 +924,14 @@ export function advanceWeek(
       } else if (richiesta?.fulfilled) {
         next = { ...next, coachIgnored: 0 };
       }
+    }
+
+    // Gli impegni presi in conversazione che si verificano a chiusura finestra (rinforzi
+    // promessi, clausole): un solo registro per tutte le promesse, invece dei canali separati.
+    {
+      const esito = settleCommitments(next, world, "window", new Set());
+      next = esito.state;
+      messages.push(...esito.messages);
     }
 
     // Verifica delle promesse fatte in chat ai giocatori (sez. chat, playerStandoff.ts): stesso
@@ -966,6 +1100,24 @@ export function advanceWeek(
 
     next = applyMatchdayToRoster(next, lineup, followedResult, injuries, round, posizioneSottoObiettivo);
     next.league = { round: league.round, tallies: league.tallies };
+
+    // Chi era a riposo per decisione del DS torna disponibile una giornata alla volta.
+    if (next.resting && Object.keys(next.resting).length > 0) {
+      const rimasti: Record<string, number> = {};
+      for (const [id, giornate] of Object.entries(next.resting)) {
+        if (giornate > 1) rimasti[id] = giornate - 1;
+      }
+      next = { ...next, resting: Object.keys(rimasti).length > 0 ? rimasti : undefined };
+    }
+
+    // Gli impegni che si verificano **a giornata** (minuti promessi, titolarità sottoscritta):
+    // qui si sa chi è davvero sceso in campo, ed è l'unico punto in cui la promessa si può
+    // giudicare senza inventare nulla.
+    {
+      const esito = settleCommitments(next, world, "matchday", new Set(Object.values(lineup.starters)));
+      next = esito.state;
+      messages.push(...esito.messages);
+    }
   }
 
   // Turno di Corona infrasettimanale. Si gioca **dopo** la giornata di campionato della stessa
@@ -2445,10 +2597,7 @@ export function closeNegotiation(state: CareerState): CareerState {
   return { ...state, negotiation: null };
 }
 
-function formatEuro(value: number): string {
-  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M€`;
-  return `${Math.round(value / 1000)}k€`;
-}
+
 
 /* -------------------------------------------------------------------------- */
 /* Allenatore                                                                  */
@@ -2510,10 +2659,11 @@ export function coachTierOf(state: CareerState): number {
 export function hireCoach(
   state: CareerState,
   world: CareerWorld,
-  coachId: string,
+  richiesto: string,
   promises?: CoachPromise[],
   costOverride?: number,
 ): { state: CareerState; message: string; rejected?: boolean } {
+  const coachId = canonicalCoachId(richiesto);
   if (coachId === state.coachId) return { state, message: "È già il tuo allenatore." };
   const scelta = coachChoices(state, world).find((c) => c.coachId === coachId);
   const coach = findCoach(coachId);
@@ -2743,7 +2893,7 @@ export function resolveIncidentDecision(
   const giorniEffettivi = Math.min(4, Math.max(1, giorni ?? 1));
   const moraleDelta = -6 * giorniEffettivi;
 
-  const roster = state.roster.map((e) =>
+  let roster = state.roster.map((e) =>
     e.playerId === playerId ? { ...e, morale: Math.max(0, Math.min(100, e.morale + moraleDelta)) } : e,
   );
   const entry = roster.find((e) => e.playerId === playerId);
@@ -2898,7 +3048,7 @@ function closeSeason(
   summary.playerReports = playerReports;
 
   const retired: { entry: RosterEntry; peakOverall: number }[] = [];
-  const roster = rientrati
+  let roster = rientrati
     .map((entry) => {
       const change = byId.get(entry.playerId);
       const resolved = players[entry.playerId];
@@ -3008,6 +3158,27 @@ function closeSeason(
     );
   }
 
+  /**
+   * **I contratti presentano il conto.**
+   *
+   * Chi non è stato rinnovato lascia il club a parametro zero: è la conseguenza che dà senso a
+   * tutte le conversazioni dell'anno, ed è anche ciò che alimenta il pool svincolati della
+   * stagione dopo (`freeAgents.ts`, che lo deriva dalle scadenze).
+   */
+  const conRosaFinale: CareerState = { ...state, roster };
+  const scadenze = expireContracts(conRosaFinale, world);
+  const impegniStagione = settleCommitments(scadenze.state, world, "season", new Set());
+  messages.push(...scadenze.messages, ...impegniStagione.messages);
+  const dopoContratti = impegniStagione.state;
+  roster = dopoContratti.roster;
+
+  const sforamentoPrecedente = financesOf(dopoContratti, world).overrunNow;
+  if (sforamentoPrecedente > 0) {
+    messages.push(
+      `Il monte ingaggi ha sforato il tetto: ${formatEuro(sforamentoPrecedente)} in meno sul fatturato di quest'anno.`,
+    );
+  }
+
   const season = state.season + 1;
   if (season > CAREER_SEASONS) {
     return {
@@ -3056,7 +3227,10 @@ function closeSeason(
       season,
       week: 0,
       phase: "mercato_estivo",
-      budget,
+      budget: Math.round(
+        Math.max(0, budget - sforamentoPrecedente) *
+          (1 - (state.finances?.wageShare ?? DEFAULT_WAGE_SHARE)),
+      ),
       roster,
       league: { round: 0, tallies: [] },
       cup,
@@ -3080,6 +3254,19 @@ function closeSeason(
       seasonNegotiationDone: false,
       seasonObjective: undefined,
       seasonObjectiveSet: false,
+      // Contratti, impegni e rapporti sopravvivono alla stagione: sono la memoria della carriera.
+      contracts: dopoContratti.contracts,
+      commitments: dopoContratti.commitments,
+      relationships: dopoContratti.relationships,
+      captainId: roster.some((e) => e.playerId === state.captainId) ? state.captainId : undefined,
+      resting: undefined,
+      // Il fatturato si ricalcola ogni anno; la **ripartizione** decisa dal DS resta la sua, meno
+      // l'eventuale sforamento dell'anno scorso, che si sconta una volta sola.
+      seasonRevenue: Math.max(0, budget - sforamentoPrecedente),
+      finances: {
+        wageShare: state.finances?.wageShare ?? DEFAULT_WAGE_SHARE,
+        summerShare: state.finances?.wageShare ?? DEFAULT_WAGE_SHARE,
+      },
     },
     messages,
   };
@@ -3122,4 +3309,1051 @@ function nextSeasonCup(
     leagues[leagues.length - 1] = state.leagueId;
   }
   return emptyCupSave(clubIds, leagues);
+}
+
+/* ========================================================================== */
+/* CONTRATTI, FINANZE E SPOGLIATOIO                                           */
+/* ========================================================================== */
+
+/**
+ * Il fatturato della stagione.
+ *
+ * Nei salvataggi precedenti non esisteva: `budget` era tutto il denaro disponibile. Lì si
+ * ricostruisce come "liquidità di mercato più il monte ingaggi implicito", così una carriera già
+ * avviata non si ritrova improvvisamente senza cassa ingaggi.
+ */
+export function revenueOf(state: CareerState, world: CareerWorld): number {
+  if (state.seasonRevenue !== undefined) return state.seasonRevenue;
+  return Math.round(state.budget + playerWageBill(state, world) + (state.coachContract?.wage ?? 0));
+}
+
+/** Il contesto con cui si derivano i contratti dei nostri giocatori. */
+export function contractContextOf(state: CareerState, world: CareerWorld) {
+  return {
+    seed: state.seed,
+    season: state.season,
+    overrides: state.contracts?.overrides,
+    released: state.contracts?.released,
+    clubPrestige: world.market?.valuation.clubPrestige[state.clubId] ?? 3,
+  };
+}
+
+/** Il contratto di un nostro giocatore: dall'override se c'è, altrimenti derivato dal seme. */
+export function contractFor(
+  state: CareerState,
+  world: CareerWorld,
+  playerId: string,
+): Contract | null {
+  const entry = state.roster.find((e) => e.playerId === playerId);
+  if (!entry) return null;
+  const info = careerPlayers(state, world)[playerId];
+  return contractOf(
+    { id: playerId, birthDate: info?.birthDate, overall: entry.overall },
+    { ...contractContextOf(state, world), sinceSeason: Math.max(1, entry.sinceSeason) },
+  );
+}
+
+/** Somma degli ingaggi dei giocatori in rosa. */
+function playerWageBill(state: CareerState, world: CareerWorld): number {
+  return state.roster.reduce(
+    (somma, e) => somma + (contractFor(state, world, e.playerId)?.wage ?? 0),
+    0,
+  );
+}
+
+/**
+ * Il monte ingaggi: giocatori **più l'allenatore**.
+ *
+ * Includere il mister è una richiesta esplicita dell'utente, ed è anche ciò che rende una scelta
+ * il contratto lungo a un tecnico costoso: quei milioni non sono un costo una tantum, tolgono
+ * spazio ai rinnovi per tutti gli anni che restano.
+ */
+export function wageBillOf(state: CareerState, world: CareerWorld): number {
+  return playerWageBill(state, world) + (state.coachContract?.wage ?? 0);
+}
+
+/** La fotografia delle finanze: due casse, un pavimento, un eventuale sforamento. */
+export function financesOf(state: CareerState, world: CareerWorld): FinancesView {
+  return financesView(
+    revenueOf(state, world),
+    state.finances ?? defaultFinances(),
+    wageBillOf(state, world),
+  );
+}
+
+/**
+ * Sposta la ripartizione fra cassa mercato e cassa ingaggi.
+ *
+ * Spostare verso gli ingaggi **toglie liquidità** al mercato e viceversa: è la stessa cassa, ed è
+ * il punto in cui la scelta si sente. Il pavimento degli impegni già firmati è invalicabile.
+ */
+export function setWageShare(
+  state: CareerState,
+  world: CareerWorld,
+  newShare: number,
+): { state: CareerState; ok: boolean; message?: string } {
+  const revenue = revenueOf(state, world);
+  const esito = shiftWageShare({
+    revenue,
+    finances: state.finances ?? defaultFinances(),
+    transferCash: state.budget,
+    committedWages: wageBillOf(state, world),
+    newShare,
+    winter: state.market?.window === "riparazione",
+  });
+  if (!esito.ok) return { state, ok: false, message: esito.reason };
+  return {
+    state: { ...state, finances: esito.finances, budget: esito.transferCash, seasonRevenue: revenue },
+    ok: true,
+  };
+}
+
+/* -------------------------------------------------------------------------- */
+/* I fatti di un giocatore                                                     */
+/* -------------------------------------------------------------------------- */
+
+/** L'ingaggio mediano di chi in rosa ha un livello confrontabile: il metro del "sottopagato". */
+function peerWage(state: CareerState, world: CareerWorld, entry: RosterEntry): number {
+  const pari = state.roster
+    .filter((e) => Math.abs(e.overall - entry.overall) <= 3 && e.playerId !== entry.playerId)
+    .map((e) => contractFor(state, world, e.playerId)?.wage ?? 0)
+    .filter((w) => w > 0)
+    .sort((a, b) => a - b);
+  if (pari.length === 0) return 0;
+  return pari[Math.floor(pari.length / 2)]!;
+}
+
+/** Di quante posizioni siamo sotto l'obiettivo dichiarato: alimenta morale e temi. */
+function positionsBelowTargetOf(state: CareerState, world: CareerWorld): number {
+  const obiettivo = state.seasonObjective?.targetPosition;
+  if (!obiettivo || state.league.round === 0) return 0;
+  const nostra = buildStandings(rebuildLeagueState(state, world), 0).find((r) => r.isUser)?.position;
+  return nostra ? Math.max(0, nostra - obiettivo) : 0;
+}
+
+/** Costruisce i fatti di un giocatore, assemblando ciò che vive sparso nello stato. */
+export function playerFactsOf(
+  state: CareerState,
+  world: CareerWorld,
+  playerId: string,
+): PlayerFacts | null {
+  const entry = state.roster.find((e) => e.playerId === playerId);
+  if (!entry) return null;
+  const anagrafica = careerPlayers(state, world);
+  const info = anagrafica[playerId];
+  if (!info) return null;
+
+  const contratto = contractFor(state, world, playerId);
+  const mediano = peerWage(state, world, entry);
+  const finanze = financesOf(state, world);
+  const offerta = state.market?.offers.find((o) => o.playerId === playerId);
+  const pre = state.contracts?.preContracts.find((p) => p.playerId === playerId);
+
+  return buildPlayerFacts({
+    entry,
+    player: {
+      id: playerId,
+      name: info.name,
+      role: info.role,
+      secondaryRoles: info.secondaryRoles,
+      birthDate: info.birthDate,
+    },
+    age: ageInSeason(info.birthDate, state.season) ?? 26,
+    season: state.season,
+    matchday: state.league.round,
+    squadAverage: averageOverall(state.roster),
+    marketValue: playerValue(state, world, playerId),
+    roster: state.roster,
+    roleOf: (id) => {
+      const p = anagrafica[id];
+      return p ? { role: p.role, secondaryRoles: p.secondaryRoles } : undefined;
+    },
+    contract: contratto,
+    wageVsPeers: mediano > 0 && contratto ? contratto.wage / mediano : 1,
+    wageRoomLeft: finanze.wageRoom,
+    preContractSuitor: pre
+      ? {
+          clubId: pre.toClubId,
+          clubName: pre.clubName,
+          prestige: world.market?.valuation.clubPrestige[pre.toClubId] ?? 3,
+        }
+      : undefined,
+    renewalRefused: state.contracts?.renewalRefused.includes(playerId) ?? false,
+    winterWindowOpen: state.market?.window === "riparazione",
+    guaranteedStarters: state.guaranteedStarters,
+    coachBenched: state.coachBenched,
+    coachUntouchables: getCoachUntouchables(state.roster, state.coachId, anagrafica),
+    captainId: state.captainId,
+    coachHarmony: state.coachHarmony,
+    positionsBelowTarget: positionsBelowTargetOf(state, world),
+    incomingOffer: offerta
+      ? {
+          clubId: offerta.fromClubId,
+          clubName: offerta.fromClubName,
+          fee: offerta.fee,
+          prestige: world.market?.valuation.clubPrestige[offerta.fromClubId] ?? 3,
+          kind: "trasferimento",
+        }
+      : undefined,
+    isOnTransferList: (state.lists?.transferList ?? []).includes(playerId),
+    isOnLoanList: (state.lists?.loanList ?? []).includes(playerId),
+    relationship: state.relationships?.[playerId],
+    openCommitments: commitmentsFor(state.commitments, playerId),
+    currentWeek: state.league.round,
+  });
+}
+
+/* -------------------------------------------------------------------------- */
+/* Lo Spogliatoio                                                              */
+/* -------------------------------------------------------------------------- */
+
+export interface DressingRoomEntry {
+  playerId: string;
+  name: string;
+  topicId: string;
+  topicLabel: string;
+  demand: string;
+  urgency: number;
+  morale: number;
+  trust: number;
+  feud: boolean;
+  contractSeasonsLeft: number;
+  blocking: boolean;
+}
+
+/**
+ * Chi ha davvero qualcosa da dire, ordinato per urgenza.
+ *
+ * Chi non trova un tema ammissibile **non compare**: è la differenza fra uno spogliatoio e un
+ * ufficio reclami. Prima l'elenco era "chi ha il morale sotto 55", quindi ci finiva dentro anche
+ * chi non aveva nulla che il club potesse concedergli.
+ */
+export function dressingRoom(state: CareerState, world: CareerWorld): DressingRoomEntry[] {
+  const out: DressingRoomEntry[] = [];
+  for (const entry of state.roster) {
+    const facts = playerFactsOf(state, world, entry.playerId);
+    if (!facts) continue;
+    const topic = pickTopic(facts);
+    if (!topic) continue;
+    out.push({
+      playerId: facts.playerId,
+      name: facts.name,
+      topicId: topic.id,
+      topicLabel: topic.label,
+      demand: topic.demand(facts).description,
+      urgency: talkUrgency(facts),
+      morale: facts.morale,
+      trust: facts.trust,
+      feud: facts.isFeuding,
+      contractSeasonsLeft: facts.seasonsLeft,
+      blocking: blockingTopic(facts) !== null,
+    });
+  }
+  return out.sort((a, b) => b.urgency - a.urgency);
+}
+
+/** Il contesto con cui si valutano le mosse: liquidità, margine ingaggi, parere del mister. */
+export function moveContextOf(
+  state: CareerState,
+  world: CareerWorld,
+  facts: PlayerFacts,
+): MoveContext {
+  const finanze = financesOf(state, world);
+  // Il mister guarda **il rivale vero** nella casella, non una soglia scritta a mano.
+  const rivale = facts.bestRivalOverallInRole;
+  const sintonia = ((state.coachHarmony ?? 50) - 50) / 10;
+  const coachWouldApprove = rivale < 0 || facts.overall - rivale + sintonia >= -2;
+
+  const conteggio: Record<Department, number> = { POR: 0, DIF: 0, CC: 0, ATT: 0 };
+  const anagrafica = careerPlayers(state, world);
+  for (const e of state.roster) {
+    const dep = anagrafica[e.playerId]?.department;
+    if (dep) conteggio[dep] += 1;
+  }
+  const ordine: Department[] = ["POR", "DIF", "CC", "ATT"];
+  const weakestDepartment = [...ordine].sort((a, b) => conteggio[a] - conteggio[b])[0];
+
+  return {
+    transferCash: state.budget,
+    wageRoom: finanze.wageRoom,
+    slotRole: facts.role,
+    coachWouldApprove,
+    hasOtherCaptain: !!state.captainId && state.captainId !== facts.playerId,
+    weakestDepartment,
+    season: state.season,
+    matchday: state.league.round,
+  };
+}
+
+/** Apre la conversazione col tema più urgente fra quelli **ammissibili**. */
+export function openPlayerDialogue(
+  state: CareerState,
+  world: CareerWorld,
+  playerId: string,
+): Dialogue | null {
+  const facts = playerFactsOf(state, world, playerId);
+  if (!facts) return null;
+  const topic = pickTopic(facts);
+  if (!topic) return null;
+  return openDialogue(facts, topic);
+}
+
+function clampMorale(v: number): number {
+  return Math.max(0, Math.min(100, v));
+}
+
+function withMorale(state: CareerState, playerId: string, delta: number): CareerState {
+  return {
+    ...state,
+    roster: state.roster.map((e) =>
+      e.playerId === playerId ? { ...e, morale: clampMorale(e.morale + delta) } : e,
+    ),
+  };
+}
+
+function withTrust(
+  state: CareerState,
+  playerId: string,
+  delta: number,
+  status?: DialogueStatus,
+): CareerState {
+  const attuale = state.relationships?.[playerId] ?? { trust: DEFAULT_TRUST };
+  return {
+    ...state,
+    relationships: {
+      ...(state.relationships ?? {}),
+      [playerId]: {
+        ...attuale,
+        trust: Math.max(0, Math.min(100, attuale.trust + delta)),
+        feud: status === "rottura" ? true : attuale.feud,
+      },
+    },
+  };
+}
+
+function withList(
+  state: CareerState,
+  playerId: string,
+  lista: "transferList" | "loanList",
+): CareerState {
+  const attuale = state.lists?.[lista] ?? [];
+  if (attuale.includes(playerId)) return state;
+  return {
+    ...state,
+    lists: {
+      transferList:
+        lista === "transferList" ? [...attuale, playerId] : (state.lists?.transferList ?? []),
+      loanList: lista === "loanList" ? [...attuale, playerId] : (state.lists?.loanList ?? []),
+    },
+  };
+}
+
+function emptyContracts(state: CareerState): NonNullable<CareerState["contracts"]> {
+  return {
+    overrides: state.contracts?.overrides ?? {},
+    released: state.contracts?.released ?? [],
+    preContracts: state.contracts?.preContracts ?? [],
+    renewalRefused: state.contracts?.renewalRefused ?? [],
+  };
+}
+
+function withContractOverride(
+  state: CareerState,
+  playerId: string,
+  contract: Contract,
+): CareerState {
+  const base = emptyContracts(state);
+  return {
+    ...state,
+    contracts: {
+      ...base,
+      overrides: {
+        ...base.overrides,
+        [playerId]: {
+          until: contract.until,
+          wage: contract.wage,
+          signedSeason: contract.signedSeason,
+          clause: contract.releaseClause,
+        },
+      },
+    },
+  };
+}
+
+/** Esegue la cessione collegata all'offerta ricevuta: stessa operazione della scheda Offerte. */
+function executeIncomingOffer(state: CareerState, playerId: string): CareerState {
+  const offer = state.market?.offers.find((o) => o.playerId === playerId);
+  if (!offer || !state.market) return state;
+  return {
+    ...state,
+    roster: state.roster.filter((e) => e.playerId !== playerId),
+    budget: state.budget + offer.fee,
+    market: {
+      ...state.market,
+      offers: state.market.offers.filter((o) => o.playerId !== playerId),
+      loanOffers: state.market.loanOffers.filter((l) => l.playerId !== playerId),
+    },
+    lists: {
+      transferList: (state.lists?.transferList ?? []).filter((id) => id !== playerId),
+      loanList: (state.lists?.loanList ?? []).filter((id) => id !== playerId),
+    },
+    sessionDeals: [
+      ...(state.sessionDeals ?? []),
+      { playerId, playerName: offer.playerName, kind: "cessione" as const, amount: offer.fee },
+    ],
+  };
+}
+
+/** Applica una mossa della conversazione allo stato della carriera. */
+export function applyPlayerDialogue(
+  state: CareerState,
+  world: CareerWorld,
+  dialogue: Dialogue,
+  move: DialogueMove,
+): { state: CareerState; dialogue: Dialogue; message?: string } {
+  const facts = playerFactsOf(state, world, dialogue.playerId);
+  if (!facts) return { state, dialogue };
+
+  const effetti = applyDialogueMove(dialogue, facts, move, moveContextOf(state, world, facts));
+  if (effetti.errorMessage) {
+    return { state, dialogue: effetti.dialogue, message: effetti.errorMessage };
+  }
+
+  let next = state;
+  const id = dialogue.playerId;
+
+  if (effetti.transferCashDelta !== 0) {
+    next = { ...next, budget: next.budget + effetti.transferCashDelta };
+  }
+
+  if (effetti.wageDelta !== 0) {
+    const attuale = contractFor(next, world, id);
+    if (attuale) {
+      next = withContractOverride(next, id, { ...attuale, wage: attuale.wage + effetti.wageDelta });
+    }
+  }
+
+  if (effetti.moraleDelta !== 0) next = withMorale(next, id, effetti.moraleDelta);
+  if (effetti.trustDelta !== 0) next = withTrust(next, id, effetti.trustDelta, effetti.dialogue.status);
+
+  if (effetti.commitments.length > 0) {
+    next = { ...next, commitments: [...(next.commitments ?? []), ...effetti.commitments] };
+  }
+  if (effetti.guaranteeRole) next = setGuaranteedStarter(next, effetti.guaranteeRole, id);
+  if (effetti.setCaptain) next = { ...next, captainId: id };
+  if (effetti.restMatchdays) {
+    next = { ...next, resting: { ...(next.resting ?? {}), [id]: effetti.restMatchdays } };
+  }
+  if (effetti.listForTransfer) next = withList(next, id, "transferList");
+  if (effetti.listForLoan) next = withList(next, id, "loanList");
+  if (effetti.sellNow) next = executeIncomingOffer(next, id);
+  if (effetti.coachResigns) {
+    next = { ...next, coachId: null, coachPromises: [], coachHarmony: 40, coachContract: undefined };
+  }
+  if (effetti.coachBenches) {
+    next = { ...next, coachBenched: { ...(next.coachBenched ?? {}), [id]: true } };
+  }
+
+  if (effetti.dressingRoomDelta) {
+    const anagrafica = careerPlayers(next, world);
+    const { department, delta } = effetti.dressingRoomDelta;
+    next = {
+      ...next,
+      roster: next.roster.map((e) =>
+        e.playerId !== id && anagrafica[e.playerId]?.department === department
+          ? { ...e, morale: clampMorale(e.morale + delta) }
+          : e,
+      ),
+    };
+  }
+
+  if (effetti.dialogue.status !== "aperta") {
+    next = {
+      ...next,
+      relationships: {
+        ...(next.relationships ?? {}),
+        [id]: {
+          ...(next.relationships?.[id] ?? { trust: DEFAULT_TRUST }),
+          trust: effetti.dialogue.trust,
+          feud: effetti.dialogue.status === "rottura" ? true : next.relationships?.[id]?.feud,
+          lastTalkedWeek: next.league.round,
+        },
+      },
+    };
+    // Una conversazione chiusa, qualunque sia l'esito, chiude anche la richiesta forzata: è lo
+    // stesso gate di sempre (`pendingRequest`), cambia solo *come* si risolve.
+    if (next.pendingRequest?.playerId === id) {
+      next = { ...next, pendingRequest: null, lastResolvedMatchday: next.league.round };
+    }
+  }
+
+  return { state: next, dialogue: effetti.dialogue };
+}
+
+/* -------------------------------------------------------------------------- */
+/* Rinnovi e svincoli                                                          */
+/* -------------------------------------------------------------------------- */
+
+export interface RenewalOffer {
+  wage: number;
+  seasons: number;
+  clause?: number;
+  guaranteedStarter?: boolean;
+  captain?: boolean;
+}
+
+/** Che cosa chiede questo giocatore per rinnovare: nasce dai fatti, non da una percentuale. */
+export function renewalDemandOf(state: CareerState, world: CareerWorld, playerId: string) {
+  const facts = playerFactsOf(state, world, playerId);
+  if (!facts) return null;
+  return renewalTerms({
+    age: facts.age,
+    overall: facts.overall,
+    marketValue: facts.marketValue,
+    currentWage: facts.wage,
+    wageVsPeers: facts.wageVsPeers,
+    overUnderPerformance: facts.overUnderPerformance,
+    clubPrestige: world.market?.valuation.clubPrestige[state.clubId] ?? 3,
+    personality: facts.personality,
+    playedShare: facts.playedShare,
+  });
+}
+
+/**
+ * Firma il rinnovo alle condizioni proposte.
+ *
+ * Non c'è una soglia sola: il giocatore giudica il **pacchetto** con la sua scala (personalità),
+ * quindi la stessa cifra convince un mercenario e offende un giovane che voleva giocare.
+ */
+export function renewContract(
+  state: CareerState,
+  world: CareerWorld,
+  playerId: string,
+  offer: RenewalOffer,
+): { state: CareerState; ok: boolean; message: string } {
+  const facts = playerFactsOf(state, world, playerId);
+  const terms = renewalDemandOf(state, world, playerId);
+  if (!facts || !terms) return { state, ok: false, message: "Giocatore non in rosa." };
+
+  const finanze = financesOf(state, world);
+  const aumento = offer.wage - facts.wage;
+  if (aumento > finanze.wageRoom) {
+    return {
+      state,
+      ok: false,
+      message: `Margine ingaggi insufficiente: servono ${formatEuro(aumento)}/anno, ne restano ${formatEuro(finanze.wageRoom)}.`,
+    };
+  }
+
+  const punteggio = renewalOfferScore(
+    {
+      wage: offer.wage,
+      seasons: offer.seasons,
+      clause: offer.clause ?? 0,
+      starter: offer.guaranteedStarter ?? false,
+      captain: offer.captain ?? false,
+    },
+    terms,
+    facts.personality,
+  );
+
+  if (punteggio < RENEWAL_ACCEPT_SCORE) {
+    const base = emptyContracts(state);
+    return {
+      state: {
+        ...state,
+        contracts: {
+          ...base,
+          renewalRefused: base.renewalRefused.includes(playerId)
+            ? base.renewalRefused
+            : [...base.renewalRefused, playerId],
+        },
+      },
+      ok: false,
+      message: `${facts.name} rifiuta: la proposta non regge il confronto con quello che si aspetta.`,
+    };
+  }
+
+  let next = withContractOverride(state, playerId, {
+    until: state.season + offer.seasons - 1,
+    wage: offer.wage,
+    signedSeason: state.season,
+    releaseClause: offer.clause,
+  });
+  next = withMorale(next, playerId, 20);
+  next = withTrust(next, playerId, 15);
+  // Rinnovare toglie di mezzo il precontratto altrui e l'eventuale rifiuto precedente.
+  const base = emptyContracts(next);
+  next = {
+    ...next,
+    contracts: {
+      ...base,
+      preContracts: base.preContracts.filter((p) => p.playerId !== playerId),
+      renewalRefused: base.renewalRefused.filter((id) => id !== playerId),
+    },
+  };
+  if (offer.captain) next = { ...next, captainId: playerId };
+  if (offer.guaranteedStarter) next = setGuaranteedStarter(next, facts.role, playerId);
+
+  return {
+    state: next,
+    ok: true,
+    message: `${facts.name} ha rinnovato: ${formatWage(offer.wage)} fino al ${state.season + offer.seasons - 1}.`,
+  };
+}
+
+/** Rescinde il contratto: il giocatore lascia la rosa e finisce fra gli svincolati del mondo. */
+export function releasePlayer(
+  state: CareerState,
+  world: CareerWorld,
+  playerId: string,
+): { state: CareerState; ok: boolean; message: string } {
+  const entry = state.roster.find((e) => e.playerId === playerId);
+  if (!entry) return { state, ok: false, message: "Non fa parte della rosa." };
+  if (state.roster.length <= MIN_SQUAD_SIZE) {
+    return { state, ok: false, message: "Non puoi scendere sotto gli undici schierabili." };
+  }
+  const nome = careerPlayers(state, world)[playerId]?.name ?? "Il giocatore";
+  const contratto = contractFor(state, world, playerId);
+  const buonuscita = Math.round(
+    (contratto?.wage ?? 0) * seasonsLeftOf(contratto, state.season) * 0.4,
+  );
+  const base = emptyContracts(state);
+
+  return {
+    state: {
+      ...state,
+      roster: state.roster.filter((e) => e.playerId !== playerId),
+      budget: state.budget - buonuscita,
+      contracts: {
+        ...base,
+        released: [...base.released, playerId],
+        preContracts: base.preContracts.filter((p) => p.playerId !== playerId),
+        renewalRefused: base.renewalRefused.filter((id) => id !== playerId),
+      },
+    },
+    ok: true,
+    message: `${nome} è stato svincolato${buonuscita > 0 ? ` (buonuscita ${formatEuro(buonuscita)})` : ""}.`,
+  };
+}
+
+/* -------------------------------------------------------------------------- */
+/* Il mercato dei parametri zero                                               */
+/* -------------------------------------------------------------------------- */
+
+/** Gli svincolati disponibili adesso: derivati, quindi zero byte di salvataggio. */
+export function freeAgentMarket(state: CareerState, world: CareerWorld): FreeAgent[] {
+  if (!world.market) return [];
+  const mondo = Object.values(world.market.players).map((p) => ({
+    id: p.id,
+    name: p.name,
+    nation: p.nation,
+    role: p.role,
+    secondaryRoles: p.secondaryRoles,
+    department: ROLE_DEPARTMENT[p.role],
+    birthDate: (p as { birthDate?: string | null }).birthDate ?? null,
+    overall: world.market?.clubs[state.clubId]?.startingEleven ? 0 : 0,
+    clubId: state.clubId,
+  }));
+  // La vetrina si costruisce dal pool acquistabile, che porta con sé Overall e club correnti.
+  const acquistabili = world.market.transferPool.map((p) => ({
+    id: p.playerId,
+    name: world.market!.nameOf(p.playerId),
+    nation: world.market!.players[p.playerId]?.nation ?? "Italia",
+    role: world.market!.players[p.playerId]?.role ?? "CC",
+    secondaryRoles: world.market!.players[p.playerId]?.secondaryRoles ?? [],
+    department: ROLE_DEPARTMENT[world.market!.players[p.playerId]?.role ?? "CC"],
+    birthDate: birthDateFromAge(world.market!.ageOf(p.playerId), state.season),
+    overall: p.overall,
+    clubId: p.clubId,
+  }));
+  void mondo;
+
+  return buildFreeAgentPool({
+    worldPlayers: acquistabili,
+    seed: state.seed,
+    season: state.season,
+    winter: state.market?.window === "riparazione",
+    overrides: state.contracts?.overrides,
+    released: state.contracts?.released,
+    signed: new Set([...(state.freeAgentsSigned ?? []), ...state.roster.map((e) => e.playerId)]),
+    clubPrestige: world.market.valuation.clubPrestige,
+  });
+}
+
+/** Data di nascita coerente con un'età: il pool del mercato espone l'età, non la data. */
+function birthDateFromAge(age: number, season: number): string {
+  return `${2025 + season - 1 - Math.max(15, Math.round(age))}-06-15`;
+}
+
+/** Le squadre che possono contendercelo, con i loro veri vincoli di bilancio. */
+function rivalClubsFor(state: CareerState, world: CareerWorld): RivalClubInfo[] {
+  if (!world.market) return [];
+  return Object.values(world.market.clubs)
+    .filter((c) => c.id !== state.clubId)
+    .slice(0, 24)
+    .map((club) => {
+      const undici = club.startingEleven ?? [];
+      const media = undici.length > 0 ? undici.reduce((s, o) => s + o, 0) / undici.length : 72;
+      const prestigio = world.market?.valuation.clubPrestige[club.id] ?? 3;
+      return {
+        clubId: club.id,
+        clubName: club.name,
+        prestige: prestigio,
+        // Il margine di un club IA scala col prestigio: chi è grande può offrire di più.
+        wageRoom: Math.round(600_000 * prestigio * (0.8 + media / 100)),
+        // `MarketClub` non espone la composizione per reparto: si usa il segnale che ha, cioè
+        // quanto è corto il suo undici, e si considerano scoperti i reparti di movimento.
+        needs:
+          undici.length < 11
+            ? (["POR", "DIF", "CC", "ATT"] as Department[])
+            : (["DIF", "CC", "ATT"] as Department[]),
+        elevenAverage: media,
+      } satisfies RivalClubInfo;
+    });
+}
+
+export interface FreeAgentSigningResult {
+  state: CareerState;
+  ok: boolean;
+  message: string;
+  rivalClubName?: string;
+}
+
+/**
+ * Prova a tesserare uno svincolato.
+ *
+ * Non basta offrire: il giocatore confronta la nostra proposta con quelle dei club rivali **sulla
+ * sua scala di priorità**, ed è qui che una piccola può battere una grande offrendo il campo
+ * invece dei soldi. La titolarità promessa diventa subito un impegno verificato: il colpo a zero
+ * è anche un debito.
+ */
+export function signFreeAgent(
+  state: CareerState,
+  world: CareerWorld,
+  agentId: string,
+  offer: { wage: number; seasons: number; guaranteedStarter?: boolean; captain?: boolean },
+): FreeAgentSigningResult {
+  const agente = freeAgentMarket(state, world).find((a) => a.id === agentId);
+  if (!agente) return { state, ok: false, message: "Non è più disponibile." };
+
+  const finanze = financesOf(state, world);
+  if (offer.wage > finanze.wageRoom) {
+    return {
+      state,
+      ok: false,
+      message: `Margine ingaggi insufficiente: ${formatWage(offer.wage)} contro ${formatEuro(finanze.wageRoom)} disponibili.`,
+    };
+  }
+
+  const nostra: FreeAgentBid = {
+    clubId: state.clubId,
+    clubName: world.clubName,
+    prestige: world.market?.valuation.clubPrestige[state.clubId] ?? 3,
+    wage: offer.wage,
+    seasons: offer.seasons,
+    guaranteedStarter: offer.guaranteedStarter ?? false,
+    captain: offer.captain ?? false,
+    ambitionTarget: state.seasonObjective?.targetPosition,
+  };
+  const rivali = rivalBidsFor(agente, rivalClubsFor(state, world), state.seed, state.season);
+  const verdetto = resolveFreeAgentBids(agente, nostra, rivali, state.seed, state.season);
+
+  if (!verdetto.accepted) {
+    return { state, ok: false, message: verdetto.message, rivalClubName: verdetto.rivalClubName };
+  }
+
+  const entry: RosterEntry = {
+    playerId: agente.id,
+    overall: agente.overall,
+    potential: Math.max(agente.overall, agente.baseOverall + (agente.age <= 22 ? 8 : 2)),
+    sinceSeason: state.season,
+    morale: 72,
+    injuryMatchdaysLeft: 0,
+    fatigue: 0,
+    stats: emptySeasonStats(),
+  };
+
+  let next: CareerState = {
+    ...state,
+    roster: [...state.roster, entry],
+    freeAgentsSigned: [...(state.freeAgentsSigned ?? []), agente.id],
+    sessionDeals: [
+      ...(state.sessionDeals ?? []),
+      { playerId: agente.id, playerName: agente.name, kind: "acquisto" as const, amount: 0 },
+    ],
+  };
+  next = withContractOverride(next, agente.id, {
+    until: state.season + offer.seasons - 1,
+    wage: offer.wage,
+    signedSeason: state.season,
+  });
+  // Se il regen non esiste nel pool reale, va conservato: è l'unica cosa non derivabile.
+  if (agente.origin === "regen" && !next.generated.some((g) => g.id === agente.id)) {
+    next = {
+      ...next,
+      generated: [
+        ...next.generated,
+        {
+          id: agente.id,
+          name: agente.name,
+          nation: agente.nation,
+          role: agente.role,
+          secondaryRoles: agente.secondaryRoles,
+          birthDate: agente.birthDate ?? birthDateFromAge(agente.age, state.season),
+          overall: agente.overall,
+          potential: entry.potential,
+          origin: "regen",
+        },
+      ],
+    };
+  }
+  if (offer.guaranteedStarter) {
+    next = setGuaranteedStarter(next, agente.role, agente.id);
+    next = {
+      ...next,
+      commitments: [
+        ...(next.commitments ?? []),
+        makeCommitment("clausola_titolarita", {
+          playerId: agente.id,
+          verifyAt: "matchday",
+          deadline: state.league.round + 6,
+          payload: { minStarts: 3 },
+          madeSeason: state.season,
+          madeWeek: state.league.round,
+          description: `Titolarità sottoscritta alla firma di ${agente.name}`,
+        }),
+      ],
+    };
+  }
+  if (offer.captain) next = { ...next, captainId: agente.id };
+
+  return {
+    state: next,
+    ok: true,
+    message: `${agente.name} firma a parametro zero: ${formatWage(offer.wage)} per ${offer.seasons} ${offer.seasons === 1 ? "anno" : "anni"}.`,
+  };
+}
+
+/* -------------------------------------------------------------------------- */
+/* Il contratto dell'allenatore                                                */
+/* -------------------------------------------------------------------------- */
+
+/** Stagioni residue del contratto del mister, contando quella in corso. */
+export function coachContractSeasonsLeft(state: CareerState): number {
+  return coachSeasonsLeft(state.coachContract, state.season);
+}
+
+/** Quanto costa oggi liberarsi del mister: cala man mano che il contratto si consuma. */
+export function coachSeveranceNow(state: CareerState, world: CareerWorld): number {
+  const coach = state.coachId ? findCoach(state.coachId) : undefined;
+  if (!coach) return 0;
+  return severanceCost(coach, state.league.round, world.leagueRounds, state.coachContract, state.season);
+}
+
+/**
+ * Firma il contratto col mister: durata in stagioni, ingaggio annuo dentro il monte.
+ *
+ * Il costo che si paga **subito** dalla cassa mercato è la sola buonuscita del predecessore; lo
+ * stipendio del nuovo pesa sulla cassa ingaggi, anno dopo anno. È la distinzione che rende un
+ * contratto lungo una scelta e non un dettaglio: costa meno all'anno, ma ti lega.
+ */
+export function signCoachContract(
+  state: CareerState,
+  world: CareerWorld,
+  coachId: string,
+  seasons: number,
+  promises?: CoachPromise[],
+): { state: CareerState; ok: boolean; message: string } {
+  const coach = findCoach(coachId);
+  if (!coach) return { state, ok: false, message: "Allenatore non disponibile." };
+
+  const contratto = makeCoachContract(coach, seasons, state.season);
+  const finanze = financesOf(state, world);
+  const spazio = finanze.wageRoom + (state.coachContract?.wage ?? 0);
+  if (contratto.wage > spazio) {
+    return {
+      state,
+      ok: false,
+      message: `Il monte ingaggi non regge ${formatWage(contratto.wage)}: ne restano ${formatEuro(spazio)}.`,
+    };
+  }
+
+  const uscente = state.coachId ? findCoach(state.coachId) : undefined;
+  const buonuscita =
+    uscente && uscente.id !== coach.id ? coachSeveranceNow(state, world) : 0;
+  const penale =
+    uscente?.id === coach.id
+      ? 0
+      : coach.isFreeAgent
+        ? 0
+        : computeCoachBuyoutFee(coach, 2);
+
+  if (buonuscita + penale > state.budget) {
+    return {
+      state,
+      ok: false,
+      message: `Servono ${formatEuro(buonuscita + penale)} fra buonuscita e penale: la cassa mercato non basta.`,
+    };
+  }
+
+  const cambio = state.coachId !== coach.id;
+  return {
+    state: {
+      ...state,
+      coachId: coach.id,
+      coachContract: contratto,
+      budget: state.budget - buonuscita - penale,
+      coachPromises: promises ?? (cambio ? [] : state.coachPromises),
+      coachHarmony: cambio ? 80 : (state.coachHarmony ?? 80),
+      guaranteedStarters: cambio ? {} : state.guaranteedStarters,
+      coachBenched: cambio ? {} : state.coachBenched,
+    },
+    ok: true,
+    message: `${coach.name}: ${formatContractTotal(contratto.wage, seasons)}${penale > 0 ? ` · penale ${formatEuro(penale)}` : ""}.`,
+  };
+}
+
+/* -------------------------------------------------------------------------- */
+/* Verifica degli impegni                                                      */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Verifica gli impegni scaduti e applica le conseguenze.
+ *
+ * Un solo punto per tutte le promesse — minuti, rinforzi, trionfi, clausole, impegni col mister —
+ * invece dei tre canali separati di prima.
+ */
+export function settleCommitments(
+  state: CareerState,
+  world: CareerWorld,
+  when: CommitmentWhen,
+  startersIds: ReadonlySet<string>,
+): { state: CareerState; messages: string[] } {
+  const impegni = state.commitments ?? [];
+  if (impegni.length === 0) return { state, messages: [] };
+
+  const anagrafica = careerPlayers(state, world);
+  const posizione =
+    state.league.round > 0
+      ? (buildStandings(rebuildLeagueState(state, world), 0).find((r) => r.isUser)?.position ?? null)
+      : null;
+
+  const esito = verifyCommitments(impegni, when, {
+    season: state.season,
+    matchday: state.league.round,
+    roster: state.roster,
+    startersIds,
+    departmentOf: (id) => anagrafica[id]?.department,
+    nameOf: (id) => anagrafica[id]?.name ?? "Il giocatore",
+    leaguePosition: posizione,
+    leagueSize: world.opponents.length + 1,
+    captainId: state.captainId,
+  });
+
+  let next: CareerState = { ...state, commitments: esito.open };
+
+  if (Object.keys(esito.moraleDelta).length > 0) {
+    next = {
+      ...next,
+      roster: next.roster.map((e) =>
+        esito.moraleDelta[e.playerId] !== undefined
+          ? { ...e, morale: clampMorale(e.morale + esito.moraleDelta[e.playerId]!) }
+          : e,
+      ),
+    };
+  }
+
+  for (const [id, delta] of Object.entries(esito.trustDelta)) {
+    next = withTrust(next, id, delta);
+  }
+  for (const rotto of esito.broken) {
+    if (!rotto.playerId) continue;
+    const attuale = next.relationships?.[rotto.playerId] ?? { trust: DEFAULT_TRUST };
+    next = {
+      ...next,
+      relationships: {
+        ...(next.relationships ?? {}),
+        [rotto.playerId]: { ...attuale, brokenCount: (attuale.brokenCount ?? 0) + 1 },
+      },
+    };
+  }
+  for (const tenuto of esito.kept) {
+    if (!tenuto.playerId) continue;
+    const attuale = next.relationships?.[tenuto.playerId] ?? { trust: DEFAULT_TRUST };
+    next = {
+      ...next,
+      relationships: {
+        ...(next.relationships ?? {}),
+        [tenuto.playerId]: { ...attuale, keptCount: (attuale.keptCount ?? 0) + 1 },
+      },
+    };
+  }
+  if (esito.harmonyDelta !== 0) {
+    next = { ...next, coachHarmony: Math.max(0, Math.min(100, (next.coachHarmony ?? 50) + esito.harmonyDelta)) };
+  }
+
+  return { state: next, messages: esito.messages };
+}
+
+/**
+ * Fine stagione: i contratti scadono, i precontratti si eseguono, il mister può restare senza.
+ *
+ * È il momento in cui il sistema contratti presenta il conto: chi non è stato rinnovato **se ne va
+ * a parametro zero**, ed è la punizione che dà senso a tutte le conversazioni dell'anno.
+ */
+export function expireContracts(
+  state: CareerState,
+  world: CareerWorld,
+): { state: CareerState; messages: string[]; departed: string[] } {
+  const messages: string[] = [];
+  const departed: string[] = [];
+  const anagrafica = careerPlayers(state, world);
+  const base = emptyContracts(state);
+
+  const rimasti: RosterEntry[] = [];
+  const inScadenza: RosterEntry[] = [];
+  for (const entry of state.roster) {
+    const contratto = contractFor(state, world, entry.playerId);
+    if (seasonsLeftOf(contratto, state.season) > 1) {
+      rimasti.push(entry);
+      continue;
+    }
+    inScadenza.push(entry);
+  }
+
+  /**
+   * **Nessuna rete di sicurezza** (decisione esplicita dell'utente).
+   *
+   * Chi non è stato rinnovato se ne va, punto: la società non rinnova d'ufficio per salvare un
+   * direttore sportivo distratto. Se le uscite lasciano la rosa sotto gli undici schierabili, la
+   * conseguenza non è un rattoppo ma **l'esonero** alla chiusura del mercato successivo
+   * (`checkSquadViability`). Tenere una rosa in piedi è il mestiere, non un servizio del club.
+   */
+  for (const entry of inScadenza) {
+    const nome = anagrafica[entry.playerId]?.name ?? "Un giocatore";
+    const pre = base.preContracts.find((p) => p.playerId === entry.playerId);
+    departed.push(entry.playerId);
+    messages.push(
+      pre
+        ? `${nome} lascia il club a parametro zero: va al ${pre.clubName}.`
+        : `${nome} lascia il club a parametro zero: contratto scaduto e non rinnovato.`,
+    );
+  }
+
+  let next: CareerState = {
+    ...state,
+    roster: rimasti,
+    contracts: { ...base, preContracts: [], renewalRefused: [] },
+  };
+
+  // Il mister a contratto scaduto se ne va: perdere un buon tecnico per distrazione dev'essere
+  // possibile quanto perdere un giocatore.
+  if (state.coachContract && coachSeasonsLeft(state.coachContract, state.season) <= 1) {
+    const coach = state.coachId ? findCoach(state.coachId) : undefined;
+    if (coach) messages.push(`${coach.name} è a fine contratto: va rinnovato o lascia la panchina.`);
+    next = { ...next, seasonNegotiationDone: false };
+  }
+
+  return { state: next, messages, departed };
 }

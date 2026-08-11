@@ -140,7 +140,7 @@ export function DsMode({ userId, onExit }: { userId: string | null; onExit: () =
         season={1}
         players={playersMap}
         onBack={() => setStep({ kind: "dossier", clubId: step.clubId })}
-        onPick={(coachId, promises, totalCost) => {
+        onPick={(coachId, promises, totalCost, coachSeasons) => {
           const defCoach = getClubDefaultCoach(step.clubId, club?.name);
           const isDefault = defCoach?.id === coachId;
           const defaultHireCost = isDefault ? 0 : (findCoach(coachId)?.hireCost ?? 0);
@@ -157,6 +157,7 @@ export function DsMode({ userId, onExit }: { userId: string | null; onExit: () =
             budget: Math.max(0, budget - effectiveHireCost),
             cupEntrants: entrants,
             difficulty,
+            coachSeasons,
           });
           if (promises && promises.length > 0) {
             iniziale.coachPromises = promises;
