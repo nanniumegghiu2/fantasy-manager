@@ -18,6 +18,8 @@ import {
   advanceWeek,
   applyMarket,
   applyPlayerDialogue,
+  renewContract,
+  signCoachContract,
   buildStandings,
   openPlayerDialogue,
   setWageShare,
@@ -73,6 +75,7 @@ import { CoachMarketMeetingModal } from "./CoachMarketMeetingModal";
 import { CoachNegotiationChat } from "./CoachNegotiationChat";
 import { PlayerStandoffChat } from "./PlayerStandoffChat";
 import { PlayerDialogueChat } from "./PlayerDialogueChat";
+import { RenewalModal } from "./RenewalModal";
 import { SeasonObjectiveScreen } from "./SeasonObjectiveScreen";
 import { StandingsTable } from "../classic/StandingsTable";
 import { CupPanel } from "./CupPanel";
@@ -403,6 +406,28 @@ export function CareerScreen({
     },
     [state, world, onChange],
   );
+  /** Il tavolo del rinnovo di un giocatore: aperto dalla pastiglia contratto nella Rosa. */
+  const [rinnovoPer, setRinnovoPer] = useState<string | null>(null);
+  const proponiRinnovo = useCallback(
+    (offer: { wage: number; seasons: number; guaranteedStarter?: boolean; captain?: boolean }) => {
+      if (!rinnovoPer) return { ok: false, message: "Nessun giocatore selezionato." };
+      const esito = renewContract(state, world, rinnovoPer, offer);
+      if (esito.ok) onChange(esito.state);
+      return { ok: esito.ok, message: esito.message };
+    },
+    [rinnovoPer, state, world, onChange],
+  );
+
+  /** Rinnovo del mister: stessa firma dell'ingaggio, con lo stesso allenatore. */
+  const rinnovaMister = useCallback(
+    (seasons: number) => {
+      if (!state.coachId) return;
+      const esito = signCoachContract(state, world, state.coachId, seasons);
+      if (esito.ok) onChange(esito.state);
+    },
+    [state, world, onChange],
+  );
+
   const firmaSvincolato = useCallback(
     (agentId: string, offer: { wage: number; seasons: number; guaranteedStarter: boolean }) => {
       const esito = signFreeAgent(state, world, agentId, offer);
@@ -784,7 +809,13 @@ export function CareerScreen({
         )}
 
         {tab === "rosa" && (
-          <SquadPanel state={state} world={world} lineup={lineup} onAction={eseguiAzione} />
+          <SquadPanel
+            state={state}
+            world={world}
+            lineup={lineup}
+            onAction={eseguiAzione}
+            onRenew={setRinnovoPer}
+          />
         )}
 
         {tab === "classifica" &&
@@ -960,10 +991,23 @@ export function CareerScreen({
             onNegotiateLoan={trattaPrestito}
             onOpenStandoff={apriStandoff}
             onShiftFinances={spostaFinanze}
+            onRenewPlayer={setRinnovoPer}
+            onRenewCoach={rinnovaMister}
             onSignFreeAgent={firmaSvincolato}
             standoffChiuse={standoffChiuse}
             onProposePromiseAlternative={proponiAlternativaPromessa}
             onClose={chiudiMercato}
+          />
+        )}
+
+        {rinnovoPer && (
+          <RenewalModal
+            key="rinnovo"
+            state={state}
+            world={world}
+            playerId={rinnovoPer}
+            onRenew={proponiRinnovo}
+            onClose={() => setRinnovoPer(null)}
           />
         )}
 

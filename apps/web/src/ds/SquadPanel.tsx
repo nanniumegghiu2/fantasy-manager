@@ -1,11 +1,13 @@
 import { useMemo, useState } from "react";
 import { motion } from "framer-motion";
-import { Activity, LayoutGrid, List, Plane, Sprout, Tag, TriangleAlert } from "lucide-react";
+import { Activity, FileSignature, LayoutGrid, List, Plane, Sprout, Tag, TriangleAlert } from "lucide-react";
 import { ROLE_LABELS } from "@app/shared-types";
 import type { Department, Role } from "@app/shared-types";
 import {
   ageInSeason,
   computeAvgRating,
+  contractFor,
+  formatWage,
   findCoach,
   getCoachUntouchables,
   getFormation,
@@ -43,9 +45,11 @@ interface SquadPanelProps {
   lineup: Lineup;
   /** Azioni di mercato disponibili anche fuori dalla finestra (liste). */
   onAction?: (action: MarketAction) => void;
+  /** Apre il tavolo del rinnovo. Assente = la pastiglia contratto resta informativa. */
+  onRenew?: (playerId: string) => void;
 }
 
-export function SquadPanel({ state, world, lineup, onAction }: SquadPanelProps) {
+export function SquadPanel({ state, world, lineup, onAction, onRenew }: SquadPanelProps) {
   const [view, setView] = useState<View>("campo");
   // Stesso ripiego del motore ("4-3-3" se non c'è allenatore): la lavagna deve mostrare
   // esattamente il modulo con cui si gioca, non uno scelto dalla UI per conto suo.
@@ -219,6 +223,29 @@ export function SquadPanel({ state, world, lineup, onAction }: SquadPanelProps) 
                         <span className="text-[11px]" style={{ color: morale.color }}>
                           {morale.label}
                         </span>
+                        {/* **La scadenza si vede qui**, non solo dentro il mercato: è ciò che
+                            decide se il giocatore sarà ancora tuo l'anno prossimo. Toccarla apre
+                            il tavolo del rinnovo, quando il mercato è aperto. */}
+                        {(() => {
+                          const c = contractFor(state, world, entry.playerId);
+                          const residue = c ? c.until - state.season + 1 : 0;
+                          const urgente = residue <= 1;
+                          const colore = urgente ? "#ff4d4d" : residue === 2 ? "#ffab2e" : "var(--text-secondary)";
+                          const etichetta =
+                            residue <= 0 ? "scaduto" : urgente ? "in scadenza" : `${residue} anni`;
+                          return (
+                            <button
+                              type="button"
+                              disabled={!onRenew}
+                              onClick={() => onRenew?.(entry.playerId)}
+                              title={c ? `Contratto fino al ${c.until} · ${formatWage(c.wage)}` : "Senza contratto"}
+                              className="flex items-center gap-1 rounded-full px-1.5 py-px text-[10px] font-bold disabled:cursor-default"
+                              style={{ backgroundColor: `${colore}1f`, color: colore }}
+                            >
+                              <FileSignature size={10} /> {etichetta}
+                            </button>
+                          );
+                        })()}
                       </div>
                     </div>
 

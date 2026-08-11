@@ -6,6 +6,7 @@ import {
   Banknote,
   Check,
   ClipboardList,
+  FileSignature,
   Globe,
   Landmark,
   LayoutGrid,
@@ -32,7 +33,11 @@ import {
   getFormation,
   livePromiseStatus,
   playerValue,
-  standoffCandidates,
+  coachContractSeasonsLeft,
+  coachSeveranceNow,
+  contractFor,
+  dressingRoom,
+  formatWage,
   STANDOFF_MORALE_THRESHOLD,
   type AiSellableListing,
   type CareerState,
@@ -56,6 +61,8 @@ import { WorldMarketPanel } from "./WorldMarketPanel";
 import { CoachPromisesPanel, type LiveCoachPromise } from "./CoachPromisesPanel";
 import { CoachNegotiationChat } from "./CoachNegotiationChat";
 import { FinancesPanel } from "./FinancesPanel";
+import { SegmentedNav, type SegmentedItem } from "./SegmentedNav";
+import { ContractLengthPicker } from "./ContractLengthPicker";
 import { FreeAgentsPanel } from "./FreeAgentsPanel";
 import { SpogliatoioPanel } from "./SpogliatoioPanel";
 import type { CoachPromise } from "@app/game-engine";
@@ -76,18 +83,24 @@ import { euro, moraleLabel } from "./format";
  * di mercato. È questo a trasformare il mercato da vetrina in caccia.
  */
 
-type Tab = "finanze" | "offerte" | "ricerca" | "svincolati" | "rosa" | "spogliatoio" | "mister" | "mondo";
+/**
+ * **Cinque voci, non otto.**
+ *
+ * Con una voce per pannello la barra era diventata una fila di otto pillole in cui bisognava
+ * cercare ogni volta dove si stava andando — segnalato dall'utente come navigazione macchinosa.
+ * Ora il primo livello risponde a *cosa stai facendo* (bilancio, chi ti cerca, chi vuoi tu, la
+ * tua rosa, il mondo) e il secondo a *dove esattamente*.
+ */
+type Tab = "finanze" | "offerte" | "mercato" | "rosa" | "mondo";
 
-const TAB: { key: Tab; label: string; icon: typeof Search }[] = [
-  // Le finanze vengono per prime: il bilancio si decide **prima** di operare, non dopo.
-  { key: "finanze", label: "Finanze", icon: Landmark },
-  { key: "offerte", label: "Offerte", icon: ArrowUpRight },
+/** Le sottovoci di **Mercato**: qui si va a cercare qualcuno, in un modo o nell'altro. */
+type SubMercato = "ricerca" | "cedibili" | "svincolati" | "mister";
+
+const SUB_MERCATO: SegmentedItem<SubMercato>[] = [
   { key: "ricerca", label: "Ricerca", icon: Search },
+  { key: "cedibili", label: "Cedibili IA", icon: Tag },
   { key: "svincolati", label: "Svincolati", icon: UserPlus },
-  { key: "rosa", label: "Rosa", icon: ClipboardList },
-  { key: "spogliatoio", label: "Spogliatoio", icon: MessagesSquare },
   { key: "mister", label: "Mister", icon: UserCog },
-  { key: "mondo", label: "Mondo", icon: Globe },
 ];
 
 const DEPARTMENTS: Department[] = ["POR", "DIF", "CC", "ATT"];
@@ -130,6 +143,10 @@ interface MarketPanelProps {
   onOpenStandoff: (playerId: string) => void;
   /** Sposta la ripartizione fra cassa mercato e cassa ingaggi. */
   onShiftFinances: (share: number) => void;
+  /** Apre il tavolo del rinnovo di un nostro giocatore. */
+  onRenewPlayer: (playerId: string) => void;
+  /** Rinnova il contratto del mister per N stagioni. */
+  onRenewCoach: (seasons: number) => void;
   /** Tessera uno svincolato alle condizioni proposte. */
   onSignFreeAgent: (agentId: string, offer: { wage: number; seasons: number; guaranteedStarter: boolean }) => void;
   /** Chi ha già chiuso la sua chat in questa finestra: non deve restare nel badge/nell'elenco. */
@@ -159,6 +176,8 @@ export function MarketPanel({
   onSearch,
   onOpenStandoff,
   onShiftFinances,
+  onRenewPlayer,
+  onRenewCoach,
   onSignFreeAgent,
   standoffChiuse,
   onProposePromiseAlternative,
@@ -174,12 +193,18 @@ export function MarketPanel({
    * prima cosa da fare è decidere chi cedere, e trovarsi davanti le offerte altrui significa
    * cominciare reagendo invece che programmando.
    */
+  const [subMercato, setSubMercato] = useState<SubMercato>("ricerca");
   const [tab, setTab] = useState<Tab>("rosa");
   const budget = state.budget;
 
   /** Badge di notifica sul tab Rosa: quanti giocatori aspettano un faccia a faccia. */
+  /**
+   * Il badge conta chi ha **davvero un argomento** (`dressingRoom`), non chi ha il morale sotto
+   * una soglia: prima ci finivano dentro anche giocatori a cui il club non poteva concedere
+   * nulla, e il pallino rosso diventava rumore che si imparava a ignorare.
+   */
   const chatInSospeso = useMemo(
-    () => standoffCandidates(state, world).filter((c) => !standoffChiuse.has(c.playerId)).length,
+    () => dressingRoom(state, world).filter((c) => !standoffChiuse.has(c.playerId)).length,
     [state, world, standoffChiuse],
   );
 
@@ -253,38 +278,25 @@ export function MarketPanel({
             comprare per vincere o per salvarsi. */}
         <MarketBriefing state={state} world={world} standings={standings} />
 
-        <nav className="flex gap-1 border-b border-[var(--surface-border)] px-2 py-2">
-          {TAB.map(({ key, label, icon: Icon }) => (
-            <button
-              key={key}
-              type="button"
-              onClick={() => setTab(key)}
-              className={`relative min-w-0 flex-1 rounded-full px-2 py-2 text-[11px] font-bold transition-colors ${
-                tab === key ? "text-[var(--brand-contrast)]" : "text-[var(--text-secondary)]"
-              }`}
-            >
-              {tab === key && (
-                <motion.span
-                  layoutId="ds-market-tab"
-                  className="absolute inset-0 rounded-full bg-[var(--brand)]"
-                  transition={{ type: "spring", stiffness: 420, damping: 34 }}
-                />
-              )}
-              <span className="relative flex items-center justify-center gap-1">
-                <Icon size={12} />
-                <span className="truncate">{label}</span>
-                {key === "offerte" && snapshot.offers.length + snapshot.loanOffers.length > 0 && (
-                  <span className="opacity-70">{snapshot.offers.length + snapshot.loanOffers.length}</span>
-                )}
-                {key === "rosa" && chatInSospeso > 0 && (
-                  <span className="flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-[#ff4d4d] px-1 text-[9px] font-extrabold text-white">
-                    {chatInSospeso}
-                  </span>
-                )}
-              </span>
-            </button>
-          ))}
-        </nav>
+        <div className="border-b border-[var(--surface-border)] px-3 py-2">
+          <SegmentedNav
+            layoutId="ds-market-tab"
+            value={tab}
+            onChange={setTab}
+            items={[
+              { key: "finanze", label: "Finanze", icon: Landmark },
+              {
+                key: "offerte",
+                label: "Offerte",
+                icon: ArrowUpRight,
+                count: snapshot.offers.length + snapshot.loanOffers.length,
+              },
+              { key: "mercato", label: "Mercato", icon: Search },
+              { key: "rosa", label: "Rosa", icon: ClipboardList, badge: chatInSospeso },
+              { key: "mondo", label: "Mondo", icon: Globe },
+            ]}
+          />
+        </div>
 
         {/* Il riscontro dell'operazione è il `DealToast` in cima: una seconda riga di testo qui
             sotto direbbe la stessa cosa due volte. */}
@@ -318,17 +330,44 @@ export function MarketPanel({
               onNegotiateLoan={onNegotiateLoan}
             />
           )}
-          {tab === "ricerca" && (
-            <SchedaRicerca
-              budget={budget}
-              world={world}
-              rosaPiena={state.roster.length >= MAX_SQUAD_SIZE}
-              bloccati={new Set(state.negotiationBlocked ?? [])}
-              aiSellable={snapshot.aiSellable}
-              onSearch={onSearch}
-              onAction={onAction}
-              onNegotiate={onNegotiatePurchase}
-            />
+          {tab === "mercato" && (
+            <div className="flex flex-col gap-3">
+              <SegmentedNav
+                layoutId="ds-market-sub"
+                size="sm"
+                value={subMercato}
+                onChange={setSubMercato}
+                items={SUB_MERCATO.map((v) =>
+                  v.key === "cedibili" ? { ...v, count: snapshot.aiSellable?.length ?? 0 } : v,
+                )}
+              />
+
+              {(subMercato === "ricerca" || subMercato === "cedibili") && (
+                <SchedaRicerca
+                  budget={budget}
+                  world={world}
+                  rosaPiena={state.roster.length >= MAX_SQUAD_SIZE}
+                  bloccati={new Set(state.negotiationBlocked ?? [])}
+                  aiSellable={snapshot.aiSellable}
+                  soloCedibili={subMercato === "cedibili"}
+                  onSearch={onSearch}
+                  onAction={onAction}
+                  onNegotiate={onNegotiatePurchase}
+                />
+              )}
+              {subMercato === "svincolati" && (
+                <FreeAgentsPanel state={state} world={world} onSign={onSignFreeAgent} />
+              )}
+              {subMercato === "mister" && (
+                <SchedaMister
+                  state={state}
+                  world={world}
+                  choices={coachChoices}
+                  onHire={onHireCoach}
+                  onRenewCoach={onRenewCoach}
+                />
+              )}
+            </div>
           )}
           {tab === "rosa" && (
             <SchedaRosa
@@ -337,20 +376,12 @@ export function MarketPanel({
               valori={valoriRosa}
               onAction={onAction}
               onOpenStandoff={onOpenStandoff}
+              onRenew={onRenewPlayer}
               standoffChiuse={standoffChiuse}
             />
           )}
-          {tab === "mister" && (
-            <SchedaMister state={state} world={world} choices={coachChoices} onHire={onHireCoach} />
-          )}
           {tab === "finanze" && (
             <FinancesPanel state={state} world={world} onShift={onShiftFinances} />
-          )}
-          {tab === "svincolati" && (
-            <FreeAgentsPanel state={state} world={world} onSign={onSignFreeAgent} />
-          )}
-          {tab === "spogliatoio" && (
-            <SpogliatoioPanel state={state} world={world} onApri={onOpenStandoff} />
           )}
           {tab === "mondo" && (
             <WorldMarketPanel
@@ -667,6 +698,7 @@ function SchedaRicerca({
   rosaPiena,
   bloccati,
   aiSellable,
+  soloCedibili = false,
   onSearch,
   onAction,
   onNegotiate,
@@ -676,6 +708,8 @@ function SchedaRicerca({
   rosaPiena: boolean;
   bloccati: ReadonlySet<string>;
   aiSellable: AiSellableListing[];
+  /** Vista scelta dalla sotto-navigazione: ricerca libera o cedibili dell'IA. */
+  soloCedibili?: boolean;
   onSearch: (c: SearchCriteria) => SearchResult[];
   onAction: (a: MarketAction) => void;
   onNegotiate: (target: SearchResult) => void;
@@ -689,7 +723,6 @@ function SchedaRicerca({
   const [soloAllaPortata, setSoloAllaPortata] = useState(true);
   const [soloPrestiti, setSoloPrestiti] = useState(false);
   const [filtriAperti, setFiltriAperti] = useState(false);
-  const [soloCedibiliIA, setSoloCedibiliIA] = useState(false);
   const [etaMin, setEtaMin] = useState("");
   const [etaMax, setEtaMax] = useState("");
   const [overallMin, setOverallMin] = useState("");
@@ -748,7 +781,7 @@ function SchedaRicerca({
     [onSearch, query, department, roles, sort, soloAllaPortata, soloPrestiti, budget, etaMin, etaMax, overallMin, overallMax],
   );
 
-  const risultati = soloCedibiliIA ? cedibiliIA : risultatiRicerca;
+  const risultati = soloCedibili ? cedibiliIA : risultatiRicerca;
 
   /** I ruoli del reparto scelto: filtrare per ruolo senza reparto sarebbe un elenco di 14 voci. */
   const ruoliDelReparto = useMemo(() => {
@@ -772,19 +805,7 @@ function SchedaRicerca({
         </p>
       )}
 
-      {/* "Cedibili IA": non ricerca libera, sono i giocatori che un club ha davvero in
-          eccedenza (titolari+panchina già coperti) — il mercato IA che sopperisce da solo alle
-          proprie sovrabbondanze, sez. 15. */}
-      <div className="flex gap-1.5">
-        <Chip attivo={!soloCedibiliIA} onClick={() => setSoloCedibiliIA(false)}>
-          Ricerca libera
-        </Chip>
-        <Chip attivo={soloCedibiliIA} onClick={() => setSoloCedibiliIA(true)}>
-          Cedibili IA {aiSellable.length > 0 ? `(${aiSellable.length})` : ""}
-        </Chip>
-      </div>
-
-      {!soloCedibiliIA && (
+      {!soloCedibili && (
         <label className="relative block">
           <Search
             size={16}
@@ -810,7 +831,7 @@ function SchedaRicerca({
       )}
 
       <AnimatePresence initial={false}>
-        {filtriAperti && !soloCedibiliIA && (
+        {filtriAperti && !soloCedibili && (
           <motion.div
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: "auto", opacity: 1 }}
@@ -924,7 +945,7 @@ function SchedaRicerca({
       {risultati.length === 0 ? (
         <Vuoto
           testo={
-            soloCedibiliIA
+            soloCedibili
               ? "Nessun club ha davvero un'eccedenza in questa finestra: torna a mercato riaperto."
               : "Nessun giocatore corrisponde alla ricerca."
           }
@@ -956,7 +977,7 @@ function SchedaRicerca({
                   </div>
                 </div>
 
-                {soloCedibiliIA && ragioneCedibile.has(r.playerId) && (
+                {soloCedibili && ragioneCedibile.has(r.playerId) && (
                   <p className="rounded-lg bg-[var(--surface)] px-2.5 py-1.5 text-[10px] leading-relaxed text-[var(--text-secondary)]">
                     {ragioneCedibile.get(r.playerId)}
                   </p>
@@ -1063,6 +1084,7 @@ function SchedaRosa({
   valori,
   onAction,
   onOpenStandoff,
+  onRenew,
   standoffChiuse,
 }: {
   state: CareerState;
@@ -1070,6 +1092,7 @@ function SchedaRosa({
   valori: ReadonlyMap<string, number>;
   onAction: (a: MarketAction) => void;
   onOpenStandoff: (playerId: string) => void;
+  onRenew: (playerId: string) => void;
   standoffChiuse: ReadonlySet<string>;
 }) {
   const inVendita = new Set(state.lists?.transferList ?? []);
@@ -1078,11 +1101,17 @@ function SchedaRosa({
   const piena = capienza >= MAX_SQUAD_SIZE;
 
   const candidatiChat = useMemo(
-    () => standoffCandidates(state, world).filter((c) => !standoffChiuse.has(c.playerId)),
+    () => dressingRoom(state, world).filter((c) => !standoffChiuse.has(c.playerId)),
     [state, world, standoffChiuse],
   );
 
-  const [subView, setSubView] = useState<"tattica" | "elenco" | "chat">("tattica");
+  /**
+   * **Lo Spogliatoio è una vista della Rosa, non una voce a sé.**
+   *
+   * La vecchia sotto-scheda "Chat" faceva la stessa cosa con un sistema più povero, e coesistere
+   * con un pannello Spogliatoio di primo livello significava due porte per la stessa stanza.
+   */
+  const [subView, setSubView] = useState<"tattica" | "elenco" | "spogliatoio">("tattica");
 
   const coach = useMemo(() => (state.coachId ? findCoach(state.coachId) : undefined), [state.coachId]);
   const formation = useMemo(() => {
@@ -1105,49 +1134,25 @@ function SchedaRosa({
 
   return (
     <div className="flex flex-col gap-3">
-      {/* Selettore Sub-View Rosa */}
       <div className="flex items-center gap-2">
-        <div className="flex overflow-hidden rounded-xl border border-[var(--surface-border)] bg-[var(--surface-raised)] p-0.5">
-          <button
-            type="button"
-            onClick={() => setSubView("tattica")}
-            className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-extrabold transition-colors ${
-              subView === "tattica"
-                ? "bg-[var(--brand)] text-[var(--brand-contrast)]"
-                : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
-            }`}
-          >
-            <LayoutGrid size={13} /> Lavagna Tattica
-          </button>
-          <button
-            type="button"
-            onClick={() => setSubView("elenco")}
-            className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-extrabold transition-colors ${
-              subView === "elenco"
-                ? "bg-[var(--brand)] text-[var(--brand-contrast)]"
-                : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
-            }`}
-          >
-            <ClipboardList size={13} /> Elenco per Reparto
-          </button>
-          <button
-            type="button"
-            onClick={() => setSubView("chat")}
-            className={`relative flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-extrabold transition-colors ${
-              subView === "chat"
-                ? "bg-[var(--brand)] text-[var(--brand-contrast)]"
-                : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
-            }`}
-          >
-            <MessagesSquare size={13} /> Chat
-            {candidatiChat.length > 0 && (
-              <span className="ml-0.5 rounded-full bg-[#ff4d4d] px-1.5 py-px text-[9px] font-extrabold text-white">
-                {candidatiChat.length}
-              </span>
-            )}
-          </button>
-        </div>
-        <span className="ml-auto hidden text-[11px] font-bold text-[var(--text-secondary)] sm:inline">
+        <SegmentedNav
+          className="flex-1"
+          layoutId="ds-rosa-sub"
+          size="sm"
+          value={subView}
+          onChange={setSubView}
+          items={[
+            { key: "tattica", label: "Lavagna", icon: LayoutGrid },
+            { key: "elenco", label: "Rosa", icon: ClipboardList },
+            {
+              key: "spogliatoio",
+              label: "Spogliatoio",
+              icon: MessagesSquare,
+              badge: candidatiChat.length,
+            },
+          ]}
+        />
+        <span className="hidden shrink-0 text-[11px] font-bold text-[var(--text-secondary)] sm:inline">
           {formation.name} · {coach?.name ?? "Mister"}
         </span>
       </div>
@@ -1357,6 +1362,27 @@ function SchedaRosa({
                         <span className="text-[10px] font-semibold text-[var(--accent)] tabular-nums">
                           {euro(valori.get(entry.playerId) ?? 0)}
                         </span>
+                        {/* **La scadenza è un'informazione di prima fila**, non un dettaglio da
+                            andare a cercare: è ciò che decide se quel giocatore sarà ancora tuo
+                            l'anno prossimo. Cliccabile: porta al tavolo del rinnovo. */}
+                        {(() => {
+                          const c = contractFor(state, world, entry.playerId);
+                          const residue = c ? c.until - state.season + 1 : 0;
+                          const urgente = residue <= 1;
+                          const colore = urgente ? "#ff4d4d" : residue === 2 ? "#ffab2e" : "var(--text-secondary)";
+                          return (
+                            <button
+                              type="button"
+                              onClick={() => onRenew(entry.playerId)}
+                              title={c ? `Contratto fino al ${c.until} · ${formatWage(c.wage)}` : "Senza contratto"}
+                              className="flex items-center gap-1 rounded-full px-1.5 py-px text-[10px] font-bold"
+                              style={{ backgroundColor: `${colore}1f`, color: colore }}
+                            >
+                              <FileSignature size={10} />
+                              {residue <= 0 ? "scaduto" : urgente ? "in scadenza" : `${residue} anni`}
+                            </button>
+                          );
+                        })()}
                         {/* Morale: visibile qui per capire chi vuole andare via senza dover
                             aprire la scheda Chat — cliccabile se sotto soglia, stessa apertura
                             del faccia a faccia. */}
@@ -1504,41 +1530,8 @@ function SchedaRosa({
         </>
       )}
 
-      {subView === "chat" && (
-        <div className="flex flex-col gap-2">
-          <p className="rounded-2xl border border-dashed border-[var(--surface-border)] p-3 text-[11px] leading-relaxed text-[var(--text-secondary)]">
-            Chi è scontento per il suo impiego, o chi ha un'offerta di mercato e spinge per la
-            cessione. Ignorare o non accontentare le richieste porta il morale al minimo, e un
-            giocatore in rotta rende meno in campo qualunque sia il suo Overall.
-          </p>
-          {candidatiChat.length === 0 ? (
-            <Vuoto testo="Nessuno spinge per una conversazione, per ora." />
-          ) : (
-            <ul className="flex flex-col gap-1.5">
-              {candidatiChat.map((c) => {
-                const tono = c.morale < 25 ? "#ff4d4d" : c.morale < STANDOFF_MORALE_THRESHOLD ? "#ff8a3d" : "var(--text-secondary)";
-                return (
-                  <li key={c.playerId}>
-                    <button
-                      type="button"
-                      onClick={() => onOpenStandoff(c.playerId)}
-                      className="flex w-full items-center gap-3 rounded-2xl border border-[var(--surface-border)] bg-[var(--surface-raised)] p-3 text-left transition-colors hover:border-[var(--brand)]"
-                    >
-                      <MessagesSquare size={16} className="shrink-0" style={{ color: tono }} />
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-bold">{c.name}</p>
-                        <p className="text-[11px] font-semibold" style={{ color: tono }}>
-                          Morale {c.morale}
-                          {c.hasOffer ? " · offerta in arrivo" : ""}
-                        </p>
-                      </div>
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </div>
+      {subView === "spogliatoio" && (
+        <SpogliatoioPanel state={state} world={world} onApri={onOpenStandoff} />
       )}
     </div>
   );
@@ -1582,14 +1575,21 @@ function SchedaMister({
   world,
   choices,
   onHire,
+  onRenewCoach,
 }: {
   state: CareerState;
   world: CareerWorld;
   choices: CoachChoice[];
   onHire: (coachId: string, promises?: CoachPromise[], totalCost?: number) => void;
+  onRenewCoach: (seasons: number) => void;
 }) {
   const [chatCoach, setChatCoach] = useState<Coach | null>(null);
+  const [rinnovoAperto, setRinnovoAperto] = useState(false);
+  const [durataRinnovo, setDurataRinnovo] = useState(3);
   const attuale = state.coachId ? findCoach(state.coachId) : undefined;
+  const contrattoMister = state.coachContract;
+  const stagioniResidue = coachContractSeasonsLeft(state);
+  const buonuscita = coachSeveranceNow(state, world);
 
   if (chatCoach) {
     // Candidati reali per la richiesta "specialista nominato" (sez. 6/7 mercato): stesso pool
@@ -1637,9 +1637,82 @@ function SchedaMister({
             {attuale.style.attack > 0 ? `+${attuale.style.attack}` : attuale.style.attack} · difesa{" "}
             {attuale.style.defence > 0 ? `+${attuale.style.defence}` : attuale.style.defence}
           </p>
+
+          {/* **Il contratto del mister è un contratto come gli altri**: durata, ingaggio annuo
+              dentro il monte, buonuscita che cala man mano che si consuma. Prima non si vedeva
+              da nessuna parte, e non c'era modo di rinnovarlo. */}
+          <div className="mt-3 grid grid-cols-3 gap-2 border-t border-[var(--brand)]/20 pt-3">
+            <span>
+              <span className="block text-[9px] font-bold tracking-widest text-[var(--text-secondary)] uppercase">
+                Contratto
+              </span>
+              <span
+                className="block text-sm font-extrabold tabular-nums"
+                style={{ color: stagioniResidue <= 1 ? "#ff4d4d" : "inherit" }}
+              >
+                {contrattoMister
+                  ? `fino al ${contrattoMister.until}`
+                  : "non definito"}
+              </span>
+            </span>
+            <span>
+              <span className="block text-[9px] font-bold tracking-widest text-[var(--text-secondary)] uppercase">
+                Ingaggio
+              </span>
+              <span className="block text-sm font-extrabold tabular-nums">
+                {contrattoMister ? formatWage(contrattoMister.wage) : "—"}
+              </span>
+            </span>
+            <span>
+              <span className="block text-[9px] font-bold tracking-widest text-[var(--text-secondary)] uppercase">
+                Buonuscita
+              </span>
+              <span className="block text-sm font-extrabold tabular-nums">{euro(buonuscita)}</span>
+            </span>
+          </div>
+
+          {stagioniResidue <= 1 && (
+            <p className="mt-2 rounded-xl bg-[#ff4d4d]/15 px-2.5 py-1.5 text-[11px] font-bold text-[#ff4d4d]">
+              È all'ultimo anno: se non rinnovi, a giugno lascia la panchina a parametro zero.
+            </p>
+          )}
+
+          {rinnovoAperto ? (
+            <div className="mt-3 flex flex-col gap-2">
+              <ContractLengthPicker coach={attuale} seasons={durataRinnovo} onChange={setDurataRinnovo} />
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    onRenewCoach(durataRinnovo);
+                    setRinnovoAperto(false);
+                  }}
+                  className="flex-1 rounded-xl bg-[var(--brand)] py-2.5 text-xs font-extrabold text-[var(--brand-contrast)]"
+                >
+                  Firma il rinnovo
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setRinnovoAperto(false)}
+                  className="rounded-xl border border-[var(--surface-border)] px-3 text-xs font-bold text-[var(--text-secondary)]"
+                >
+                  Annulla
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setRinnovoAperto(true)}
+              className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-xl border border-[var(--brand)]/50 py-2.5 text-xs font-extrabold text-[var(--brand)]"
+            >
+              <FileSignature size={13} /> Rinnova il contratto
+            </button>
+          )}
+
           <p className="mt-2 text-[11px] leading-relaxed text-[var(--text-secondary)]">
-            Confermarlo non costa nulla. Cambiarlo cambia il <strong>modulo</strong> con cui
-            scende in campo la squadra: guarda i ruoli della rosa prima di decidere.
+            Cambiarlo cambia il <strong>modulo</strong> con cui scende in campo la squadra, e costa
+            la buonuscita qui sopra: guarda i ruoli della rosa prima di decidere.
           </p>
         </div>
       )}
