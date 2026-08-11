@@ -310,6 +310,16 @@ Il **mercato dei parametri zero** (`freeAgents.ts`) si gioca su cinque assi — 
 
 > Questa sezione **supera** la riga di sez. 3.7.5 secondo cui il gioco non modella gli stipendi dei giocatori.
 
+### 3.7.5quater La fascia di capitano (dal 2026-08-11)
+
+Prima `captainId` era un campo che una mossa della chat scriveva: nessuno la desiderava, nessuno se la vedeva togliere, e un club poteva restare senza capitano per dieci stagioni. Ora (`captaincy.ts`) ha tre proprietà:
+
+1. **La sceglie il mister**, non il DS. Il capitano si **deriva** se nessuno l'ha designato — così una carriera già avviata ne ha uno senza migrazioni. Il DS può *proporre* un altro nome: il mister confronta le due candidature e può **dire di no**, e forzare la mano costa sintonia.
+2. **La vogliono in due categorie precise**: le **bandiere** (≥4 stagioni al club) e i **leader tecnici** (≥5 punti sopra la media della rosa) — più carisma, età e minutaggio, perché un capitano che non gioca non è credibile e lo sa anche lui. Sotto la soglia nessuno la chiede: è ciò che impedisce a mezza rosa di rivendicarla.
+3. **Toglierla ha un costo netto**: −28 di morale, fiducia giù, e si apre il tema **bloccante** `fascia_tolta`, un faccia a faccia che può finire in **rottura totale**. Chi la desidera e non l'ottiene apre invece `leadership`; se gliel'avevamo promessa (in contratto o in conversazione) l'impegno `capitano` si infrange con tutte le sue conseguenze.
+
+Il capitano è **sempre visibile nella scheda Rosa** (`CaptaincyCard`), con il motivo della sua candidatura e l'elenco di chi la vorrebbe.
+
 ### 3.7.6 L'allenatore si sceglie a ogni sessione di mercato
 
 Confermarlo non costa nulla; cambiarlo costa **l'ingaggio del nuovo più la buonuscita del vecchio** (`severanceCost`, calante man mano che il contratto si consuma — mandarlo via a marzo costa meno che a settembre; in estate il contratto è scaduto e si paga solo il nuovo). Senza questo costo la scelta iniziale non conterebbe nulla e si cambierebbe mister a ogni sconfitta.

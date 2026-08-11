@@ -18,6 +18,7 @@ import {
   advanceWeek,
   applyMarket,
   applyPlayerDialogue,
+  proposeCaptain,
   renewContract,
   signCoachContract,
   buildStandings,
@@ -428,6 +429,17 @@ export function CareerScreen({
     [state, world, onChange],
   );
 
+  /** La fascia la assegna il mister: qui si propone, e lui risponde. */
+  const proponiCapitano = useCallback(
+    (playerId: string) => {
+      const esito = proposeCaptain(state, world, playerId);
+      if (esito.ok) onChange(esito.state);
+      else if (esito.state !== state) onChange(esito.state);
+      return { ok: esito.ok, message: esito.message };
+    },
+    [state, world, onChange],
+  );
+
   const firmaSvincolato = useCallback(
     (agentId: string, offer: { wage: number; seasons: number; guaranteedStarter: boolean }) => {
       const esito = signFreeAgent(state, world, agentId, offer);
@@ -815,6 +827,7 @@ export function CareerScreen({
             lineup={lineup}
             onAction={eseguiAzione}
             onRenew={setRinnovoPer}
+            onProposeCaptain={proponiCapitano}
           />
         )}
 
@@ -993,6 +1006,7 @@ export function CareerScreen({
             onShiftFinances={spostaFinanze}
             onRenewPlayer={setRinnovoPer}
             onRenewCoach={rinnovaMister}
+            onProposeCaptain={proponiCapitano}
             onSignFreeAgent={firmaSvincolato}
             standoffChiuse={standoffChiuse}
             onProposePromiseAlternative={proponiAlternativaPromessa}

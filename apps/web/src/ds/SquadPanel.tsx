@@ -5,6 +5,7 @@ import { ROLE_LABELS } from "@app/shared-types";
 import type { Department, Role } from "@app/shared-types";
 import {
   ageInSeason,
+  captainOf,
   computeAvgRating,
   contractFor,
   formatWage,
@@ -23,6 +24,7 @@ import { Pitch, PitchDot } from "../classic/Pitch";
 import { getSlotPosition } from "../classic/pitchLayouts";
 import { NationFlag } from "../classic/NationFlag";
 import { overallTier } from "../classic/theme";
+import { CaptaincyCard } from "./CaptaincyCard";
 import { DEPARTMENT_LABEL, RoleChips } from "./RoleChips";
 import { moraleLabel } from "./format";
 
@@ -47,9 +49,19 @@ interface SquadPanelProps {
   onAction?: (action: MarketAction) => void;
   /** Apre il tavolo del rinnovo. Assente = la pastiglia contratto resta informativa. */
   onRenew?: (playerId: string) => void;
+  /** Propone un nuovo capitano al mister. Assente = la fascia resta in sola lettura. */
+  onProposeCaptain?: (playerId: string) => { ok: boolean; message: string };
 }
 
-export function SquadPanel({ state, world, lineup, onAction, onRenew }: SquadPanelProps) {
+export function SquadPanel({
+  state,
+  world,
+  lineup,
+  onAction,
+  onRenew,
+  onProposeCaptain,
+}: SquadPanelProps) {
+  const capitano = useMemo(() => captainOf(state, world), [state, world]);
   const [view, setView] = useState<View>("campo");
   // Stesso ripiego del motore ("4-3-3" se non c'è allenatore): la lavagna deve mostrare
   // esattamente il modulo con cui si gioca, non uno scelto dalla UI per conto suo.
@@ -115,6 +127,8 @@ export function SquadPanel({ state, world, lineup, onAction, onRenew }: SquadPan
           {state.roster.length} giocatori · {formation.name}
         </span>
       </div>
+
+      <CaptaincyCard state={state} world={world} onPropose={onProposeCaptain} />
 
       {view === "campo" && (
         <div className="mx-auto w-full max-w-md">
@@ -202,6 +216,11 @@ export function SquadPanel({ state, world, lineup, onAction, onRenew }: SquadPan
                         {intoccabiliSet.has(entry.playerId) && (
                           <span className="shrink-0 rounded-md bg-[#f5c518]/20 px-1.5 py-0.5 text-[10px] font-extrabold text-[#d69e00]">
                             ⚡ Intoccabile
+                          </span>
+                        )}
+                        {entry.playerId === capitano && (
+                          <span className="shrink-0 rounded-md bg-amber-500/20 px-1.5 py-px text-[9px] font-extrabold text-amber-400">
+                            © Capitano
                           </span>
                         )}
                       </p>

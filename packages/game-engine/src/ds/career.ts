@@ -96,6 +96,14 @@ import {
 } from "./playerFacts";
 import { blockingTopic, pickTopic, talkUrgency } from "./playerTopics";
 import {
+  captaincyClaims,
+  coachCaptainPick,
+  evaluateCaptaincyChange,
+  CAPTAIN_GAINED_MORALE,
+  CAPTAIN_LOST_MORALE,
+  type CaptaincyClaim,
+} from "./captaincy";
+import {
   applyDialogueMove,
   openDialogue,
   type Dialogue,
@@ -191,6 +199,7 @@ import {
   type SeasonPlayerReport,
   type SessionDeal,
   emptySeasonStats,
+  derivePlayerPersonality,
 } from "./types";
 import { ROLE_DEPARTMENT, type Department, type Player, type Role } from "@app/shared-types";
 
@@ -443,8 +452,10 @@ export interface CareerState {
   relationships?: Record<string, RelationshipState>;
   /** Il registro unico degli impegni presi (sostituisce i tre canali separati). */
   commitments?: Commitment[];
-  /** Il capitano, uno solo. */
+  /** Il capitano, uno solo. Lo sceglie il mister; il DS può discuterne (`proposeCaptain`). */
   captainId?: string;
+  /** Chi si è visto togliere la fascia e non è ancora stato sentito: apre un tema bloccante. */
+  captaincyLost?: string[];
   /** Gli svincolati che abbiamo tesserato: escono dal pool derivato. */
   freeAgentsSigned?: string[];
   /** Chi il DS ha mandato a riposo, e per quante giornate ancora. */
@@ -3483,7 +3494,8 @@ export function playerFactsOf(
     guaranteedStarters: state.guaranteedStarters,
     coachBenched: state.coachBenched,
     coachUntouchables: getCoachUntouchables(state.roster, state.coachId, anagrafica),
-    captainId: state.captainId,
+    captainId: state.captainId ?? undefined,
+    lostCaptaincy: (state.captaincyLost ?? []).includes(playerId),
     coachHarmony: state.coachHarmony,
     positionsBelowTarget: positionsBelowTargetOf(state, world),
     incomingOffer: offerta
@@ -3713,6 +3725,7 @@ export function applyPlayerDialogue(
 ): { state: CareerState; dialogue: Dialogue; message?: string } {
   const facts = playerFactsOf(state, world, dialogue.playerId);
   if (!facts) return { state, dialogue };
+  let messaggio: string | undefined;
 
   const effetti = applyDialogueMove(dialogue, facts, move, moveContextOf(state, world, facts));
   if (effetti.errorMessage) {
@@ -3740,7 +3753,13 @@ export function applyPlayerDialogue(
     next = { ...next, commitments: [...(next.commitments ?? []), ...effetti.commitments] };
   }
   if (effetti.guaranteeRole) next = setGuaranteedStarter(next, effetti.guaranteeRole, id);
-  if (effetti.setCaptain) next = { ...next, captainId: id };
+  if (effetti.setCaptain) {
+    // Anche in chat la fascia la concede il **mister**: promettere quello che non si può dare
+    // sarebbe la premessa di una promessa infranta.
+    const esito = proposeCaptain(next, world, id);
+    next = esito.state;
+    if (!esito.ok) messaggio = esito.message;
+  }
   if (effetti.restMatchdays) {
     next = { ...next, resting: { ...(next.resting ?? {}), [id]: effetti.restMatchdays } };
   }
@@ -3787,7 +3806,11 @@ export function applyPlayerDialogue(
     }
   }
 
-  return { state: next, dialogue: effetti.dialogue };
+  // Il caso "fascia tolta" si chiude quando lo si è affrontato, comunque sia andata: altrimenti
+  // il tema bloccante ricomparirebbe a ogni giornata anche dopo averlo risolto.
+  if (effetti.dialogue.status !== "aperta") next = clearCaptaincyGrudge(next, id);
+
+  return { state: next, dialogue: effetti.dialogue, message: messaggio };
 }
 
 /* -------------------------------------------------------------------------- */
@@ -4356,4 +4379,135 @@ export function expireContracts(
   }
 
   return { state: next, messages, departed };
+}
+
+/* -------------------------------------------------------------------------- */
+/* La fascia di capitano                                                       */
+/* -------------------------------------------------------------------------- */
+
+/** Le candidature alla fascia, dalla più forte alla più debole. */
+export function squadCaptaincyClaims(state: CareerState, world: CareerWorld): CaptaincyClaim[] {
+  const anagrafica = careerPlayers(state, world);
+  const media = averageOverall(state.roster);
+  const giornate = Math.max(1, state.league.round);
+
+  return captaincyClaims(
+    state.roster
+      .filter((e) => !e.loan?.hostClubId)
+      .map((entry) => {
+        const info = anagrafica[entry.playerId];
+        const eta = ageInSeason(info?.birthDate, state.season) ?? 26;
+        const disponibili = Math.max(0, giornate - Math.min(giornate, entry.injuryMatchdaysLeft)) * 90;
+        return {
+          entry,
+          age: eta,
+          seasonsAtClub: Math.max(0, state.season - entry.sinceSeason),
+          squadAverage: media,
+          playedShare: disponibili > 0 ? Math.min(1, entry.stats.minutes / disponibili) : 0,
+          personality: derivePlayerPersonality(
+            entry.playerId,
+            eta,
+            entry.overall,
+            entry.sinceSeason,
+            state.season,
+          ),
+        };
+      }),
+  );
+}
+
+/**
+ * Il capitano attuale.
+ *
+ * **La sceglie il mister**, e se nessuno l'ha ancora scelta la funzione la deriva: così un
+ * salvataggio vecchio (o una carriera appena iniziata) ha comunque un capitano credibile senza
+ * bisogno di una migrazione. Se il designato non è più in rosa, la fascia torna libera.
+ */
+export function captainOf(state: CareerState, world: CareerWorld): string | null {
+  if (state.captainId && state.roster.some((e) => e.playerId === state.captainId)) {
+    return state.captainId;
+  }
+  const inRosa = new Set(
+    state.roster.filter((e) => !e.loan?.hostClubId && e.injuryMatchdaysLeft === 0).map((e) => e.playerId),
+  );
+  return coachCaptainPick(squadCaptaincyClaims(state, world), (id) => inRosa.has(id));
+}
+
+/** Assegna la fascia derivata dal mister, se manca: si chiama all'apertura di una finestra. */
+export function ensureCaptain(state: CareerState, world: CareerWorld): CareerState {
+  if (state.captainId && state.roster.some((e) => e.playerId === state.captainId)) return state;
+  const scelto = captainOf(state, world);
+  return scelto ? { ...state, captainId: scelto } : state;
+}
+
+export interface CaptaincyProposalResult {
+  state: CareerState;
+  ok: boolean;
+  /** La risposta del **mister**, non un messaggio di sistema. */
+  message: string;
+  /** Chi ha perso la fascia: va sentito, e può finire male. */
+  ousted?: string;
+}
+
+/**
+ * Il DS propone al mister di spostare la fascia.
+ *
+ * Tre conseguenze, tutte volute:
+ *  - il mister può **dire di no**, e insistere non è possibile: la fascia è roba sua;
+ *  - chi la riceve guadagna morale, e se gliel'avevamo promessa l'impegno si chiude;
+ *  - chi la perde **crolla** ed entra in `captaincyLost`, che apre il tema più duro del catalogo
+ *    (`fascia_tolta`, bloccante): può finire in rottura totale.
+ */
+export function proposeCaptain(
+  state: CareerState,
+  world: CareerWorld,
+  playerId: string,
+): CaptaincyProposalResult {
+  const entry = state.roster.find((e) => e.playerId === playerId);
+  if (!entry) return { state, ok: false, message: "Non fa parte della rosa." };
+
+  const attuale = captainOf(state, world);
+  if (attuale === playerId) return { state, ok: false, message: "Porta già lui la fascia." };
+
+  const claims = squadCaptaincyClaims(state, world);
+  const verdetto = evaluateCaptaincyChange(
+    claims.find((c) => c.playerId === playerId),
+    attuale ? claims.find((c) => c.playerId === attuale) : undefined,
+    state.coachHarmony ?? 50,
+  );
+
+  if (!verdetto.approved) {
+    return {
+      state:
+        verdetto.harmonyCost > 0
+          ? { ...state, coachHarmony: Math.max(0, (state.coachHarmony ?? 50) - verdetto.harmonyCost) }
+          : state,
+      ok: false,
+      message: verdetto.message,
+    };
+  }
+
+  let next: CareerState = { ...state, captainId: playerId };
+  next = withMorale(next, playerId, CAPTAIN_GAINED_MORALE);
+  next = withTrust(next, playerId, 8);
+
+  if (attuale) {
+    next = withMorale(next, attuale, CAPTAIN_LOST_MORALE);
+    next = withTrust(next, attuale, -20);
+    next = { ...next, captaincyLost: [...(next.captaincyLost ?? []), attuale] };
+  }
+
+  return { state: next, ok: true, message: verdetto.message, ousted: attuale ?? undefined };
+}
+
+/**
+ * Chiude il caso di chi si è visto togliere la fascia.
+ *
+ * Il flag resta finché quel giocatore non è stato **sentito**: senza, il tema bloccante
+ * ricomparirebbe a ogni giornata anche dopo averlo affrontato.
+ */
+export function clearCaptaincyGrudge(state: CareerState, playerId: string): CareerState {
+  const elenco = state.captaincyLost ?? [];
+  if (!elenco.includes(playerId)) return state;
+  return { ...state, captaincyLost: elenco.filter((id) => id !== playerId) };
 }

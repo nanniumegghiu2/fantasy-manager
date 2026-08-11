@@ -47,6 +47,7 @@ export * from "./ds/money";
 export * from "./ds/aiStrategy";
 export * from "./ds/finances";
 export * from "./ds/freeAgents";
+export * from "./ds/captaincy";
 export * from "./ds/commitments";
 export * from "./ds/playerFacts";
 export * from "./ds/playerTopics";

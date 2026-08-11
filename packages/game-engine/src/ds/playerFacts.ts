@@ -17,6 +17,7 @@ import { ROLE_DEPARTMENT, type Department, type Role } from "@app/shared-types";
 import type { Commitment } from "./commitments";
 import type { Contract, ContractStatus } from "./contracts";
 import { contractStatus, seasonsLeftOf } from "./contracts";
+import { captaincyClaimOf, CAPTAIN_DESIRE_THRESHOLD, type CaptaincyClaim } from "./captaincy";
 import type { PlayerPersonality, RosterEntry } from "./types";
 import { derivePlayerPersonality } from "./types";
 
@@ -53,6 +54,12 @@ export interface PlayerFacts {
   isCoachBenched: boolean;
   isCoachUntouchable: boolean;
   isCaptain: boolean;
+  /** Quanto aspira alla fascia, e perché (bandiera o leader tecnico). */
+  captaincy: CaptaincyClaim;
+  /** Sopra la soglia: la vuole, e se non ce l'ha se ne lamenta. */
+  wantsCaptaincy: boolean;
+  /** Gliel'hanno tolta: è l'innesco del faccia a faccia più duro che ci sia. */
+  lostCaptaincy: boolean;
   /** Il miglior compagno che gli contende la casella. `-1` se non ne ha. */
   bestRivalOverallInRole: number;
   /** Quanti compagni sani coprono il suo ruolo, lui escluso. */
@@ -150,6 +157,8 @@ export interface PlayerFactsInput {
   keyTeammateSold?: PlayerFacts["keyTeammateSold"];
 
   relationship?: RelationshipState;
+  /** Gli è stata tolta la fascia di recente (career.ts la registra alla revoca). */
+  lostCaptaincy?: boolean;
   openCommitments?: readonly Commitment[];
   currentWeek?: number;
 }
@@ -196,6 +205,22 @@ export function buildPlayerFacts(input: PlayerFactsInput): PlayerFacts {
   const attesa = Math.max(0, (entry.overall - 68) / 55);
   const overUnderPerformance = entry.stats.minutes >= 270 ? Math.round((per90 - attesa) * 40) : 0;
 
+  const personality = derivePlayerPersonality(
+    entry.playerId,
+    input.age,
+    entry.overall,
+    entry.sinceSeason,
+    input.season,
+  );
+  const captaincy = captaincyClaimOf({
+    entry,
+    age: input.age,
+    seasonsAtClub: Math.max(0, input.season - entry.sinceSeason),
+    squadAverage: input.squadAverage,
+    playedShare,
+    personality,
+  });
+
   const rapporto = input.relationship;
   const settimana = input.currentWeek ?? input.matchday;
 
@@ -220,6 +245,9 @@ export function buildPlayerFacts(input: PlayerFactsInput): PlayerFacts {
     isCoachBenched: input.coachBenched?.[entry.playerId] === true,
     isCoachUntouchable: (input.coachUntouchables ?? []).includes(entry.playerId),
     isCaptain: input.captainId === entry.playerId,
+    captaincy,
+    wantsCaptaincy: captaincy.score >= CAPTAIN_DESIRE_THRESHOLD && input.captainId !== entry.playerId,
+    lostCaptaincy: input.lostCaptaincy ?? false,
     bestRivalOverallInRole,
     depthInRole: copronoIlRuolo.length,
 
@@ -263,12 +291,6 @@ export function buildPlayerFacts(input: PlayerFactsInput): PlayerFacts {
       rapporto?.lastTalkedWeek === undefined ? Infinity : Math.max(0, settimana - rapporto.lastTalkedWeek),
 
     coachHarmony: input.coachHarmony ?? 50,
-    personality: derivePlayerPersonality(
-      entry.playerId,
-      input.age,
-      entry.overall,
-      entry.sinceSeason,
-      input.season,
-    ),
+    personality,
   };
 }

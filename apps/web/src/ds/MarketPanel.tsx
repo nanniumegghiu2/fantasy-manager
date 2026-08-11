@@ -63,6 +63,7 @@ import { CoachNegotiationChat } from "./CoachNegotiationChat";
 import { FinancesPanel } from "./FinancesPanel";
 import { SegmentedNav, type SegmentedItem } from "./SegmentedNav";
 import { ContractLengthPicker } from "./ContractLengthPicker";
+import { CaptaincyCard } from "./CaptaincyCard";
 import { FreeAgentsPanel } from "./FreeAgentsPanel";
 import { SpogliatoioPanel } from "./SpogliatoioPanel";
 import type { CoachPromise } from "@app/game-engine";
@@ -147,6 +148,8 @@ interface MarketPanelProps {
   onRenewPlayer: (playerId: string) => void;
   /** Rinnova il contratto del mister per N stagioni. */
   onRenewCoach: (seasons: number) => void;
+  /** Propone al mister un nuovo capitano. */
+  onProposeCaptain: (playerId: string) => { ok: boolean; message: string };
   /** Tessera uno svincolato alle condizioni proposte. */
   onSignFreeAgent: (agentId: string, offer: { wage: number; seasons: number; guaranteedStarter: boolean }) => void;
   /** Chi ha già chiuso la sua chat in questa finestra: non deve restare nel badge/nell'elenco. */
@@ -178,6 +181,7 @@ export function MarketPanel({
   onShiftFinances,
   onRenewPlayer,
   onRenewCoach,
+  onProposeCaptain,
   onSignFreeAgent,
   standoffChiuse,
   onProposePromiseAlternative,
@@ -377,6 +381,7 @@ export function MarketPanel({
               onAction={onAction}
               onOpenStandoff={onOpenStandoff}
               onRenew={onRenewPlayer}
+              onProposeCaptain={onProposeCaptain}
               standoffChiuse={standoffChiuse}
             />
           )}
@@ -1085,6 +1090,7 @@ function SchedaRosa({
   onAction,
   onOpenStandoff,
   onRenew,
+  onProposeCaptain,
   standoffChiuse,
 }: {
   state: CareerState;
@@ -1093,6 +1099,7 @@ function SchedaRosa({
   onAction: (a: MarketAction) => void;
   onOpenStandoff: (playerId: string) => void;
   onRenew: (playerId: string) => void;
+  onProposeCaptain: (playerId: string) => { ok: boolean; message: string };
   standoffChiuse: ReadonlySet<string>;
 }) {
   const inVendita = new Set(state.lists?.transferList ?? []);
@@ -1134,6 +1141,8 @@ function SchedaRosa({
 
   return (
     <div className="flex flex-col gap-3">
+      <CaptaincyCard state={state} world={world} onPropose={onProposeCaptain} />
+
       <div className="flex items-center gap-2">
         <SegmentedNav
           className="flex-1"

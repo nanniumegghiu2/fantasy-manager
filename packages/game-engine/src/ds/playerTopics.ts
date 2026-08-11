@@ -24,6 +24,7 @@ export type TopicId =
   | "ambizione_progetto"
   | "riconoscimento"
   | "leadership"
+  | "fascia_tolta"
   | "promessa_infranta"
   | "bivio_mister"
   | "giovane_crescita"
@@ -161,12 +162,35 @@ export const TOPICS: Topic[] = [
   },
   {
     id: "leadership",
-    label: "Vuole un ruolo da leader",
-    eligible: (f) => f.personality === "leader" && f.seasonsAtClub >= 3 && !f.isCaptain,
-    urgency: (f) => ordinaria(30 + f.seasonsAtClub * 3),
-    demand: () => ({ description: "Chiede la fascia e un peso vero nello spogliatoio." }),
+    label: "Vuole la fascia",
+    /**
+     * **La chiedono in due, e solo in due**: le bandiere e chi è nettamente più forte del resto
+     * della rosa (`captaincy.ts`). Prima bastava essere di personalità "leader" da tre anni, e
+     * la richiesta arrivava anche da chi nello spogliatoio non contava nulla.
+     */
+    eligible: (f) => f.wantsCaptaincy && !f.isCaptain && f.playedShare >= 0.4,
+    urgency: (f) => ordinaria(35 + (f.captaincy.score - 55)),
+    demand: () => ({ description: "Chiede la fascia da capitano e un peso vero nello spogliatoio." }),
     opening: (f) =>
-      `Sono qui da ${f.seasonsAtClub} anni, Direttore. Credo di essermi guadagnato un ruolo diverso in questo spogliatoio.`,
+      f.captaincy.isBandiera
+        ? `Sono qui da ${f.seasonsAtClub} anni, Direttore: se c'è uno che questa maglia la rappresenta, sono io. Voglio la fascia.`
+        : `Sono il migliore di questa squadra e me ne prendo la responsabilità. Datemi la fascia e vi porto il gruppo.`,
+  },
+  {
+    id: "fascia_tolta",
+    label: "Gli hai tolto la fascia",
+    /**
+     * L'innesco più duro che ci sia: non è una richiesta, è un torto subito. Bloccante, perché
+     * lasciarlo in sospeso mentre le giornate scorrono sarebbe la cosa peggiore da fare.
+     */
+    eligible: (f) => f.lostCaptaincy && !f.isCaptain,
+    urgency: () => URGENZA_EMERGENZA.precontratto - 2,
+    demand: () => ({ description: "Pretende una spiegazione: la fascia gli è stata tolta." }),
+    opening: (f) =>
+      f.captaincy.isBandiera
+        ? `${f.seasonsAtClub} anni qui dentro, e mi togliete la fascia senza dirmi niente. Vi rendete conto?`
+        : `Mi avete tolto la fascia. Se non era per me, non dovevate darmela: adesso spiegatemi.`,
+    blocking: true,
   },
   {
     id: "promessa_infranta",
