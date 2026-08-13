@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
   PROMOTION_SLOTS,
+  SHOWCASE_LEAGUES,
   isClassicEligible,
   isContinentalEligible,
+  isPlayableLeague,
   isSecondDivision,
+  isShowcaseLeague,
   leagueOfClub,
   promotionAndRelegation,
   siblingDivisionOf,
@@ -95,5 +98,48 @@ describe("divisioni: dove si trova un club dopo N stagioni", () => {
   it("ignora i movimenti che riguardano altri club", () => {
     const moves = [{ season: 1, promoted: ["altro"], relegated: ["terzo"] }];
     expect(leagueOfClub("x", A, moves, A, B)).toBe(A);
+  });
+});
+
+/**
+ * **Le leghe vetrina** (2026-08-13): in database per popolare il mercato, mai per farci una
+ * carriera. L'esclusione dev'essere **attiva**, non per omissione: il selettore del club, le
+ * iscritte alla Corona e il selettore della Classica leggono tutti "le leghe del database", e
+ * senza questi predicati si sarebbero autopopolati il giorno stesso dell'import — è esattamente
+ * la regressione già capitata con la Serie B.
+ */
+describe("leghe vetrina", () => {
+  it("riconosce le vetrine e non tocca i campionati giocabili", () => {
+    expect(isShowcaseLeague("Brasileirão")).toBe(true);
+    expect(isShowcaseLeague("Saudi Pro League")).toBe(true);
+    expect(isShowcaseLeague("Serie A")).toBe(false);
+    expect(isShowcaseLeague("Serie B")).toBe(false);
+    expect(isShowcaseLeague("Premier League")).toBe(false);
+  });
+
+  it("non ci si può fare carriera, mentre in Serie B sì", () => {
+    for (const lega of SHOWCASE_LEAGUES) expect(isPlayableLeague(lega)).toBe(false);
+    expect(isPlayableLeague("Serie B")).toBe(true);
+    expect(isPlayableLeague("Ligue 1")).toBe(true);
+  });
+
+  it("nessuna vetrina entra in Corona Continentale né nella Modalità Classica", () => {
+    for (const lega of SHOWCASE_LEAGUES) {
+      expect(isContinentalEligible(lega)).toBe(false);
+      expect(isClassicEligible(lega)).toBe(false);
+    }
+  });
+
+  it("i Big 5 restano dentro a Corona e Classica", () => {
+    for (const lega of ["Serie A", "Premier League", "La Liga", "Bundesliga", "Ligue 1"]) {
+      expect(isContinentalEligible(lega)).toBe(true);
+      expect(isClassicEligible(lega)).toBe(true);
+      expect(isPlayableLeague(lega)).toBe(true);
+    }
+  });
+
+  it("una vetrina non è una seconda divisione: sono due politiche diverse", () => {
+    expect(isSecondDivision("Brasileirão")).toBe(false);
+    expect(siblingDivisionOf("Brasileirão")).toBeUndefined();
   });
 });

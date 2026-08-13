@@ -3,6 +3,7 @@ import { motion } from "framer-motion";
 import { ArrowLeft, Crown, Search, Star, Wallet } from "lucide-react";
 import { NationFlag } from "../classic/NationFlag";
 import { overallTier } from "../classic/theme";
+import { isPlayableLeague } from "@app/game-engine";
 import { clubHighlights, clubRating, continentalEntrants, initialRoster, startingBudget } from "./buildCareerWorld";
 import { euro } from "./format";
 import type { DsClub, DsWorldData } from "./useDsWorld";
@@ -109,7 +110,18 @@ interface ClubPickerScreenProps {
 }
 
 export function ClubPickerScreen({ world, onPick, onExit }: ClubPickerScreenProps) {
-  const [leagueId, setLeagueId] = useState(world.leagues[0]?.id ?? "");
+  /**
+   * **Solo i campionati in cui si può davvero fare carriera** (`divisions.ts`).
+   *
+   * Le leghe vetrina esistono per popolare il mercato, non per allenarci: senza questo filtro
+   * comparirebbero qui il giorno stesso dell'import, e si potrebbe scegliere il Flamengo per poi
+   * giocarci un campionato all'italiana a venti squadre che nella realtà non esiste.
+   */
+  const leagueGiocabili = useMemo(
+    () => world.leagues.filter((l) => isPlayableLeague(l.name)),
+    [world.leagues],
+  );
+  const [leagueId, setLeagueId] = useState(leagueGiocabili[0]?.id ?? "");
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<string | null>(null);
 
@@ -118,6 +130,9 @@ export function ClubPickerScreen({ world, onPick, onExit }: ClubPickerScreenProp
   const clubs = useMemo(() => {
     const termine = query.trim().toLowerCase();
     return world.clubs
+      // Anche la ricerca per nome resta dentro i campionati giocabili: trovare il Flamengo e
+      // non poterlo scegliere sarebbe peggio che non trovarlo.
+      .filter((club) => isPlayableLeague(world.leaguesById.get(club.leagueId)?.name ?? ""))
       .filter((club) => (termine ? club.name.toLowerCase().includes(termine) : club.leagueId === leagueId))
       .map((club) => ({ club, rating: clubRating(world, club.id) }))
       .sort((a, b) => b.rating - a.rating)
@@ -167,7 +182,7 @@ export function ClubPickerScreen({ world, onPick, onExit }: ClubPickerScreenProp
 
         {!query.trim() && (
           <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1">
-            {world.leagues.map((league) => (
+            {leagueGiocabili.map((league) => (
               <button
                 key={league.id}
                 type="button"

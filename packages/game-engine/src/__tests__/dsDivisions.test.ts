@@ -283,6 +283,31 @@ describe("Coppa Tricolore dentro la carriera", () => {
     expect(state.nationalCup!.entrants).toContain("mio");
   });
 
+  it("una carriera già in corso non viene iscritta a stagione avviata", () => {
+    /**
+     * Il difetto che questo test blocca: iscrivere un club a stagione in corso gli faceva
+     * saltare in silenzio tutti i turni la cui settimana era già passata — il preliminare sta
+     * al 3% della stagione — perché il calendario si ricalcola da `!!state.nationalCup` e
+     * prenota per frazione. Entrava e usciva dalla coppa senza aver giocato.
+     *
+     * Si simula il salvataggio "vecchio" com'era davvero: una carriera a metà stagione senza
+     * coppa. Deve restare senza per quest'anno, e riceverla completa alla successiva.
+     */
+    const { world, roster } = worldWithDivisions({
+      nostraLega: SERIE_A,
+      ratingAvversarie: 74,
+      ratingGemella: 66,
+    });
+    let state = rinnovaTutti(newCareer(SERIE_A, world, roster));
+    // Sei giornate giocate e nessuna coppa in stato: è la fotografia del salvataggio precedente.
+    for (let i = 0; i < 8; i++) state = advanceWeek(state, world, {}).state;
+    expect(state.league.round).toBeGreaterThan(0);
+
+    const comeVecchioSalvataggio: typeof state = { ...state, nationalCup: undefined };
+    const { state: dopo } = advanceWeek(comeVecchioSalvataggio, world, {});
+    expect(dopo.nationalCup).toBeUndefined();
+  });
+
   it("un campionato senza seconda divisione non ha coppa nazionale", () => {
     const { world, roster } = worldWithDivisions({
       nostraLega: SERIE_A,

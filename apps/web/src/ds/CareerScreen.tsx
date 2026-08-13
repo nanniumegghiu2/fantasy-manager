@@ -9,6 +9,8 @@ import {
   History,
   ListOrdered,
   Play,
+  Shield,
+  Trophy,
   Users,
   Wallet,
 } from "lucide-react";
@@ -83,7 +85,8 @@ import { SeasonObjectiveScreen } from "./SeasonObjectiveScreen";
 import { BoardDemandDialog } from "./BoardDemandDialog";
 import { StandingsTable } from "../classic/StandingsTable";
 import { CupPanel } from "./CupPanel";
-import { CupProgress } from "./CupProgress";
+import { CupProgress, NationalCupProgress } from "./CupProgress";
+import { NationalCupPanel } from "./NationalCupPanel";
 import { IncidentDialog } from "./IncidentDialog";
 import { KeyMatchPrompt } from "./KeyMatchPrompt";
 import { MatchTheatre } from "./MatchTheatre";
@@ -97,7 +100,14 @@ import { SeasonSquadReportModal } from "./SeasonSquadReportModal";
 import { TriumphScreen } from "./TriumphScreen";
 import { SquadPanel } from "./SquadPanel";
 import { WeekReportCard } from "./WeekReportCard";
-import { OUTCOME_COLOR, euro, ordinale, outcomeOf } from "./format";
+import {
+  COMPETITION_ACCENT,
+  OUTCOME_COLOR,
+  euro,
+  ordinale,
+  outcomeOf,
+  type Competition,
+} from "./format";
 
 /**
  * La schermata di carriera.
@@ -111,15 +121,26 @@ import { OUTCOME_COLOR, euro, ordinale, outcomeOf } from "./format";
  * Il motore è l'unica fonte di verità: qui non si calcola nulla (CLAUDE.md sez. 9).
  */
 
-type Tab = "stagione" | "rosa" | "classifica" | "corona" | "storico";
+type Tab = "stagione" | "rosa" | "classifica" | "coppe" | "storico";
 
 const TABS: { key: Tab; label: string; icon: typeof Users }[] = [
   { key: "stagione", label: "Stagione", icon: Play },
   { key: "rosa", label: "Rosa", icon: Users },
   { key: "classifica", label: "Classifica", icon: ListOrdered },
-  { key: "corona", label: "Corona", icon: Crown },
+  { key: "coppe", label: "Coppe", icon: Trophy },
   { key: "storico", label: "Storico", icon: History },
 ];
+
+/**
+ * Le coppe stanno **sotto una scheda sola con un selettore** (piano DS, D2).
+ *
+ * Due voci separate nella barra sarebbero costate un quinto della larghezza su schermo stretto
+ * a una competizione che in mezzo mondo non esiste nemmeno. La regola del selettore: le voci
+ * assenti **non ci sono**, non sono disabilitate — una carriera estera non ha Coppa Tricolore,
+ * chi non si è qualificato non ha Corona — e con una competizione sola il selettore sparisce,
+ * perché un selettore con una voce è rumore.
+ */
+type Coppa = "corona" | "tricolore";
 
 /** Quanto resta a schermo ogni risultato mentre la corsa scorre. */
 const RITMO_MS = 260;
@@ -129,7 +150,10 @@ interface RisultatoScorso {
   opponent: string;
   gf: number;
   ga: number;
-  coppa?: boolean;
+  /** Assente = campionato. Serve a marcare la riga con l'icona e il colore giusti. */
+  competizione?: Competition;
+  /** Solo per le coppe finite ai rigori: dice se il turno è passato. */
+  passatoAiRigori?: boolean;
 }
 
 interface CareerScreenProps {
@@ -155,6 +179,8 @@ export function CareerScreen({
   const [tab, setTab] = useState<Tab>("stagione");
   const [report, setReport] = useState<WeekReport | null>(null);
   const [results, setResults] = useState<RisultatoScorso[]>([]);
+  /** Quale coppa si sta guardando nella scheda *Coppe*. */
+  const [coppa, setCoppa] = useState<Coppa>("corona");
   const [deal, setDeal] = useState<Deal | null>(null);
   /** L'imprevisto da mostrare: arriva nel referto e si chiude a mano. */
   const [incident, setIncident] = useState<Incident | null>(null);
@@ -208,6 +234,21 @@ export function CareerScreen({
   const [standingsLive, setStandingsLive] = useState<StandingRow[] | null>(null);
   const standings = standingsLive ?? standingsFinali;
   const nostraRiga = standings.find((r) => r.isUser);
+
+  /**
+   * Quali coppe esistono davvero in questa carriera, in questa stagione.
+   *
+   * Le voci assenti non compaiono affatto: una scheda disabilitata prometterebbe un contenuto
+   * che non arriverà mai. Se la coppa scelta sparisce (eliminati e stagione nuova senza Corona)
+   * si ripiega sulla prima disponibile invece di mostrare un pannello vuoto.
+   */
+  const coppeDisponibili = useMemo<Coppa[]>(() => {
+    const out: Coppa[] = [];
+    if (state.cup && world.cupTeams) out.push("corona");
+    if (state.nationalCup && world.divisions) out.push("tricolore");
+    return out;
+  }, [state.cup, state.nationalCup, world.cupTeams, world.divisions]);
+  const coppaAttiva = coppeDisponibili.includes(coppa) ? coppa : coppeDisponibili[0];
 
   /**
    * Scorre la coda dei referti a ritmo costante.
@@ -802,14 +843,24 @@ export function CareerScreen({
                   <ul className="flex flex-col gap-1">
                     <AnimatePresence initial={false}>
                       {results.map((r) => {
-                        const esito = outcomeOf(r.gf, r.ga);
+                        const esito =
+                          r.passatoAiRigori === undefined
+                            ? outcomeOf(r.gf, r.ga)
+                            : r.passatoAiRigori
+                              ? "V"
+                              : "P";
                         return (
                           <motion.li
                             key={r.key}
                             initial={{ opacity: 0, x: -14 }}
                             animate={{ opacity: 1, x: 0 }}
                             transition={{ duration: 0.2 }}
-                            className="flex items-center gap-2.5 rounded-xl border border-[var(--surface-border)] bg-[var(--surface-raised)] px-3 py-2 text-sm"
+                            className="flex items-center gap-2.5 rounded-xl border border-l-3 border-[var(--surface-border)] bg-[var(--surface-raised)] px-3 py-2 text-sm"
+                            style={
+                              r.competizione
+                                ? { borderLeftColor: COMPETITION_ACCENT[r.competizione] }
+                                : undefined
+                            }
                           >
                             <span
                               className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[11px] font-extrabold"
@@ -822,12 +873,28 @@ export function CareerScreen({
                             </span>
                             <span className="min-w-0 flex-1 truncate">
                               {r.opponent}
-                              {r.coppa && (
-                                <Crown size={11} className="ml-1.5 inline text-[#c9a10b]" />
+                              {r.competizione === "corona" && (
+                                <Crown
+                                  size={11}
+                                  className="ml-1.5 inline"
+                                  style={{ color: COMPETITION_ACCENT.corona }}
+                                />
+                              )}
+                              {r.competizione === "tricolore" && (
+                                <Shield
+                                  size={11}
+                                  className="ml-1.5 inline"
+                                  style={{ color: COMPETITION_ACCENT.tricolore }}
+                                />
                               )}
                             </span>
                             <span className="shrink-0 font-bold tabular-nums">
                               {r.gf}-{r.ga}
+                              {r.passatoAiRigori !== undefined && (
+                                <span className="ml-1 text-[10px] font-semibold text-[var(--text-secondary)]">
+                                  dcr
+                                </span>
+                              )}
                             </span>
                           </motion.li>
                         );
@@ -838,11 +905,14 @@ export function CareerScreen({
               )}
             </div>
 
-            {(standings.length > 0 || state.cup) && (
+            {(standings.length > 0 || state.cup || state.nationalCup) && (
               <div className="order-1 flex flex-col gap-3 lg:order-2 lg:w-72 lg:shrink-0">
-                {/* Il cammino in coppa accanto alla classifica: le due competizioni si leggono
-                    insieme, che è il modo in cui una stagione si vive davvero. */}
+                {/* Il cammino in coppa accanto alla classifica: le competizioni si leggono
+                    insieme, che è il modo in cui una stagione si vive davvero. Impilate e non
+                    dietro un selettore: qui la domanda non è "quale coppa guardo" ma "a che
+                    punto sono", e due strisce da sei caselle stanno in mezzo schermo. */}
                 <CupProgress state={state} world={world} />
+                <NationalCupProgress state={state} world={world} />
                 {standings.length > 0 && (
                   <MiniStandings standings={standings} state={state} world={world} />
                 )}
@@ -879,7 +949,50 @@ export function CareerScreen({
             </p>
           ))}
 
-        {tab === "corona" && <CupPanel state={state} world={world} />}
+        {tab === "coppe" && (
+          <div className="flex flex-col gap-3">
+            {coppeDisponibili.length > 1 && (
+              <div className="flex gap-1 rounded-full bg-[var(--surface-raised)] p-1">
+                {coppeDisponibili.map((key) => (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => setCoppa(key)}
+                    className={`relative min-h-9 flex-1 rounded-full px-3 py-1.5 text-xs font-bold transition-colors ${
+                      coppaAttiva === key ? "text-[var(--brand-contrast)]" : "text-[var(--text-secondary)]"
+                    }`}
+                  >
+                    {coppaAttiva === key && (
+                      <motion.span
+                        layoutId="ds-coppa-tab"
+                        className="absolute inset-0 rounded-full bg-[var(--brand)]"
+                        transition={{ type: "spring", stiffness: 420, damping: 34 }}
+                      />
+                    )}
+                    <span className="relative flex items-center justify-center gap-1.5">
+                      {key === "corona" ? <Crown size={13} /> : <Shield size={13} />}
+                      {key === "corona" ? "Corona" : "Tricolore"}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {coppeDisponibili.length === 0 ? (
+              <div className="flex flex-col items-center gap-2 rounded-2xl border border-dashed border-[var(--surface-border)] px-4 py-10 text-center">
+                <Trophy size={22} className="text-[var(--text-secondary)]" />
+                <p className="text-sm font-semibold">Quest'anno niente coppe</p>
+                <p className="max-w-xs text-xs leading-relaxed text-[var(--text-secondary)]">
+                  Alla Corona ci si qualifica arrivando fra le prime quattro del campionato.
+                </p>
+              </div>
+            ) : coppaAttiva === "tricolore" ? (
+              <NationalCupPanel state={state} world={world} />
+            ) : (
+              <CupPanel state={state} world={world} />
+            )}
+          </div>
+        )}
 
         {tab === "storico" && (
           <ul className="flex flex-col gap-2">
@@ -897,8 +1010,36 @@ export function CareerScreen({
                   </p>
                   <p className="text-[11px] text-[var(--text-secondary)]">
                     {summary.goalsFor} fatti · {summary.goalsAgainst} subiti
-                    {summary.cupOutcome ? ` · Corona: ${summary.cupOutcome}` : ""}
                   </p>
+                  {/* Il cammino nelle coppe come etichette e non come coda di testo: erano una
+                      riga sola che su schermo stretto veniva troncata proprio in fondo, cioè
+                      dove stava la Coppa Tricolore. */}
+                  {(summary.cupOutcome || summary.nationalCupOutcome) && (
+                    <div className="mt-1 flex flex-wrap gap-1">
+                      {summary.cupOutcome && (
+                        <span
+                          className="rounded-full px-1.5 py-px text-[10px] font-bold"
+                          style={{
+                            backgroundColor: `${COMPETITION_ACCENT.corona}1f`,
+                            color: COMPETITION_ACCENT.corona,
+                          }}
+                        >
+                          Corona: {summary.cupOutcome}
+                        </span>
+                      )}
+                      {summary.nationalCupOutcome && summary.nationalCupOutcome !== "assente" && (
+                        <span
+                          className="rounded-full px-1.5 py-px text-[10px] font-bold"
+                          style={{
+                            backgroundColor: `${COMPETITION_ACCENT.tricolore}1f`,
+                            color: COMPETITION_ACCENT.tricolore,
+                          }}
+                        >
+                          Tricolore: {summary.nationalCupOutcome}
+                        </span>
+                      )}
+                    </div>
+                  )}
                 </div>
                 {summary.position === 1 && <Crown size={18} className="shrink-0 text-[#f5c518]" />}
               </li>
@@ -1328,7 +1469,20 @@ function aggiungiRisultati(prev: RisultatoScorso[], report: WeekReport): Risulta
       opponent: report.cupMatch.opponent,
       gf: report.cupMatch.result.goalsFor,
       ga: report.cupMatch.result.goalsAgainst,
-      coppa: true,
+      competizione: "corona",
+    });
+  }
+  if (report.nationalCupMatch) {
+    nuovi.push({
+      key: `n-${report.season}-${report.week}`,
+      opponent: report.nationalCupMatch.opponent,
+      gf: report.nationalCupMatch.result.goalsFor,
+      ga: report.nationalCupMatch.result.goalsAgainst,
+      competizione: "tricolore",
+      // Nel tabellone un 1-1 non è un pareggio: è il turno passato o l'eliminazione.
+      passatoAiRigori: report.nationalCupMatch.wentToPenalties
+        ? !!report.nationalCupMatch.weWonPenalties
+        : undefined,
     });
   }
   if (report.match) {

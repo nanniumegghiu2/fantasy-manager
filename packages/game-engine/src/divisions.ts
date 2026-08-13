@@ -51,6 +51,55 @@ export function isSecondDivision(leagueName: string): boolean {
   return DIVISION_PAIRS.some((pair) => pair.second === leagueName);
 }
 
+/* -------------------------------------------------------------------------- */
+/* Leghe vetrina: nel database per i giocatori, non per le carriere            */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * **I campionati che esistono solo per popolare il mercato.**
+ *
+ * Richiesta dell'utente (2026-08-13): più squadre e più giocatori in database, *non giocabili*,
+ * perché la ricerca di mercato smetta di proporre sempre gli stessi venti nomi.
+ *
+ * Non sono giocabili per tre ragioni concrete, non per pigrizia:
+ *  1. **il calendario non regge** — Brasile e Argentina giocano ad anno solare, la MLS ha le
+ *     conference, e il motore ha un formato solo (l'italiana a 18/20 squadre);
+ *  2. **le loro coppe non esistono** nel gioco: niente Libertadores, niente AFC Champions
+ *     League, e un club brasiliano nella Corona Continentale sarebbe assurdo;
+ *  3. **non è ciò che è stato chiesto**: servono a fornire *giocatori*, non carriere.
+ *
+ * La politica sta qui e non altrove perché questo è già "il modulo che sa che rango ha un
+ * campionato" (vedi `isSecondDivision`). E come per la Serie B, l'esclusione va **attiva e non
+ * per omissione**: tre punti del codice leggono "tutte le leghe del database" — il selettore
+ * del club, le iscritte alla Corona e il selettore della Modalità Classica — e senza questi
+ * predicati si sarebbero autopopolati il giorno stesso dell'import.
+ */
+export const SHOWCASE_LEAGUES: readonly string[] = [
+  "Primeira Liga",
+  "Eredivisie",
+  "Süper Lig",
+  "Brasileirão",
+  "Primera División",
+  "Saudi Pro League",
+  "Liga MX",
+  "Major League Soccer",
+];
+
+/** Il campionato è una lega vetrina (in database per i giocatori, non per le carriere)? */
+export function isShowcaseLeague(leagueName: string): boolean {
+  return SHOWCASE_LEAGUES.includes(leagueName);
+}
+
+/**
+ * Ci si può costruire una carriera dentro questo campionato?
+ *
+ * L'unico predicato che il selettore del club deve consultare. Le seconde divisioni **sì** (la
+ * Serie B è una carriera legittima, anzi è la più dura); le leghe vetrina no.
+ */
+export function isPlayableLeague(leagueName: string): boolean {
+  return !isShowcaseLeague(leagueName);
+}
+
 /** La coppia di cui questo campionato fa parte, se ne fa parte. */
 export function divisionPairOf(leagueName: string): DivisionPair | undefined {
   return DIVISION_PAIRS.find((pair) => pair.top === leagueName || pair.second === leagueName);
@@ -80,7 +129,7 @@ export function siblingDivisionOf(leagueName: string): string | undefined {
  * trofei in palio sono due (campionato e Coppa Tricolore).
  */
 export function isContinentalEligible(leagueName: string): boolean {
-  return !isSecondDivision(leagueName);
+  return !isSecondDivision(leagueName) && !isShowcaseLeague(leagueName);
 }
 
 /**
@@ -94,7 +143,7 @@ export function isContinentalEligible(leagueName: string): boolean {
  * comparirebbe da sola il giorno stesso in cui entra nel database.
  */
 export function isClassicEligible(leagueName: string): boolean {
-  return !isSecondDivision(leagueName);
+  return !isSecondDivision(leagueName) && !isShowcaseLeague(leagueName);
 }
 
 /* -------------------------------------------------------------------------- */

@@ -1,8 +1,14 @@
 import { AnimatePresence, motion } from "framer-motion";
 import { Activity, AlertTriangle, Info, Trophy } from "lucide-react";
 import type { CoachUltimatum, MatchResult, WeekReport } from "@app/game-engine";
-import { CupNightBanner } from "./CupProgress";
-import { CUP_STAGE_LABEL, OUTCOME_COLOR, outcomeOf } from "./format";
+import { CompetitionNightBanner } from "./CupProgress";
+import {
+  COMPETITION_ACCENT,
+  CUP_STAGE_LABEL,
+  NATIONAL_CUP_STAGE_LABEL,
+  OUTCOME_COLOR,
+  outcomeOf,
+} from "./format";
 
 /**
  * Il referto della settimana appena giocata.
@@ -18,14 +24,24 @@ function Scoreline({
   clubName,
   nameById,
   accent,
+  penalties,
 }: {
   result: MatchResult;
   opponent: string;
   clubName: string;
   nameById: Record<string, string>;
   accent?: string;
+  /**
+   * L'esito dei rigori, quando la gara ci è finita.
+   *
+   * Senza, in un tabellone un 1-1 si legge come un pareggio — cioè come se non fosse successo
+   * nulla — mentre è il momento in cui si passa il turno o si esce. Il punteggio resta quello
+   * vero (il motore non lo inventa, sez. 3.7.14): qui si aggiunge solo *come è finita*.
+   */
+  penalties?: { weWon: boolean };
 }) {
-  const esito = outcomeOf(result.goalsFor, result.goalsAgainst);
+  const esito =
+    penalties ? (penalties.weWon ? "V" : "P") : outcomeOf(result.goalsFor, result.goalsAgainst);
   const marcatori = result.events
     .filter((e) => e.team === "for" && e.scorerId)
     .map((e) => ({ minute: e.minute, name: nameById[e.scorerId!] ?? "?", penalty: e.kind === "penalty" }));
@@ -54,6 +70,15 @@ function Scoreline({
         </motion.span>
         <span className="min-w-0 flex-1 truncate text-sm font-extrabold">{opponent}</span>
       </div>
+
+      {penalties && (
+        <p
+          className="mt-2 text-center text-[11px] font-bold tracking-wide uppercase"
+          style={{ color: OUTCOME_COLOR[esito] }}
+        >
+          {penalties.weWon ? "Passiamo il turno ai rigori" : "Fuori ai rigori"}
+        </p>
+      )}
 
       {(marcatori.length > 0 || subiti.length > 0) && (
         <div className="mt-3 grid grid-cols-2 gap-3 text-[11px] leading-relaxed">
@@ -134,7 +159,8 @@ export function WeekReportCard({ report, clubName, nameById, ultimatum }: WeekRe
 
         {report.cupMatch && (
           <div className="flex flex-col gap-2">
-            <CupNightBanner
+            <CompetitionNightBanner
+              competition="corona"
               stage={CUP_STAGE_LABEL[report.cupMatch.stage] ?? report.cupMatch.stage}
             />
             <Scoreline
@@ -142,7 +168,39 @@ export function WeekReportCard({ report, clubName, nameById, ultimatum }: WeekRe
               opponent={report.cupMatch.opponent}
               clubName={clubName}
               nameById={nameById}
-              accent="#f5c518"
+              accent={COMPETITION_ACCENT.corona}
+            />
+          </div>
+        )}
+
+        {/**
+         * **La Coppa Tricolore, che fino a ieri non si vedeva affatto.**
+         *
+         * Il motore ne giocava sei turni a stagione — con i loro gol, i loro infortuni e il loro
+         * peso sulla fatica — e nessuna riga di questo file li leggeva: `report.nationalCupMatch`
+         * arrivava e veniva buttato. Chi giocava concludeva, ragionevolmente, che la competizione
+         * non esistesse.
+         */}
+        {report.nationalCupMatch && (
+          <div className="flex flex-col gap-2">
+            <CompetitionNightBanner
+              competition="tricolore"
+              stage={
+                NATIONAL_CUP_STAGE_LABEL[report.nationalCupMatch.stage] ??
+                report.nationalCupMatch.stage
+              }
+            />
+            <Scoreline
+              result={report.nationalCupMatch.result}
+              opponent={report.nationalCupMatch.opponent}
+              clubName={clubName}
+              nameById={nameById}
+              accent={COMPETITION_ACCENT.tricolore}
+              penalties={
+                report.nationalCupMatch.wentToPenalties
+                  ? { weWon: !!report.nationalCupMatch.weWonPenalties }
+                  : undefined
+              }
             />
           </div>
         )}

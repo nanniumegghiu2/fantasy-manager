@@ -32,7 +32,7 @@ import {
 } from "./loans";
 import { quickSalePrice, type SearchResult } from "./scouting";
 import { FABBISOGNO_PER_REPARTO } from "./aiWorld";
-import type { PlayerIndex, RosterEntry } from "./types";
+import type { PlayerIndex, PlayerRef, RosterEntry } from "./types";
 import { ROLE_DEPARTMENT, type Department } from "@app/shared-types";
 
 /** Quante offerte concrete arrivano al massimo in una finestra. */
@@ -127,11 +127,46 @@ export interface MarketClub {
   lastPosition?: number;
 }
 
+/**
+ * **L'anagrafica del mercato: chi è, non chi si può comprare.**
+ *
+ * Sono due domande diverse e confonderle è già costato due volte. La prima: restringendo
+ * `players` ai soli giocatori altrui, `buildOffers` — che scarta chi non trova in anagrafica —
+ * smetteva di generare **qualunque** offerta per i nostri. La seconda, segnalata dall'utente:
+ * l'anagrafica si componeva dall'indice del mondo evoluto più due rattoppi (il roster di
+ * database del nostro club e i regen), e **chi avevamo comprato da un altro club non stava in
+ * nessuno dei tre** — `evolveWorld` lo toglie dal mondo perché è nostro, il database lo assegna
+ * ancora alla vecchia squadra, e regen non è. Il suo nome cadeva sul ripiego `"Giocatore"`, e da
+ * lì veniva **congelato** dentro le offerte di prestito salvate.
+ *
+ * Da qui in poi la regola è una funzione e non un commento: l'anagrafica è l'**unione** di tutto
+ * ciò che conosciamo, e a filtrarsi è solo `transferPool`. Le fonti si sovrappongono di
+ * proposito — chi arriva dopo aggiorna, nessuno azzera — perché l'unica cosa che potrebbe
+ * reintrodurre il difetto è l'ordine di composizione.
+ */
+export function marketPlayerIndex(sources: {
+  /** Tutti i giocatori del database: la fonte che non dimentica nessuno. */
+  database: readonly PlayerRef[];
+  /** Il mondo evoluto: esclude i nostri, ma è l'unico a contenere i regen dei club IA. */
+  world: readonly PlayerRef[];
+  /** I ragazzi nati nella nostra carriera: non esistono né nel database né nel mondo. */
+  generated: readonly PlayerRef[];
+}): PlayerIndex {
+  const index: PlayerIndex = {};
+  for (const gruppo of [sources.database, sources.world, sources.generated]) {
+    for (const p of gruppo) {
+      index[p.id] = { id: p.id, name: p.name, nation: p.nation, role: p.role, secondaryRoles: p.secondaryRoles };
+    }
+  }
+  return index;
+}
+
 export interface MarketWorld {
   clubs: Record<string, MarketClub>;
   /** I giocatori acquistabili, cioè quelli degli altri club. */
   transferPool: MarketPlayer[];
   valuation: ValuationContext;
+  /** Chi è: **tutti** i giocatori conosciuti, mai un sottoinsieme (`marketPlayerIndex`). */
   players: PlayerIndex;
   /** Nomi per id, per rendere leggibili offerte e liste. */
   nameOf: (playerId: string) => string;

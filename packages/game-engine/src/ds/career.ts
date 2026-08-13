@@ -953,18 +953,24 @@ export function advanceWeek(
   let next: CareerState = { ...state, roster: [...state.roster] };
 
   /**
-   * **La Coppa Tricolore si compone qui, non alla creazione della carriera.**
+   * **La Coppa Tricolore si compone qui, ma solo a stagione non ancora cominciata.**
    *
    * `createCareer` non ha il mondo fra le mani — riceve solo la rosa e il budget — mentre il
    * tabellone ha bisogno delle forze di tutti e quaranta i club. Comporla alla prima settimana
-   * risolve la dipendenza e in più **retrofitta i salvataggi già esistenti**, che non avevano
-   * questa coppa: chi riprende una carriera avviata se la ritrova dalla stagione in corso,
-   * invece di dover ricominciare.
-   *
-   * Il calendario si costruisce più sotto e legge `next.nationalCup`, quindi l'ordine conta:
+   * risolve la dipendenza, e il calendario si costruisce più sotto leggendo `next.nationalCup`:
    * comporla dopo significherebbe una stagione senza turni prenotati.
+   *
+   * ⚠️ **La condizione sulla giornata non è una cautela, è la correzione di un difetto.** Prima
+   * qui bastava `!next.nationalCup`, con l'intento di retrofittare i salvataggi già avviati. Ma
+   * il calendario si ricalcola da `!!state.nationalCup` **ogni volta**, e i turni si prenotano
+   * per frazione di stagione (il preliminare al 3%): iscrivere un club a febbraio gli faceva
+   * saltare in silenzio tutti i turni la cui settimana era già passata, cioè lo faceva entrare e
+   * uscire dalla coppa senza aver giocato. Chi riprende una carriera a metà stagione la trova
+   * quindi **dalla stagione successiva**, dove `closeSeason` la compone con il preliminare al
+   * posto giusto — decisione esplicita dell'utente (piano DS, D1).
    */
-  if (!next.nationalCup && world.divisions && next.phase !== "conclusa") {
+  const stagioneNonCominciata = next.league.round === 0 && next.week === 0;
+  if (!next.nationalCup && world.divisions && next.phase !== "conclusa" && stagioneNonCominciata) {
     const nuova = buildNationalCup(next, world, next.season);
     if (nuova) next = { ...next, nationalCup: nuova };
   }

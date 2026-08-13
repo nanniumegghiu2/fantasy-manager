@@ -12,6 +12,7 @@ import {
   initialBudget,
   isContinentalEligible,
   leagueOfClub,
+  marketPlayerIndex,
   planWorldTransfers,
   type CareerWorld,
   type DivisionMove,
@@ -453,50 +454,26 @@ function buildMarketWorld(
     clubPrestige[club.id] = club.prestigeTier;
   }
 
-  /**
-   * **Anagrafica ≠ acquistabili.** Sono due cose diverse e confonderle è già costato caro:
-   * restringendo `players` ai soli giocatori altrui, `buildOffers` — che scarta chi non trova
-   * nell'anagrafica — smetteva di generare **qualunque** offerta per i nostri, e le proposte di
-   * prestito mostravano "Giocatore" al posto del nome. L'anagrafica deve coprire tutti;
-   * `transferPool` è l'unica cosa che si filtra.
-   */
   const nelMondo = [...evolved.byId.values()];
   // Acquistabile è chi non è già nostro. Il controllo su `ownedByUser` serve per i **regen**,
   // che restano in anagrafica anche dopo l'acquisto (per avere nome e ruolo) ma non devono
   // ricomparire fra chi si può comprare.
   const acquistabili = nelMondo.filter((p) => p.clubId !== ownClubId && !ownedByUser.has(p.id));
 
-  const anagrafica: PlayerIndex = {};
-  for (const p of nelMondo) {
-    anagrafica[p.id] = {
-      id: p.id,
-      name: p.name,
-      nation: p.nation,
-      role: p.role,
-      secondaryRoles: p.secondaryRoles,
-    };
-  }
-  // I nostri: il mondo non li contiene, ma il mercato deve saperne nome e ruolo.
-  for (const p of world.playersByClub.get(ownClubId) ?? []) {
-    anagrafica[p.id] = {
-      id: p.id,
-      name: p.name,
-      nation: p.nation,
-      role: p.role,
-      secondaryRoles: p.secondaryRoles,
-    };
-  }
-  // E i ragazzi nati in carriera: non stanno né nel database né nel mondo, quindi senza questo
-  // giro le proposte di prestito li chiamerebbero "Giocatore".
-  for (const p of generated) {
-    anagrafica[p.id] = {
-      id: p.id,
-      name: p.name,
-      nation: p.nation,
-      role: p.role,
-      secondaryRoles: p.secondaryRoles,
-    };
-  }
+  /**
+   * **Anagrafica ≠ acquistabili**, e la regola vive ora nel motore (`marketPlayerIndex`), dove è
+   * coperta da test.
+   *
+   * Qui si passano le tre fonti nell'ordine giusto. La prima — **tutti** i giocatori del
+   * database — è quella che mancava: il mondo evoluto esclude chi è diventato nostro, e per un
+   * giocatore comprato da un altro club nessuna delle altre due fonti sapeva più il nome. Da lì
+   * il `"Giocatore"` congelato dentro le offerte di prestito, dalla seconda stagione in poi.
+   */
+  const anagrafica: PlayerIndex = marketPlayerIndex({
+    database: world.players,
+    world: nelMondo,
+    generated,
+  });
 
   return {
     clubs,

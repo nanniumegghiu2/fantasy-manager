@@ -46,3 +46,27 @@ export const CUP_STAGE_LABEL: Record<string, string> = {
   semifinali: "Semifinale",
   finale: "Finale",
 };
+
+/** Nome leggibile della fase di Coppa Tricolore: sei turni, tutti a eliminazione. */
+export const NATIONAL_CUP_STAGE_LABEL: Record<string, string> = {
+  preliminare: "Turno preliminare",
+  sedicesimi: "Sedicesimi di finale",
+  ottavi: "Ottavi di finale",
+  quarti: "Quarti di finale",
+  semifinale: "Semifinale",
+  finale: "Finale",
+};
+
+/**
+ * I colori delle due competizioni, in un posto solo.
+ *
+ * Servono a **distinguerle a colpo d'occhio**: prima l'unico accento di coppa era l'oro della
+ * Corona, quindi una serata di Tricolore sarebbe risultata indistinguibile da una europea. Il
+ * rame è quello del marchio (CLAUDE.md § 8.1), non un colore nuovo inventato per l'occasione.
+ */
+export const COMPETITION_ACCENT = {
+  corona: "#f5c518",
+  tricolore: "#b07a5e",
+} as const;
+
+export type Competition = keyof typeof COMPETITION_ACCENT;
