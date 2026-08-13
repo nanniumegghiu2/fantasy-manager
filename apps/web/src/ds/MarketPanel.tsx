@@ -7,7 +7,7 @@ import {
   Check,
   ClipboardList,
   FileSignature,
-  Globe,
+  Newspaper,
   Landmark,
   LayoutGrid,
   MessagesSquare,
@@ -57,7 +57,7 @@ import { NationFlag } from "../classic/NationFlag";
 import { overallTier } from "../classic/theme";
 import { DealToast, type Deal } from "./DealToast";
 import { MarketBriefing } from "./MarketBriefing";
-import { WorldMarketPanel } from "./WorldMarketPanel";
+import { TransferFeedPanel } from "./TransferFeedPanel";
 import { CoachPromisesPanel, type LiveCoachPromise } from "./CoachPromisesPanel";
 import { CoachNegotiationChat } from "./CoachNegotiationChat";
 import { FinancesPanel } from "./FinancesPanel";
@@ -92,7 +92,7 @@ import { euro, moraleLabel } from "./format";
  * Ora il primo livello risponde a *cosa stai facendo* (bilancio, chi ti cerca, chi vuoi tu, la
  * tua rosa, il mondo) e il secondo a *dove esattamente*.
  */
-type Tab = "finanze" | "offerte" | "mercato" | "rosa" | "mondo";
+type Tab = "finanze" | "offerte" | "mercato" | "rosa" | "notizie";
 
 /** Le sottovoci di **Mercato**: qui si va a cercare qualcuno, in un modo o nell'altro. */
 type SubMercato = "ricerca" | "cedibili" | "svincolati" | "mister";
@@ -297,7 +297,7 @@ export function MarketPanel({
               },
               { key: "mercato", label: "Mercato", icon: Search },
               { key: "rosa", label: "Rosa", icon: ClipboardList, badge: chatInSospeso },
-              { key: "mondo", label: "Mondo", icon: Globe },
+              { key: "notizie", label: "Notizie", icon: Newspaper },
             ]}
           />
         </div>
@@ -393,11 +393,12 @@ export function MarketPanel({
           {tab === "finanze" && (
             <FinancesPanel state={state} world={world} onShift={onShiftFinances} />
           )}
-          {tab === "mondo" && (
-            <WorldMarketPanel
-              transfers={state.worldTransfers ?? []}
-              world={dsWorld}
-              season={state.season}
+          {tab === "notizie" && (
+            <TransferFeedPanel
+              state={state}
+              world={world}
+              dsWorld={dsWorld}
+              aiSellable={snapshot.aiSellable}
             />
           )}
         </div>

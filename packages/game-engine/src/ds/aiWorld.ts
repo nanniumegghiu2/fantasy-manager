@@ -54,6 +54,21 @@ export interface WorldTransfer {
   toClubId: string;
   fee: number;
   season: number;
+  /**
+   * Che tipo di operazione è, per il notiziario di mercato.
+   *
+   * Campi **opzionali**: i salvataggi precedenti non li hanno, e una carriera già avviata non
+   * deve rompersi né perdere il suo storico. Chi legge tratta l'assenza come `"colpo"`.
+   *  - `colpo` — un club si rinforza;
+   *  - `sostituzione` — è il rimpiazzo di chi è appena partito, e senza di esso quella cessione
+   *    non sarebbe nemmeno avvenuta (vedi `planWorldTransfers`);
+   *  - `esubero` — un club smaltisce chi era di troppo.
+   */
+  kind?: "colpo" | "sostituzione" | "esubero";
+  /** Per una `sostituzione`: chi si sta rimpiazzando. Serve a raccontare la catena nel feed. */
+  replacesPlayerName?: string;
+  /** Reparto dell'operazione, per raggruppare le notizie senza dover risalire al giocatore. */
+  department?: Department;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -197,9 +212,10 @@ function regensForClub(
 /**
  * Quanti trasferimenti fra squadre del computer si generano per stagione.
  *
- * Da 14 a 50: con 96 club e oltre 2.500 giocatori, 14 operazioni su dieci stagioni si
- * muovevano troppo poco per sembrare vivo — richiesta esplicita dell'utente di un mercato IA
- * più dinamico nel pannello "Mercato dal mondo" (CLAUDE.md §3.7.10).
+ * Con 96 club e oltre 2.500 giocatori, poche operazioni all'anno non fanno sembrare vivo un
+ * mondo. Il numero è un **tetto**, non un obiettivo: le catene di sostituzione (sotto) ne
+ * consumano due alla volta, e una finestra può chiudersi molto prima se non ci sono affari
+ * sensati da fare.
  */
 export const WORLD_TRANSFERS_PER_SEASON = 50;
 
@@ -212,6 +228,18 @@ export const WORLD_TRANSFERS_PER_SEASON = 50;
  */
 const MIN_BUYER_EDGE = 2;
 
+/**
+ * Di quanto può essere più scarso il rimpiazzo rispetto a chi è partito.
+ *
+ * Non zero: nel calcio vero chi vende il suo miglior attaccante quasi mai lo sostituisce con
+ * uno più forte, ma nemmeno con un ragazzino qualunque — prende qualcuno di livello vicino.
+ * Questa soglia è ciò che rende una cessione un **affare** e non un impoverimento gratuito.
+ */
+const MAX_REPLACEMENT_GAP = 3;
+
+/** Quanto di quello che incassa un club torna disponibile subito per il rimpiazzo. */
+const REINVEST_SHARE = 0.85;
+
 export interface PlanWorldTransfersInput {
   clubs: WorldClub[];
   /** Giocatori per club, già invecchiati e ripuliti dai ritirati. */
@@ -222,13 +250,47 @@ export interface PlanWorldTransfersInput {
   season: number;
 }
 
+/** Lo stato di un club durante la finestra: rosa che cambia sotto i piedi, e cassa. */
+interface ClubMarket {
+  club: WorldClub;
+  rosa: WorldPlayer[];
+  /** Media degli undici migliori a inizio finestra: il livello a cui quel club gioca. */
+  forza: number;
+  /** Liquidità residua. Vendere la ricarica, comprare la consuma. */
+  cassa: number;
+}
+
 /**
- * I trasferimenti che le squadre del computer fanno in questa sessione di mercato.
+ * **Il mercato delle squadre del computer.**
  *
- * Logica volutamente semplice e **leggibile**: un club prende un giocatore migliore del suo
- * undici da un club più debole, pagandone il valore. Non è un modello di mercato realistico —
- * è un mondo che si muove in modo comprensibile, che è ciò che serve perché l'utente lo
- * percepisca vivo senza doverlo studiare.
+ * ## Il difetto che ha imposto la riscrittura
+ *
+ * La versione precedente modellava **solo il compratore**: si sceglieva un club che voleva
+ * rinforzarsi, gli si trovava un giocatore migliore in un club più debole, e l'operazione era
+ * fatta. Il venditore non esisteva come soggetto — non decideva, non ricomprava, non aveva un
+ * bilancio. La conseguenza, vista in gioco e segnalata dall'utente, è che **un club poteva
+ * vendere i suoi migliori attaccanti e restare senza**: nulla nel modello si accorgeva del
+ * buco, e nulla lo riempiva. Un mondo così non è "semplice", è implausibile.
+ *
+ * ## Le quattro regole che lo rendono realistico
+ *
+ * 1. **Nessuno vende sotto il fabbisogno.** Dopo l'operazione il venditore deve avere ancora
+ *    titolari e panchina coperti in quel reparto (`FABBISOGNO_PER_REPARTO`). Chi ha esattamente
+ *    il necessario non svende: non è avarizia, è che una rosa incompleta non scende in campo.
+ * 2. **Chi cede un titolare lo rimpiazza, o non cede.** Le due operazioni sono decise
+ *    **insieme**: se il rimpiazzo non si trova, la cessione non avviene affatto. È il modo per
+ *    garantire l'invariante per costruzione invece di correggerla a valle — non serve annullare
+ *    niente, perché niente di sbagliato viene mai scritto. Il rimpiazzo dev'essere di livello
+ *    vicino (`MAX_REPLACEMENT_GAP`) e arriva a sua volta da chi ha un'**eccedenza vera**, così
+ *    la catena si ferma al secondo anello e non propaga buchi all'infinito.
+ * 3. **I soldi contano.** Ogni club ha una cassa derivata da prestigio e livello, e vendere la
+ *    ricarica: è ciò che permette a una media di reinvestire l'incasso del suo gioiello, e che
+ *    impedisce a una piccola di comprarne cinque.
+ * 4. **Si vende solo verso l'alto** (`MIN_BUYER_EDGE`), com'era già: è la regola che tiene in
+ *    piedi la gerarchia dei campionati su dieci stagioni.
+ *
+ * Restano fuori di proposito prestiti, parametri zero e clausole: sono meccaniche che l'utente
+ * gioca in prima persona, e replicarle per 96 club costerebbe molto senza che si veda.
  */
 export function planWorldTransfers({
   clubs,
@@ -238,88 +300,291 @@ export function planWorldTransfers({
   season,
 }: PlanWorldTransfersInput): WorldTransfer[] {
   const random = derivedRandom(seed, "worldmarket", season);
-  const forza = new Map<string, number>();
-  for (const club of clubs) {
-    const rosa = byClub.get(club.id) ?? [];
-    const migliori = [...rosa].sort((a, b) => b.overall - a.overall).slice(0, 11);
-    forza.set(
-      club.id,
-      migliori.length > 0 ? migliori.reduce((s, p) => s + p.overall, 0) / migliori.length : 70,
-    );
-  }
 
-  const compratori = clubs
-    .filter((c) => c.id !== ownClubId)
-    .sort((a, b) => (forza.get(b.id) ?? 0) - (forza.get(a.id) ?? 0));
+  const mercato = new Map<string, ClubMarket>();
+  for (const club of clubs) {
+    if (club.id === ownClubId) continue;
+    const rosa = [...(byClub.get(club.id) ?? [])];
+    const forza = forzaUndici(rosa);
+    mercato.set(club.id, { club, rosa, forza, cassa: cassaIniziale(club, forza) });
+  }
 
   const transfers: WorldTransfer[] = [];
   const giaMossi = new Set<string>();
 
-  for (const compratore of compratori) {
+  /**
+   * L'ordine in cui i club si muovono: i più forti per primi, com'è nel mercato vero — chi ha
+   * mezzi sceglie prima, e agli altri restano gli scarti. La componente casuale evita che sia
+   * *sempre* lo stesso ordine, che renderebbe dieci stagioni identiche.
+   */
+  const turni = [...mercato.values()]
+    .map((m) => ({ m, peso: m.forza + random() * 6 }))
+    .sort((a, b) => b.peso - a.peso)
+    .map((x) => x.m);
+
+  for (const compratore of turni) {
     if (transfers.length >= WORLD_TRANSFERS_PER_SEASON) break;
-    // Non tutti comprano ogni anno: un mondo in cui si muovono tutti sarebbe rumore.
-    if (random() > 0.5) continue;
-
-    const forzaCompratore = forza.get(compratore.id) ?? 70;
-    const rosaCompratore = byClub.get(compratore.id) ?? [];
-    if (rosaCompratore.length >= 30) continue;
+    // Non tutti si muovono ogni anno: un mondo in cui compra chiunque sarebbe rumore.
+    if (random() > 0.55) continue;
+    if (compratore.rosa.length >= 30) continue;
 
     /**
-     * Il reparto da rinforzare: prima si guarda la **profondità reale** (titolari + una
-     * panchina credibile, non gli 11 nudi — richiesta esplicita dell'utente), e solo se tutti i
-     * reparti hanno un cuscinetto a posto si ripiega sul reparto più debole per qualità.
+     * I reparti da rinforzare, **in ordine di bisogno**: prima la necessità (sotto il fabbisogno
+     * di titolari e panchina), poi la qualità. Un club a cui manca un portiere compra un
+     * portiere, non un attaccante, anche se l'attacco è il reparto meno brillante.
+     *
+     * È un **elenco** e non una scelta secca, e la ragione l'ha trovata un test: se tutti i club
+     * del mondo sono corti nello stesso reparto, nessuno può venderci dentro (regola 1) e con un
+     * bersaglio solo il mercato si bloccherebbe **del tutto**, senza un'operazione. Ripiegare sul
+     * reparto successivo è anche ciò che farebbe un dirigente vero: se l'attaccante che cerchi
+     * non è sul mercato, rinforzi dove puoi.
      */
-    const bersaglioReparto = repartoScoperto(rosaCompratore) ?? repartoPiuDebole(rosaCompratore);
+    let affare: WorldTransfer[] | null = null;
+    for (const bersaglio of repartiDaRinforzare(compratore.rosa)) {
+      affare = cercaAffare({ compratore, bersaglio, mercato, giaMossi, random, season });
+      if (affare) break;
+    }
+    if (!affare) continue;
 
-    /**
-     * Chi si può prendere: qualcuno che **lo migliori davvero**, da un club che ha un'eccedenza
-     * vera in quel reparto (titolari+panchina già coperti, quello è di troppo) o, in mancanza,
-     * da un club più debole. Tre passate: prima l'eccedenza reale (il colpo più sensato — quel
-     * club vuole smaltire), poi il reparto giusto senza guardare l'eccedenza, infine qualunque
-     * reparto con l'asticella alzata — perché a quel punto non è un rattoppo, è un'occasione.
-     */
-    const cerca = (soloReparto: boolean, sogliaExtra: number, soloEccedenza: boolean) => {
-      const trovati: { player: WorldPlayer; venditore: WorldClub }[] = [];
-      for (const venditore of clubs) {
-        if (venditore.id === compratore.id || venditore.id === ownClubId) continue;
-        const forzaVenditore = forza.get(venditore.id) ?? 70;
-        if (forzaCompratore - forzaVenditore < MIN_BUYER_EDGE) continue;
-        const rosaVenditore = byClub.get(venditore.id) ?? [];
-        if (rosaVenditore.length <= 22) continue; // non si svuota una rosa già corta
-        if (soloEccedenza && eccedenzaReparto(rosaVenditore, bersaglioReparto) <= 0) continue;
-
-        for (const player of rosaVenditore) {
-          if (giaMossi.has(player.id)) continue;
-          if (soloReparto && player.department !== bersaglioReparto) continue;
-          if (player.overall < forzaCompratore + sogliaExtra) continue;
-          trovati.push({ player, venditore });
-        }
-      }
-      return trovati;
-    };
-
-    const candidati = (() => {
-      const daEccedenza = cerca(true, -3, true);
-      if (daEccedenza.length > 0) return daEccedenza;
-      const nelReparto = cerca(true, -3, false);
-      return nelReparto.length > 0 ? nelReparto : cerca(false, 0, false);
-    })();
-
-    if (candidati.length === 0) continue;
-    const scelto = candidati[Math.floor(random() * candidati.length)]!;
-    giaMossi.add(scelto.player.id);
-
-    transfers.push({
-      playerId: scelto.player.id,
-      playerName: scelto.player.name,
-      fromClubId: scelto.venditore.id,
-      toClubId: compratore.id,
-      fee: prezzoIndicativo(scelto.player, compratore.prestigeTier),
-      season,
-    });
+    for (const t of affare) {
+      giaMossi.add(t.playerId);
+      transfers.push(t);
+    }
   }
 
   return transfers;
+}
+
+/**
+ * I reparti su cui un club interverrebbe, dal più urgente al meno.
+ *
+ * Tre fasce, e la terza è quella che evita un comportamento assurdo visto misurando: prima i
+ * reparti **sotto il fabbisogno** (manca proprio gente), poi quelli adeguati ordinati per
+ * qualità dei titolari, e **in fondo quelli in cui il club ha già un'eccedenza vera**. Senza la
+ * terza fascia, un club con quattordici centrocampisti e cinque difensori — non riuscendo a
+ * trovare il difensore che gli serviva — ripiegava comprando *un altro centrocampista*: la
+ * risposta peggiore possibile, e per giunta quella che il ripiego stesso doveva evitare.
+ */
+function repartiDaRinforzare(rosa: WorldPlayer[]): Department[] {
+  const ordine: Department[] = ["POR", "DIF", "CC", "ATT"];
+  const conteggio = (dep: Department) => rosa.filter((p) => p.department === dep).length;
+
+  const scoperti = ordine.filter((dep) => conteggio(dep) < FABBISOGNO_PER_REPARTO[dep]);
+  const abbondanti = ordine.filter((dep) => conteggio(dep) >= FABBISOGNO_PER_REPARTO[dep] + 2);
+  const adeguati = ordine.filter((dep) => !scoperti.includes(dep) && !abbondanti.includes(dep));
+
+  const perQualita = (a: Department, b: Department) => qualitaReparto(rosa, a) - qualitaReparto(rosa, b);
+  return [...scoperti, ...adeguati.sort(perQualita), ...abbondanti.sort(perQualita)];
+}
+
+/** La qualità di un reparto: media dei soli titolari, non di tutti i giocatori che lo coprono. */
+function qualitaReparto(rosa: WorldPlayer[], dep: Department): number {
+  const migliori = ordinatiPerForza(rosa, dep).slice(0, TITOLARI_PER_REPARTO[dep]);
+  if (migliori.length === 0) return 0;
+  return migliori.reduce((s, p) => s + p.overall, 0) / migliori.length;
+}
+
+/**
+ * Cerca un'operazione sensata per questo compratore, **completa di eventuale rimpiazzo**.
+ *
+ * Torna una o due operazioni da eseguire insieme, oppure `null` se non c'è niente di sensato da
+ * fare — e "niente" è una risposta legittima: un mercato in cui ogni club compra per forza
+ * qualcosa è esattamente il mercato irrealistico da cui si veniva.
+ */
+function cercaAffare({
+  compratore,
+  bersaglio,
+  mercato,
+  giaMossi,
+  random,
+  season,
+}: {
+  compratore: ClubMarket;
+  bersaglio: Department;
+  mercato: Map<string, ClubMarket>;
+  giaMossi: Set<string>;
+  random: () => number;
+  season: number;
+}): WorldTransfer[] | null {
+  const candidati: { player: WorldPlayer; venditore: ClubMarket; titolare: boolean }[] = [];
+
+  for (const venditore of mercato.values()) {
+    if (venditore.club.id === compratore.club.id) continue;
+    // Si compra da chi sta più in basso: è la regola che tiene la gerarchia.
+    if (compratore.forza - venditore.forza < MIN_BUYER_EDGE) continue;
+
+    const nelReparto = ordinatiPerForza(venditore.rosa, bersaglio);
+    // **Sotto il fabbisogno non si vende.** Una rosa incompleta non scende in campo, e nessun
+    // direttore sportivo si mette in quella condizione per incassare.
+    if (nelReparto.length <= FABBISOGNO_PER_REPARTO[bersaglio]) continue;
+
+    for (const [rango, player] of nelReparto.entries()) {
+      if (giaMossi.has(player.id)) continue;
+      // Deve migliorare davvero chi lo compra, altrimenti non è un rinforzo ma un movimento.
+      if (player.overall < compratore.forza - 2) continue;
+      candidati.push({
+        player,
+        venditore,
+        // È uno degli undici di quel reparto: cederlo apre un buco vero.
+        titolare: rango < TITOLARI_PER_REPARTO[bersaglio],
+      });
+    }
+  }
+
+  if (candidati.length === 0) return null;
+
+  // Si prova il migliore che ci si può permettere, poi a scendere: un club punta in alto e
+  // ripiega, non pesca a caso in tutta la lista.
+  candidati.sort((a, b) => b.player.overall - a.player.overall);
+  const finestra = candidati.slice(0, Math.min(candidati.length, 6));
+
+  for (let tentativo = 0; tentativo < finestra.length; tentativo++) {
+    const scelto = finestra[Math.floor(random() * finestra.length)] ?? finestra[0]!;
+    const prezzo = prezzoIndicativo(scelto.player, compratore.club.prestigeTier);
+    if (prezzo > compratore.cassa) continue;
+
+    const principale: WorldTransfer = {
+      playerId: scelto.player.id,
+      playerName: scelto.player.name,
+      fromClubId: scelto.venditore.club.id,
+      toClubId: compratore.club.id,
+      fee: prezzo,
+      season,
+      kind: scelto.titolare ? "colpo" : "esubero",
+      department: bersaglio,
+    };
+
+    if (!scelto.titolare) {
+      // Era di troppo: il venditore non ha nulla da sostituire, l'operazione si chiude qui.
+      esegui(compratore, scelto.venditore, scelto.player, prezzo);
+      return [principale];
+    }
+
+    /**
+     * **Chi cede un titolare deve rimpiazzarlo, adesso.** Se non si trova nessuno di livello
+     * vicino, la cessione **non avviene**: è così che l'invariante è garantita per costruzione,
+     * senza dover annullare operazioni già scritte.
+     */
+    const rimpiazzo = cercaRimpiazzo({
+      venditore: scelto.venditore,
+      partente: scelto.player,
+      reparto: bersaglio,
+      mercato,
+      giaMossi,
+      incasso: prezzo,
+      season,
+    });
+    if (!rimpiazzo) continue;
+
+    esegui(compratore, scelto.venditore, scelto.player, prezzo);
+    esegui(rimpiazzo.compratore, rimpiazzo.venditore, rimpiazzo.player, rimpiazzo.transfer.fee);
+    return [principale, rimpiazzo.transfer];
+  }
+
+  return null;
+}
+
+/**
+ * Il rimpiazzo di chi sta per partire: qualcuno di livello vicino, preso da un club che ne ha
+ * un'**eccedenza vera**.
+ *
+ * L'eccedenza è la condizione che ferma la catena al secondo anello: chi cede qui non apre a
+ * sua volta un buco, quindi non serve un terzo rimpiazzo, e il mercato non degenera in una
+ * ricorsione che attraversa mezzo database.
+ */
+function cercaRimpiazzo({
+  venditore,
+  partente,
+  reparto,
+  mercato,
+  giaMossi,
+  incasso,
+  season,
+}: {
+  venditore: ClubMarket;
+  partente: WorldPlayer;
+  reparto: Department;
+  mercato: Map<string, ClubMarket>;
+  giaMossi: Set<string>;
+  incasso: number;
+  season: number;
+}): { transfer: WorldTransfer; compratore: ClubMarket; venditore: ClubMarket; player: WorldPlayer } | null {
+  const disponibile = venditore.cassa + incasso * REINVEST_SHARE;
+  let migliore: { player: WorldPlayer; da: ClubMarket; prezzo: number } | null = null;
+
+  for (const fonte of mercato.values()) {
+    if (fonte.club.id === venditore.club.id) continue;
+    // Anche il rimpiazzo si prende verso il basso: altrimenti la gerarchia si romperebbe qui.
+    if (venditore.forza - fonte.forza < MIN_BUYER_EDGE) continue;
+    if (eccedenzaReparto(fonte.rosa, reparto) <= 0) continue;
+
+    for (const candidato of ordinatiPerForza(fonte.rosa, reparto)) {
+      if (giaMossi.has(candidato.id)) continue;
+      if (candidato.id === partente.id) continue;
+      // Di livello vicino a chi parte: né un downgrade qualunque, né un fuoriclasse.
+      if (candidato.overall < partente.overall - MAX_REPLACEMENT_GAP) continue;
+      if (candidato.overall > partente.overall + 1) continue;
+      const prezzo = prezzoIndicativo(candidato, venditore.club.prestigeTier);
+      if (prezzo > disponibile) continue;
+      if (!migliore || candidato.overall > migliore.player.overall) {
+        migliore = { player: candidato, da: fonte, prezzo };
+      }
+    }
+  }
+
+  if (!migliore) return null;
+
+  return {
+    transfer: {
+      playerId: migliore.player.id,
+      playerName: migliore.player.name,
+      fromClubId: migliore.da.club.id,
+      toClubId: venditore.club.id,
+      fee: migliore.prezzo,
+      season,
+      kind: "sostituzione",
+      replacesPlayerName: partente.name,
+      department: reparto,
+    },
+    compratore: venditore,
+    venditore: migliore.da,
+    player: migliore.player,
+  };
+}
+
+/** Applica un'operazione allo stato dei due club: rose e casse si muovono davvero. */
+function esegui(
+  compratore: ClubMarket,
+  venditore: ClubMarket,
+  player: WorldPlayer,
+  prezzo: number,
+): void {
+  venditore.rosa = venditore.rosa.filter((p) => p.id !== player.id);
+  compratore.rosa = [...compratore.rosa, { ...player, clubId: compratore.club.id }];
+  compratore.cassa -= prezzo;
+  venditore.cassa += prezzo * REINVEST_SHARE;
+}
+
+/** I giocatori di un reparto, dal più forte al più debole. */
+function ordinatiPerForza(rosa: WorldPlayer[], dep: Department): WorldPlayer[] {
+  return rosa.filter((p) => p.department === dep).sort((a, b) => b.overall - a.overall);
+}
+
+function forzaUndici(rosa: WorldPlayer[]): number {
+  const migliori = [...rosa].sort((a, b) => b.overall - a.overall).slice(0, 11);
+  return migliori.length > 0 ? migliori.reduce((s, p) => s + p.overall, 0) / migliori.length : 70;
+}
+
+/**
+ * La cassa di un club per la finestra.
+ *
+ * Prestigio e livello della rosa, cioè le due cose che nel gioco già dicono "quanto è grande
+ * questo club". Non passa dal budget del DS (`budget.ts`): quello è tarato sulla progressione
+ * di *una* carriera, mentre qui serve solo una scala credibile che impedisca a una piccola di
+ * comprare cinque titolari.
+ */
+function cassaIniziale(club: WorldClub, forza: number): number {
+  return Math.round(6_000_000 * club.prestigeTier + Math.max(0, forza - 68) * 4_000_000);
 }
 
 /**
@@ -356,35 +621,6 @@ export const FABBISOGNO_PER_REPARTO: Record<Department, number> = {
 export function eccedenzaReparto(rosa: WorldPlayer[], dep: Department): number {
   const conteggio = rosa.filter((p) => p.department === dep).length;
   return Math.max(0, conteggio - FABBISOGNO_PER_REPARTO[dep]);
-}
-
-/** Il primo reparto sotto il fabbisogno titolari+panchina, se ce n'è uno: la necessità reale. */
-function repartoScoperto(rosa: WorldPlayer[]): Department | null {
-  const ordine: Department[] = ["POR", "DIF", "CC", "ATT"];
-  for (const dep of ordine) {
-    const conteggio = rosa.filter((p) => p.department === dep).length;
-    if (conteggio < FABBISOGNO_PER_REPARTO[dep]) return dep;
-  }
-  return null;
-}
-
-function repartoPiuDebole(rosa: WorldPlayer[]): Department {
-  const ordine: Department[] = ["POR", "DIF", "CC", "ATT"];
-  let peggiore: Department = "ATT";
-  let peggiorMedia = Infinity;
-  for (const dep of ordine) {
-    const gruppo = rosa.filter((p) => p.department === dep);
-    if (gruppo.length === 0) return dep;
-    const migliori = [...gruppo]
-      .sort((a, b) => b.overall - a.overall)
-      .slice(0, TITOLARI_PER_REPARTO[dep]);
-    const media = migliori.reduce((s, p) => s + p.overall, 0) / migliori.length;
-    if (media < peggiorMedia) {
-      peggiorMedia = media;
-      peggiore = dep;
-    }
-  }
-  return peggiore;
 }
 
 /**
