@@ -231,6 +231,45 @@ describe("contratto dell'allenatore", () => {
     expect(coachContractSeasonsLeft(state)).toBeGreaterThan(0);
   });
 
+  it("a contratto scaduto e non rinnovato lascia davvero la panchina", () => {
+    /**
+     * Il difetto che questo test blocca: `expireContracts` scriveva *"va rinnovato o lascia la
+     * panchina"* e non faceva nessuna delle due cose. Il mister restava in carica col contratto
+     * scaduto, il suo ingaggio continuava a pesare sul monte e la buonuscita valeva zero — cioè
+     * cambiarlo diventava **gratis** proprio quando non doveva.
+     */
+    const { state, world } = mondo();
+    const scaduto: CareerState = {
+      ...state,
+      // Contratto finito con la stagione precedente: siamo oltre.
+      coachContract: { ...state.coachContract!, until: state.season - 1 },
+    };
+
+    const esito = expireContracts(scaduto, world);
+
+    expect(esito.state.coachId).toBeNull();
+    expect(esito.state.coachContract).toBeUndefined();
+    expect(esito.messages.join(" ")).toMatch(/lascia la panchina/i);
+    // Senza mister il monte ingaggi perde il suo stipendio: è la conseguenza economica.
+    expect(wageBillOf(esito.state, world)).toBeLessThan(wageBillOf(scaduto, world));
+  });
+
+  it("all'ultima stagione di contratto il meeting si riapre, ma il mister resta", () => {
+    // La distinzione conta: a una stagione dalla fine si negozia il rinnovo (è *una delle sue
+    // richieste*); a scadenza consumata non c'è più nulla da negoziare.
+    const { state, world } = mondo();
+    const ultimaStagione: CareerState = {
+      ...state,
+      coachContract: { ...state.coachContract!, until: state.season },
+    };
+
+    const esito = expireContracts(ultimaStagione, world);
+
+    expect(esito.state.coachId).toBe(state.coachId);
+    expect(esito.state.seasonNegotiationDone).toBe(false);
+    expect(esito.messages.join(" ")).toMatch(/va rinnovato/i);
+  });
+
   it("un contratto più lungo costa meno all'anno ma pesa di più sul totale", () => {
     const { state, world } = mondo();
     const corto = signCoachContract(state, world, "coach-gasperini", 1);

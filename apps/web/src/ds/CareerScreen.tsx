@@ -23,6 +23,8 @@ import {
   proposeCaptain,
   renewContract,
   signCoachContract,
+  coachContractSeasonsLeft,
+  coachSeveranceNow,
   buildStandings,
   financesOf,
   openPlayerDialogue,
@@ -1357,7 +1359,31 @@ export function CareerScreen({
             buyoutFee={0}
             seed={state.seed}
             marketCandidates={marketCandidatesRinnovo}
-            onAgree={(_c, promises, cost) => onChange(confirmCoachSeasonPromises(state, world, promises, cost))}
+            contract={{
+              seasonsLeft: coachContractSeasonsLeft(state),
+              wage: state.coachContract?.wage ?? 0,
+              severance: coachSeveranceNow(state, world),
+              wageRoom: finanze.wageRoom,
+            }}
+            /* A una stagione dalla fine il rinnovo diventa **una delle sue richieste**: senza,
+               il messaggio "va rinnovato o lascia la panchina" restava una frase che nessun
+               flusso poteva mantenere. */
+            requiresRenewal={coachContractSeasonsLeft(state) <= 1}
+            onAgree={(_c, promises, cost, renewSeasons) => {
+              let next = state;
+              if (renewSeasons) {
+                const firma = signCoachContract(next, world, state.coachId!, renewSeasons, promises);
+                // Se la firma non passa (margine o cassa), il meeting resta aperto e lo dice:
+                // chiudere l'accordo lasciando il contratto scaduto sarebbe lo stato incoerente
+                // da cui è nata tutta questa fase.
+                if (!firma.ok) {
+                  setDeal({ id: Date.now(), kind: "errore", message: firma.message, delta: 0 });
+                  return;
+                }
+                next = firma.state;
+              }
+              onChange(confirmCoachSeasonPromises(next, world, promises, cost));
+            }}
             onCancel={() => onChange(declineCoachSeasonMeeting(state, world))}
           />
         )}

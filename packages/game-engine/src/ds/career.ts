@@ -5113,12 +5113,36 @@ export function expireContracts(
     contracts: { ...base, preContracts: [], renewalRefused: [] },
   };
 
-  // Il mister a contratto scaduto se ne va: perdere un buon tecnico per distrazione dev'essere
-  // possibile quanto perdere un giocatore.
-  if (state.coachContract && coachSeasonsLeft(state.coachContract, state.season) <= 1) {
+  /**
+   * **Il mister a contratto scaduto se ne va davvero.**
+   *
+   * Qui prima c'era solo il messaggio *"va rinnovato o lascia la panchina"* e la riapertura del
+   * meeting — che però negoziava le sole promesse tecniche e non firmava nulla. Risultato: la
+   * frase non era mantenibile. Il tecnico restava in panchina col contratto scaduto, il suo
+   * ingaggio continuava a pesare sul monte, e la buonuscita valeva zero, cioè cambiarlo
+   * diventava gratis proprio quando non doveva.
+   *
+   * Adesso il rinnovo è **una delle sue richieste** dentro il meeting (scheda *Contratto*), e la
+   * conseguenza del non farlo è questa: a scadenza consumata la panchina resta libera.
+   */
+  const residueMister = coachSeasonsLeft(state.coachContract, state.season);
+  if (state.coachContract && residueMister <= 1) {
     const coach = state.coachId ? findCoach(state.coachId) : undefined;
-    if (coach) messages.push(`${coach.name} è a fine contratto: va rinnovato o lascia la panchina.`);
-    next = { ...next, seasonNegotiationDone: false };
+    if (residueMister <= 0) {
+      if (coach) messages.push(`${coach.name} lascia la panchina: contratto scaduto e non rinnovato.`);
+      next = {
+        ...next,
+        coachId: null,
+        coachContract: undefined,
+        coachPromises: [],
+        guaranteedStarters: {},
+        coachBenched: {},
+        seasonNegotiationDone: false,
+      };
+    } else {
+      if (coach) messages.push(`${coach.name} è a fine contratto: va rinnovato o lascia la panchina.`);
+      next = { ...next, seasonNegotiationDone: false };
+    }
   }
 
   return { state: next, messages, departed };

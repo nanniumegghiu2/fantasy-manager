@@ -36,7 +36,32 @@ interface CoachNegotiationChatProps {
   seed?: string;
   /** Candidati reali di mercato, per nominare uno specialista invece di una soglia generica. */
   marketCandidates?: RoleCandidate[];
-  onAgree: (coach: Coach, promises: CoachPromise[], cost: number) => void;
+  /**
+   * **Il contratto del mister, dentro il meeting delle sue richieste.**
+   *
+   * Prima non c'era da nessuna parte: `expireContracts` scriveva *"va rinnovato o lascia la
+   * panchina"* e riapriva il meeting, ma il meeting negoziava solo le promesse tecniche — non
+   * firmava nulla, non toccava `coachContract`, non aveva una durata. Il mister restava in
+   * panchina a contratto scaduto, col suo ingaggio ancora sul monte e la buonuscita a zero,
+   * cioè cambiarlo diventava gratis proprio quando non doveva.
+   *
+   * Assente = ingaggio di un mister nuovo, dove il contratto si firma comunque a valle.
+   */
+  contract?: {
+    /** Stagioni ancora coperte, contando quella che comincia. Zero = già scaduto. */
+    seasonsLeft: number;
+    wage: number;
+    /** Quanto costerebbe liberarsene oggi. */
+    severance: number;
+    /** Margine ingaggi disponibile: dice se il rinnovo è sostenibile. */
+    wageRoom: number;
+  };
+  /**
+   * Il rinnovo è **una delle sue richieste**, non un'opzione: senza, l'accordo non si chiude.
+   * Vale quando restano zero o una stagione (richiesta esplicita dell'utente).
+   */
+  requiresRenewal?: boolean;
+  onAgree: (coach: Coach, promises: CoachPromise[], cost: number, renewSeasons?: number) => void;
   onCancel: () => void;
 }
 
@@ -52,9 +77,16 @@ export function CoachNegotiationChat({
   buyoutFee = 0,
   seed,
   marketCandidates,
+  contract,
+  requiresRenewal = false,
   onAgree,
   onCancel,
 }: CoachNegotiationChatProps) {
+  /** Le due schede del meeting: cosa chiede in campo, e cosa chiede per sé. */
+  const [scheda, setScheda] = useState<"richieste" | "contratto">("richieste");
+  const [durataRinnovo, setDurataRinnovo] = useState(3);
+  /** Finché il rinnovo è dovuto e non si è scelta una durata, l'accordo non si chiude. */
+  const [rinnovoScelto, setRinnovoScelto] = useState(!requiresRenewal);
 
 
   // Inizializzazione delle promesse dal catalogo
@@ -184,8 +216,115 @@ export function CoachNegotiationChat({
         </div>
       </header>
 
+      {/* Le due schede: le richieste tecniche e il suo contratto. Il contratto sta qui e non
+          altrove perché è una **sua** richiesta come le altre — e perché è l'unico posto in cui
+          l'utente passa ogni anno, quindi l'unico in cui la scadenza non può sfuggirgli. */}
+      {contract && (
+        <div className="mx-auto flex w-full max-w-2xl gap-1 px-4 pt-3">
+          {(["richieste", "contratto"] as const).map((key) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => setScheda(key)}
+              className={`relative min-h-10 flex-1 rounded-full px-3 text-xs font-bold transition-colors ${
+                scheda === key
+                  ? "bg-[var(--brand)] text-[var(--brand-contrast)]"
+                  : "bg-[var(--surface-raised)] text-[var(--text-secondary)]"
+              }`}
+            >
+              {key === "richieste" ? "Richieste" : "Contratto"}
+              {key === "contratto" && requiresRenewal && !rinnovoScelto && (
+                <span className="absolute top-1 right-2 h-1.5 w-1.5 rounded-full bg-[#ff4d4d]" />
+              )}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {contract && scheda === "contratto" && (
+        <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-3 px-4 py-6 pb-36">
+          <section className="rounded-2xl border border-[var(--surface-border)] bg-[var(--surface-raised)] p-4">
+            <p className="text-[10px] font-extrabold tracking-widest text-[var(--text-secondary)] uppercase">
+              Contratto in essere
+            </p>
+            <div className="mt-2 grid grid-cols-2 gap-3">
+              <div>
+                <p
+                  className="text-lg leading-none font-extrabold tabular-nums"
+                  style={{ color: contract.seasonsLeft <= 1 ? "#ff4d4d" : undefined }}
+                >
+                  {contract.seasonsLeft <= 0
+                    ? "Scaduto"
+                    : `${contract.seasonsLeft} ${contract.seasonsLeft === 1 ? "stagione" : "stagioni"}`}
+                </p>
+                <p className="mt-1 text-[10px] text-[var(--text-secondary)]">durata residua</p>
+              </div>
+              <div>
+                <p className="text-lg leading-none font-extrabold tabular-nums">
+                  {euro(contract.wage)}
+                </p>
+                <p className="mt-1 text-[10px] text-[var(--text-secondary)]">ingaggio annuo</p>
+              </div>
+            </div>
+            <p className="mt-3 text-[11px] text-[var(--text-secondary)]">
+              Liberarsene oggi costerebbe <strong>{euro(contract.severance)}</strong> di
+              buonuscita · margine ingaggi disponibile <strong>{euro(contract.wageRoom)}</strong>.
+            </p>
+          </section>
+
+          {requiresRenewal ? (
+            <section className="rounded-2xl border border-[#ff4d4d]/40 bg-[#ff4d4d]/8 p-4">
+              <p className="flex items-center gap-2 text-xs font-extrabold text-[#ff4d4d]">
+                <ShieldAlert size={14} /> Vuole il rinnovo, adesso
+              </p>
+              <p className="mt-1.5 text-[12px] leading-relaxed">
+                «Direttore, il mio contratto è agli sgoccioli. Prima di parlare di mercato e di
+                obiettivi voglio sapere se qui ci sarò ancora l'anno prossimo.»
+              </p>
+
+              <p className="mt-3 text-[10px] font-bold tracking-widest text-[var(--text-secondary)] uppercase">
+                Durata del rinnovo
+              </p>
+              <div className="mt-1.5 flex gap-1.5">
+                {[1, 2, 3, 4, 5].map((anni) => (
+                  <button
+                    key={anni}
+                    type="button"
+                    onClick={() => {
+                      setDurataRinnovo(anni);
+                      setRinnovoScelto(true);
+                    }}
+                    className={`min-h-11 flex-1 rounded-xl text-sm font-extrabold transition-colors ${
+                      rinnovoScelto && durataRinnovo === anni
+                        ? "bg-[var(--brand)] text-[var(--brand-contrast)]"
+                        : "bg-[var(--surface-raised)] text-[var(--text-secondary)]"
+                    }`}
+                  >
+                    {anni}
+                  </button>
+                ))}
+              </div>
+              <p className="mt-2 text-[11px] text-[var(--text-secondary)]">
+                {rinnovoScelto
+                  ? `${euro(contract.wage)}/anno per ${durataRinnovo} ${durataRinnovo === 1 ? "stagione" : "stagioni"} — totale ${euro(contract.wage * durataRinnovo)}. Un contratto lungo costa meno all'anno ma lega; uno corto lo lascia corteggiabile a zero.`
+                  : "Scegli una durata: senza rinnovo l'accordo non si chiude e a fine stagione la panchina è libera."}
+              </p>
+            </section>
+          ) : (
+            <p className="rounded-2xl border border-[var(--surface-border)] bg-[var(--surface-raised)] p-4 text-[12px] leading-relaxed text-[var(--text-secondary)]">
+              Il contratto regge ancora: se ne riparlerà quando sarà in scadenza. Fino ad allora,
+              mandarlo via costa la buonuscita qui sopra.
+            </p>
+          )}
+        </main>
+      )}
+
       {/* Chat Area */}
-      <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-4 px-4 py-6 pb-36">
+      <main
+        className={`mx-auto w-full max-w-2xl flex-1 flex-col gap-4 px-4 py-6 pb-36 ${
+          contract && scheda === "contratto" ? "hidden" : "flex"
+        }`}
+      >
         {/* Messaggio 1: Saluto del Mister */}
         <motion.div
           initial={{ opacity: 0, y: 12 }}
@@ -377,16 +516,30 @@ export function CoachNegotiationChat({
               </button>
               <button
                 type="button"
-                disabled={budget < currentTotalCost}
+                disabled={budget < currentTotalCost || !rinnovoScelto}
                 onClick={() => {
+                  // Se il rinnovo è dovuto ma non si è ancora scelta la durata, la scheda si
+                  // apre invece di chiudere l'accordo: il bottone dice cosa manca, non si limita
+                  // a essere spento.
+                  if (requiresRenewal && !rinnovoScelto) {
+                    setScheda("contratto");
+                    return;
+                  }
                   setStep("agreed");
                   setTimeout(() => {
-                    onAgree(coach, negState.promises, currentTotalCost);
+                    onAgree(
+                      coach,
+                      negState.promises,
+                      currentTotalCost,
+                      requiresRenewal ? durataRinnovo : undefined,
+                    );
                   }, 1200);
                 }}
                 className="flex-1 rounded-full bg-[var(--brand)] py-3 text-sm font-extrabold text-[var(--brand-contrast)] transition-transform active:scale-95 disabled:opacity-50"
               >
-                Firma Contratto ({euro(currentTotalCost)})
+                {requiresRenewal && !rinnovoScelto
+                  ? "Manca il rinnovo"
+                  : `Firma Contratto (${euro(currentTotalCost)})`}
               </button>
             </>
           )}
