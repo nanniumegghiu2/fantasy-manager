@@ -33,6 +33,7 @@ export * from "./ds/loans";
 export * from "./ds/events";
 export * from "./ds/incidents";
 export * from "./ds/highlights";
+export * from "./ds/matchSim";
 export * from "./ds/scouting";
 export * from "./ds/aiWorld";
 export * from "./ds/seasonObjectives";

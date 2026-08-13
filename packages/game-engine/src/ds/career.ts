@@ -1528,6 +1528,11 @@ export function advanceToNextStop(
     const primo = report.standings?.[0];
     const ePartitaChiave =
       (report.cupMatch && isKeyMatch({ cupStage: report.cupMatch.stage, totalRounds: world.leagueRounds })) ||
+      (report.nationalCupMatch &&
+        isKeyMatch({
+          nationalCupStage: report.nationalCupMatch.stage,
+          totalRounds: world.leagueRounds,
+        })) ||
       (report.match &&
         nostra &&
         isKeyMatch({

@@ -1216,9 +1216,13 @@ interface PartitaChiave {
 /**
  * La partita decisiva di questo referto, se ce n'è una.
  *
- * Prima la coppa: nel tabellone ogni gara è un'eliminazione, quindi conta sempre. Poi il
- * campionato — scontro diretto per il vertice, o volata scudetto — la regola vive nel motore
- * (`isKeyMatch`), qui si passano soltanto i dati, incluso dove sta in classifica l'avversaria.
+ * Prima le coppe — Corona e, dai quarti in poi, Coppa Tricolore: nel tabellone ogni gara è
+ * un'eliminazione, quindi conta sempre. Poi il campionato — scontro diretto per il vertice, o
+ * volata scudetto. La regola vive nel motore (`isKeyMatch`), qui si passano soltanto i dati,
+ * incluso dove sta in classifica l'avversaria.
+ *
+ * L'ordine di precedenza fra le due coppe è nominale: nella stessa settimana non si giocano un
+ * turno di Corona e uno di Tricolore, ma se accadesse la Corona è la competizione più pesante.
  */
 function partitaChiave(report: WeekReport, totalRounds: number): PartitaChiave | null {
   const nostra = report.standings?.find((r) => r.isUser);
@@ -1232,6 +1236,21 @@ function partitaChiave(report: WeekReport, totalRounds: number): PartitaChiave |
       key: `c-${report.season}-${report.week}`,
       penalties: report.cupMatch.wentToPenalties
         ? { weWon: !!report.cupMatch.weWonPenalties }
+        : undefined,
+    };
+  }
+
+  if (
+    report.nationalCupMatch &&
+    isKeyMatch({ nationalCupStage: report.nationalCupMatch.stage, totalRounds })
+  ) {
+    return {
+      result: report.nationalCupMatch.result,
+      opponent: report.nationalCupMatch.opponent,
+      reason: keyMatchReason({ nationalCupStage: report.nationalCupMatch.stage, totalRounds }),
+      key: `t-${report.season}-${report.week}`,
+      penalties: report.nationalCupMatch.wentToPenalties
+        ? { weWon: !!report.nationalCupMatch.weWonPenalties }
         : undefined,
     };
   }

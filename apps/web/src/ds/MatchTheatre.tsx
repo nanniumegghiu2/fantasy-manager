@@ -1,136 +1,76 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
-  BarChart2,
   Crown,
   FastForward,
+  Gauge,
   Pause,
   Play,
+  Radio,
+  ShieldAlert,
+  Square,
+  Target,
   X,
-  Zap,
 } from "lucide-react";
 import {
-  buildHighlights,
+  MATCH_SECONDS,
+  ballAt,
   buildShootout,
-  layoutEleven,
-  type ActionStep,
-  type Highlight,
+  phaseIndexAt,
+  simulateMatchFlow,
+  tacticalPosition,
+  type BallState,
+  type MatchFlow,
   type MatchResult,
   type MatchTheatreContext,
+  type PhaseFlash,
+  type PitchPlayer,
+  type PlayPhase,
   type ShootoutKick,
 } from "@app/game-engine";
 import { OUTCOME_COLOR, outcomeOf } from "./format";
 import { CelebrationConfetti } from "./CelebrationConfetti";
 
 /**
- * **Match Theatre 2D HD (Football Manager Style Match Engine)**
+ * **Il Match Theatre 2D.**
  *
- * Visualizzazione ad alta definizione delle partite 2D:
- * - **Palla HD**: Reticolo al neon, scia di movimento (motion trail) e fisica di quota (ballHeight).
- * - **Pallini Giocatori HD con Numeri di Maglia**: Maglie distinte casa/trasferta con numeri (1-11) e spotlight possessore.
- * - **Action FX Pop-up**: Banner e badge animati nel punto esatto dell'azione (GOAL, PARATA, PALO, CROSS, TIRO).
- * - **HUD Partita Live**: Inerzia di gara (Momentum), Statistiche live (Tiri, In Porta, Possesso, Angoli) e Timeline eventi.
+ * Il motore (`ds/matchSim.ts`) produce una partita intera come flusso continuo di possessi;
+ * questo componente si limita a **guardarla scorrere**: a ogni fotogramma chiede al motore dov'è
+ * il pallone e dove sta ciascuno dei ventidue, e disegna. Nessun calcolo di gioco vive qui — è
+ * la stessa regola di confine fra motore e app che vale per tutto il progetto.
+ *
+ * ## Il problema del tempo, e come è risolto
+ *
+ * Novanta minuti di gioco continuo non stanno in novanta secondi: se si comprimesse tutto in
+ * modo uniforme il pallone si muoverebbe sessanta volte troppo veloce e non si vedrebbe un
+ * passaggio. La soluzione è un **orologio a velocità variabile**: i possessi che contano (gol,
+ * parate, pali, cartellini rossi) scorrono a ritmo quasi naturale, mentre sul resto della
+ * partita l'orologio corre — e mentre corre il campo lo dichiara, invece di fingere che nulla
+ * stia succedendo. È il modo in cui si guarda davvero una partita in differita.
  */
 
-const MS_PER_MINUTE_BASE = 28;
+/* -------------------------------------------------------------------------- */
+/* Ritmo di riproduzione                                                       */
+/* -------------------------------------------------------------------------- */
 
-interface Pallino {
-  id: string;
-  nostro: boolean;
-  ruoloGenerico: "GK" | "DEF" | "MID" | "ATT";
-  baseX: number;
-  baseY: number;
-  numero: number;
-}
+/**
+ * Secondi di gioco per ogni secondo reale durante un possesso che vale la pena vedere.
+ *
+ * I due numeri non sono a occhio: una partita ha una ventina di possessi "da vedere" per un
+ * totale di circa 320 secondi di gioco, e il resto sono 5.000 secondi da attraversare. Con la
+ * prima taratura (2,6 e 190) la partita durava due minuti e mezzo — misurato nel browser,
+ * cinque minuti di gioco dopo dodici secondi reali. Così sta sotto il minuto e mezzo a 1x, e
+ * chi vuole di più ha il 2x e il 4x.
+ */
+const RATE_LIVE = 4.5;
+/** ...e durante il resto della partita, che scorre via. */
+const RATE_SKIP = 330;
+/** Un fotogramma non può mai far saltare più di così: protegge dalle schede in secondo piano. */
+const MAX_STEP_SECONDS = 0.12;
 
-const DEPT_TO_RUOLO: Record<string, Pallino["ruoloGenerico"]> = {
-  POR: "GK",
-  DIF: "DEF",
-  CC: "MID",
-  ATT: "ATT",
-};
+type Velocita = 1 | 2 | 4;
 
-/** Schieramento astratto di riserva se le formazioni reali non sono disponibili */
-function creaPalliniGenerici(): Pallino[] {
-  const formazioneNostra: { role: Pallino["ruoloGenerico"]; pos: [number, number]; numero: number }[] = [
-    { role: "GK", pos: [4, 50], numero: 1 },
-    { role: "DEF", pos: [20, 20], numero: 2 },
-    { role: "DEF", pos: [18, 40], numero: 3 },
-    { role: "DEF", pos: [18, 60], numero: 4 },
-    { role: "DEF", pos: [20, 80], numero: 5 },
-    { role: "MID", pos: [38, 25], numero: 6 },
-    { role: "MID", pos: [35, 50], numero: 7 },
-    { role: "MID", pos: [38, 75], numero: 8 },
-    { role: "ATT", pos: [52, 30], numero: 9 },
-    { role: "ATT", pos: [54, 50], numero: 10 },
-    { role: "ATT", pos: [52, 70], numero: 11 },
-  ];
-
-  const nostri: Pallino[] = formazioneNostra.map((item, i) => ({
-    id: `noi-${i}`,
-    nostro: true,
-    ruoloGenerico: item.role,
-    baseX: item.pos[0],
-    baseY: item.pos[1],
-    numero: item.numero,
-  }));
-
-  const loro: Pallino[] = formazioneNostra.map((item, i) => ({
-    id: `loro-${i}`,
-    nostro: false,
-    ruoloGenerico: item.role,
-    baseX: 100 - item.pos[0],
-    baseY: 100 - item.pos[1],
-    numero: item.numero,
-  }));
-
-  return [...nostri, ...loro];
-}
-
-/** Le formazioni vere, con assegnazione deterministica dei numeri di maglia 1-11 */
-function creaPalliniReali(context: MatchTheatreContext): Pallino[] {
-  const nostrePos = layoutEleven(context.ourEleven, "for");
-  const lorePos = layoutEleven(context.opponentEleven, "against");
-
-  const mappaNumeri = (dept: string, index: number) => {
-    if (dept === "POR") return 1;
-    if (dept === "DIF") return 2 + (index % 4);
-    if (dept === "CC") return 6 + (index % 4);
-    return 9 + (index % 3);
-  };
-
-  const deptCountsNostri: Record<string, number> = { POR: 0, DIF: 0, CC: 0, ATT: 0 };
-  const nostri: Pallino[] = context.ourEleven.map((p) => {
-    const pos = nostrePos.get(p.playerId) ?? { x: 20, y: 50 };
-    const count = deptCountsNostri[p.department] ?? 0;
-    deptCountsNostri[p.department] = count + 1;
-    return {
-      id: p.playerId,
-      nostro: true,
-      ruoloGenerico: DEPT_TO_RUOLO[p.department] ?? "MID",
-      baseX: pos.x,
-      baseY: pos.y,
-      numero: mappaNumeri(p.department, count),
-    };
-  });
-
-  const deptCountsLoro: Record<string, number> = { POR: 0, DIF: 0, CC: 0, ATT: 0 };
-  const loro: Pallino[] = context.opponentEleven.map((p) => {
-    const pos = lorePos.get(p.playerId) ?? { x: 80, y: 50 };
-    const count = deptCountsLoro[p.department] ?? 0;
-    deptCountsLoro[p.department] = count + 1;
-    return {
-      id: p.playerId,
-      nostro: false,
-      ruoloGenerico: DEPT_TO_RUOLO[p.department] ?? "MID",
-      baseX: pos.x,
-      baseY: pos.y,
-      numero: mappaNumeri(p.department, count),
-    };
-  });
-
-  return [...nostri, ...loro];
-}
+/* -------------------------------------------------------------------------- */
 
 interface MatchTheatreProps {
   result: MatchResult;
@@ -144,6 +84,14 @@ interface MatchTheatreProps {
   onClose: () => void;
 }
 
+interface Frame {
+  second: number;
+  phase: PlayPhase | null;
+  ball: BallState;
+  positions: Map<string, { x: number; y: number }>;
+  correndo: boolean;
+}
+
 export function MatchTheatre({
   result,
   opponent,
@@ -155,90 +103,82 @@ export function MatchTheatre({
   penalties,
   onClose,
 }: MatchTheatreProps) {
-  const azioni = useMemo(
-    () => buildHighlights(result, seed, nameOf, context),
+  const flow: MatchFlow = useMemo(
+    () => simulateMatchFlow(result, seed, nameOf, context),
     [result, seed, nameOf, context],
   );
-  const rigori = useMemo(() => (penalties ? buildShootout(penalties.weWon, seed) : []), [penalties, seed]);
-  const [rigoreIndex, setRigoreIndex] = useState(0);
-  const PALLINI = useMemo(
-    () => (context ? creaPalliniReali(context) : creaPalliniGenerici()),
-    [context],
+  const rigori = useMemo(
+    () => (penalties ? buildShootout(penalties.weWon, seed) : []),
+    [penalties, seed],
   );
-  const [minuto, setMinuto] = useState(0);
-  const [azione, setAzione] = useState<Highlight | null>(null);
-  const [stepIndex, setStepIndex] = useState(0);
-  const [isPaused, setIsPaused] = useState(false);
-  const [speedMultiplier, setSpeedMultiplier] = useState<1 | 2>(1);
+
+  const [frame, setFrame] = useState<Frame>(() => primoFrame(flow));
+  const [inPausa, setInPausa] = useState(false);
+  const [velocita, setVelocita] = useState<Velocita>(1);
   const [finita, setFinita] = useState(false);
-  const [showStatsDrawer, setShowStatsDrawer] = useState(false);
-  const prossima = useRef(0);
+  const [rigoreIndex, setRigoreIndex] = useState(0);
 
-  const currentStep: ActionStep | null = useMemo(() => {
-    if (!azione || !azione.steps || azione.steps.length === 0) return null;
-    return azione.steps[stepIndex] ?? azione.steps[azione.steps.length - 1] ?? null;
-  }, [azione, stepIndex]);
+  const orologio = useRef(0);
+  const ultimoFrame = useRef<number | null>(null);
 
-  // Gestione timer e riproduzione micro-fasi dell'azione
+  /**
+   * L'anello di animazione. Sta tutto qui perché è una cosa sola: far avanzare l'orologio e
+   * chiedere al motore la fotografia di quell'istante. Il ritmo dipende dal possesso in corso —
+   * è l'unica riga di "regia" del componente.
+   */
   useEffect(() => {
-    if (finita || isPaused) return;
-
-    let timer: ReturnType<typeof setTimeout>;
-
-    if (azione && azione.steps && azione.steps.length > 0) {
-      const step = meStep(azione, stepIndex);
-      const durataFase = Math.max(200, (step.durationMs || 700) / speedMultiplier);
-
-      timer = setTimeout(() => {
-        if (stepIndex + 1 < azione.steps.length) {
-          setStepIndex((idx) => idx + 1);
-        } else {
-          setAzione(null);
-          setStepIndex(0);
-          setMinuto((m) => m + 1);
-        }
-      }, durataFase);
-    } else {
-      const corrente = azioni[prossima.current];
-      if (corrente && corrente.minute === minuto) {
-        setAzione(corrente);
-        setStepIndex(0);
-        prossima.current += 1;
-      } else {
-        const msMinute = MS_PER_MINUTE_BASE / speedMultiplier;
-        timer = setTimeout(() => {
-          if (minuto >= 90) {
-            setFinita(true);
-            return;
-          }
-          setMinuto((m) => m + 1);
-        }, msMinute);
-      }
+    if (finita || inPausa) {
+      ultimoFrame.current = null;
+      return;
     }
+    let handle = 0;
+    const tick = (now: number) => {
+      const precedente = ultimoFrame.current ?? now;
+      ultimoFrame.current = now;
+      const delta = Math.min(MAX_STEP_SECONDS, (now - precedente) / 1000);
 
-    return () => clearTimeout(timer);
-  }, [minuto, azione, stepIndex, finita, isPaused, speedMultiplier, azioni]);
+      const indice = phaseIndexAt(flow.phases, orologio.current);
+      const fase = flow.phases[indice] ?? null;
+      const dentro = !!fase && orologio.current <= fase.endSecond;
+      const correndo = !(dentro && fase!.notable);
+      const rate = (correndo ? RATE_SKIP : RATE_LIVE) * velocita;
 
+      orologio.current += delta * rate;
+      if (orologio.current >= MATCH_SECONDS) {
+        orologio.current = MATCH_SECONDS;
+        setFrame(costruisciFrame(flow, MATCH_SECONDS));
+        setFinita(true);
+        return;
+      }
+      setFrame(costruisciFrame(flow, orologio.current));
+      handle = requestAnimationFrame(tick);
+    };
+    handle = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(handle);
+  }, [flow, finita, inPausa, velocita]);
+
+  // I rigori scorrono uno alla volta, a partita finita.
   useEffect(() => {
-    if (!finita || isPaused || rigori.length === 0 || rigoreIndex >= rigori.length) return;
-    const timer = setTimeout(() => setRigoreIndex((i) => i + 1), 900 / speedMultiplier);
+    if (!finita || inPausa || rigori.length === 0 || rigoreIndex >= rigori.length) return;
+    const timer = setTimeout(() => setRigoreIndex((i) => i + 1), 850 / velocita);
     return () => clearTimeout(timer);
-  }, [finita, isPaused, rigori.length, rigoreIndex, speedMultiplier]);
+  }, [finita, inPausa, rigori.length, rigoreIndex, velocita]);
 
-  const [ambientTick, setAmbientTick] = useState(0);
-  useEffect(() => {
-    if (azione || finita || isPaused) return;
-    const id = setInterval(() => setAmbientTick((t) => t + 1), 650 / speedMultiplier);
-    return () => clearInterval(id);
-  }, [azione, finita, isPaused, speedMultiplier]);
-
-  const salta = () => {
-    setMinuto(90);
+  const salta = useCallback(() => {
+    orologio.current = MATCH_SECONDS;
+    setFrame(costruisciFrame(flow, MATCH_SECONDS));
     setFinita(true);
-    setAzione(azioni[azioni.length - 1] ?? null);
-    setStepIndex(0);
     setRigoreIndex(rigori.length);
-  };
+  }, [flow, rigori.length]);
+
+  const minuto = Math.min(90, Math.floor(frame.second / 60) + (frame.second > 0 ? 1 : 0));
+
+  /**
+   * Cronaca, statistiche e inerzia scorrono tutte e tre l'elenco dei possessi: ricalcolarle a
+   * ogni fotogramma significherebbe farlo sessanta volte al secondo per informazioni che
+   * cambiano al massimo una volta al secondo di gioco. Il secondo arrotondato è la chiave.
+   */
+  const secondoIntero = Math.floor(frame.second);
 
   const parziale = useMemo(() => {
     let nostri = 0;
@@ -251,298 +191,123 @@ export function MatchTheatre({
     return { nostri, loro };
   }, [result.events, minuto]);
 
-  // Statistiche live calcolate fino al minuto corrente
-  const statsLive = useMemo(() => {
-    const azioniViste = azioni.filter((a) => a.minute <= minuto);
-    const tiriNostri =
-      result.events.filter((e) => e.minute <= minuto && e.team === "for").length +
-      azioniViste.filter((a) => a.team === "for" && (a.kind === "occasione" || a.kind === "parata" || a.kind === "palo")).length;
-    const tiriLoro =
-      result.events.filter((e) => e.minute <= minuto && e.team === "against").length +
-      azioniViste.filter((a) => a.team === "against" && (a.kind === "occasione" || a.kind === "parata" || a.kind === "palo")).length;
-    
-    const inPortaNostri =
-      parziale.nostri + azioniViste.filter((a) => a.team === "for" && a.kind === "parata").length;
-    const inPortaLoro =
-      parziale.loro + azioniViste.filter((a) => a.team === "against" && a.kind === "parata").length;
+  /** La cronaca: le ultime righe già passate, dalla più recente. */
+  const cronaca = useMemo(() => {
+    const righe: { minute: number; text: string; team: "for" | "against"; flash: PhaseFlash }[] = [];
+    for (const fase of flow.phases) {
+      if (!fase.commentary || fase.endSecond > secondoIntero) continue;
+      righe.push({
+        minute: Math.floor(fase.endSecond / 60) + 1,
+        text: fase.commentary,
+        team: fase.team,
+        flash: fase.flash,
+      });
+    }
+    return righe.reverse().slice(0, 4);
+  }, [flow.phases, secondoIntero]);
 
-    const diff = tiriNostri - tiriLoro;
-    const possessoNostri = Math.min(78, Math.max(22, 50 + diff * 4));
-    
-    return {
-      tiriNostri,
-      tiriLoro,
-      inPortaNostri,
-      inPortaLoro,
-      possessoNostri,
-      possessoLoro: 100 - possessoNostri,
-      angoliNostri: Math.max(0, Math.floor(tiriNostri * 0.4)),
-      angoliLoro: Math.max(0, Math.floor(tiriLoro * 0.4)),
-    };
-  }, [azioni, result.events, minuto, parziale]);
+  /** Le statistiche di quello che si è visto finora, non quelle di fine partita. */
+  const stats = useMemo(() => vistoFinora(flow, secondoIntero), [flow, secondoIntero]);
 
-  // Calcolo Inerzia / Pressione di gara negli ultimi minuti
-  const momentumPercent = useMemo(() => {
-    const recenti = azioni.filter((a) => a.minute <= minuto && a.minute >= Math.max(0, minuto - 15));
-    if (recenti.length === 0) return 50;
-    const countFor = recenti.filter((a) => a.team === "for").length;
-    return Math.round((countFor / recenti.length) * 100);
-  }, [azioni, minuto]);
+  /** Chi sta spingendo negli ultimi minuti: l'inerzia della gara. */
+  const inerzia = useMemo(() => {
+    const finestra = flow.phases.filter(
+      (p) => p.endSecond <= secondoIntero && p.endSecond >= secondoIntero - 600,
+    );
+    if (finestra.length === 0) return 50;
+    const tempoNostro = finestra
+      .filter((p) => p.team === "for")
+      .reduce((s, p) => s + (p.endSecond - p.startSecond), 0);
+    const totale = finestra.reduce((s, p) => s + (p.endSecond - p.startSecond), 0);
+    return totale > 0 ? Math.round((tempoNostro / totale) * 100) : 50;
+  }, [flow.phases, secondoIntero]);
 
   const esito = outcomeOf(parziale.nostri, parziale.loro);
-  const marcatoreNome = azione?.playerId ? nameOf(azione.playerId) : "";
+  const vittoria = penalties ? penalties.weWon : result.goalsFor > result.goalsAgainst;
 
   return (
     <motion.div
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="fixed inset-0 z-40 flex items-center justify-center bg-black/85 p-1 sm:p-4 backdrop-blur-lg select-none"
+      className="fixed inset-0 z-40 flex items-center justify-center bg-black/85 p-1 backdrop-blur-lg select-none sm:p-4"
     >
-      {finita &&
-        rigoreIndex >= rigori.length &&
-        (penalties ? penalties.weWon : result.goalsFor > result.goalsAgainst) && <CelebrationConfetti />}
+      {finita && rigoreIndex >= rigori.length && vittoria && <CelebrationConfetti />}
+
       <motion.div
-        initial={{ scale: 0.94, y: 16, opacity: 0 }}
+        initial={{ scale: 0.95, y: 14, opacity: 0 }}
         animate={{ scale: 1, y: 0, opacity: 1 }}
         transition={{ type: "spring", stiffness: 320, damping: 28 }}
-        className="flex w-full max-w-3xl flex-col overflow-hidden rounded-3xl border border-emerald-500/30 bg-[#0d1520] shadow-2xl"
+        className="flex max-h-full w-full max-w-3xl flex-col overflow-hidden rounded-3xl border border-emerald-500/25 bg-[#0b1118] shadow-2xl"
       >
-        {/* Header con Risultato & Momentum HUD */}
-        <header className="flex flex-col border-b border-white/10 bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 px-4 py-3">
-          <div className="flex items-center gap-3">
-            <div className="min-w-0 flex-1">
-              <p className="flex items-center gap-1.5 truncate text-[10px] font-black tracking-widest text-emerald-400 uppercase">
-                <Crown size={11} />
-                {reason}
-              </p>
-              <p className="truncate text-sm leading-tight font-extrabold text-white">
-                {clubName} <span className="text-slate-400 font-normal">vs</span> {opponent}
-              </p>
-            </div>
-            <span
-              className="shrink-0 rounded-2xl px-4 py-1.5 text-2xl font-black tabular-nums shadow-lg border border-white/10"
-              style={{ backgroundColor: `${OUTCOME_COLOR[esito]}22`, color: OUTCOME_COLOR[esito] }}
-            >
-              {parziale.nostri} - {parziale.loro}
-            </span>
-            <button
-              type="button"
-              onClick={onClose}
-              aria-label="Chiudi la partita"
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/5 text-slate-300 hover:bg-white/15 hover:text-white transition-colors"
-            >
-              <X size={16} />
-            </button>
-          </div>
+        <Intestazione
+          reason={reason}
+          clubName={clubName}
+          opponent={opponent}
+          parziale={parziale}
+          colore={OUTCOME_COLOR[esito]}
+          inerzia={inerzia}
+          onClose={onClose}
+        />
 
-          {/* Gauge dell'Inerzia di Gara (Match Momentum Bar) */}
-          <div className="mt-2.5 flex items-center gap-2">
-            <span className="text-[9px] font-black tracking-wider text-slate-400 uppercase shrink-0">
-              Inerzia
-            </span>
-            <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-800 p-0.5 border border-white/5 flex">
-              <motion.div
-                className="h-full rounded-full bg-emerald-400 transition-all duration-500"
-                style={{ width: `${momentumPercent}%` }}
-              />
-              <motion.div
-                className="h-full rounded-full bg-rose-500 transition-all duration-500"
-                style={{ width: `${100 - momentumPercent}%` }}
-              />
-            </div>
-            <span className="text-[9px] font-bold text-slate-300 tabular-nums shrink-0">
-              {momentumPercent}% / {100 - momentumPercent}%
-            </span>
-          </div>
-        </header>
-
-        {/* Campo da gioco 2D HD */}
         <div className="relative">
           <Campo
-            azione={azione}
-            currentStep={currentStep}
+            players={flow.players}
+            frame={frame}
             clubName={clubName}
-            opponentName={opponent}
-            scorerName={marcatoreNome}
-            pallini={PALLINI}
-            ambientTick={ambientTick}
+            opponent={opponent}
+            nameOf={nameOf}
           />
 
-          {/* Orologio Minuto + Badge Micro-Fase */}
-          <div className="absolute top-3 left-3 flex items-center gap-2 z-20">
-            <span className="rounded-xl bg-black/80 backdrop-blur px-3 py-1 text-xs font-black text-white tabular-nums border border-emerald-400/40 shadow-lg">
-              {Math.min(minuto, 90)}&apos;
-            </span>
+          <Orologio minuto={minuto} correndo={frame.correndo} />
 
-            {currentStep?.phaseLabel && (
-              <motion.span
-                key={currentStep.phaseLabel}
-                initial={{ scale: 0.8, opacity: 0 }}
-                animate={{ scale: 1, opacity: 1 }}
-                className="rounded-xl bg-emerald-500 px-3 py-1 text-[10px] font-black text-slate-950 uppercase shadow-lg border border-emerald-300"
-              >
-                {currentStep.phaseLabel}
-              </motion.span>
-            )}
-          </div>
+          <PannelloStatistiche stats={stats} />
 
-          {/* Pulsante Statistiche Live Overlay */}
-          <button
-            type="button"
-            onClick={() => setShowStatsDrawer((v) => !v)}
-            className="absolute top-3 right-3 z-20 flex items-center gap-1.5 rounded-xl border border-white/20 bg-slate-900/80 px-2.5 py-1 text-xs font-extrabold text-white backdrop-blur hover:bg-slate-800 transition-colors shadow-lg"
-          >
-            <BarChart2 size={14} className="text-emerald-400" />
-            Stats
-          </button>
-
-          {/* Drawer Statistiche Live */}
           <AnimatePresence>
-            {showStatsDrawer && (
-              <motion.div
-                initial={{ opacity: 0, scale: 0.9, y: -10 }}
-                animate={{ opacity: 1, scale: 1, y: 0 }}
-                exit={{ opacity: 0, scale: 0.9, y: -10 }}
-                className="absolute top-12 right-3 z-30 w-64 rounded-2xl border border-white/20 bg-slate-900/95 p-3 backdrop-blur-md shadow-2xl text-xs text-white"
-              >
-                <div className="flex items-center justify-between border-b border-white/10 pb-2 mb-2">
-                  <span className="font-black text-emerald-400 uppercase tracking-wider text-[10px]">
-                    Statistiche Partita
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => setShowStatsDrawer(false)}
-                    className="text-slate-400 hover:text-white"
-                  >
-                    <X size={13} />
-                  </button>
-                </div>
-                <div className="flex flex-col gap-2">
-                  <StatRow label="Tiri Totali" v1={statsLive.tiriNostri} v2={statsLive.tiriLoro} />
-                  <StatRow label="In Porta" v1={statsLive.inPortaNostri} v2={statsLive.inPortaLoro} />
-                  <StatRow label="Possesso Palla" v1={`${statsLive.possessoNostri}%`} v2={`${statsLive.possessoLoro}%`} />
-                  <StatRow label="Calci d'Angolo" v1={statsLive.angoliNostri} v2={statsLive.angoliLoro} />
-                </div>
-              </motion.div>
+            {frame.phase?.flash && !frame.correndo && frame.second >= frame.phase.endSecond - 1.2 && (
+              <Lampo key={`${frame.phase.index}-${frame.phase.flash}`} flash={frame.phase.flash} />
             )}
           </AnimatePresence>
 
-          {/* Banner Cronaca Azione in Basso */}
-          <AnimatePresence mode="wait">
-            {azione && (
-              <motion.div
-                key={`${azione.minute}-${azione.kind}`}
-                initial={{ y: 24, opacity: 0 }}
-                animate={{ y: 0, opacity: 1 }}
-                exit={{ y: -12, opacity: 0 }}
-                transition={{ type: "spring", stiffness: 400, damping: 28 }}
-                className="absolute inset-x-3 bottom-3 z-20 rounded-2xl p-3 backdrop-blur-md shadow-2xl border border-white/20"
-                style={{ backgroundColor: `${coloreAzione(azione)}ee` }}
-              >
-                <div className="flex items-center justify-between">
-                  <p className="text-[10px] font-black tracking-widest text-black/80 uppercase">
-                    {azione.minute}&apos; · {azione.team === "for" ? clubName : opponent}
-                  </p>
-                  <span className="text-[10px] font-bold text-black/70 uppercase tracking-wider">
-                    {azione.kind}
-                  </span>
-                </div>
-                <p className="text-sm sm:text-base leading-tight font-black text-slate-950 mt-0.5">
-                  {azione.text}
-                </p>
-              </motion.div>
-            )}
-          </AnimatePresence>
-
-          {/* Rigori Spareggio Overlay */}
           {finita && rigori.length > 0 && (
-            <div className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-3 bg-black/80 backdrop-blur-md">
-              <p className="text-[11px] font-black tracking-widest text-amber-300 uppercase">
-                Sequenza dei Rigori
-              </p>
-              <div className="flex gap-2">
-                {rigori.map((k, i) => (
-                  <RigoreSegno key={i} kick={k} visto={i < rigoreIndex} />
-                ))}
-              </div>
-              <p className="text-3xl font-black text-white tabular-nums">
-                {rigori.slice(0, rigoreIndex).filter((k) => k.team === "for" && k.scored).length}
-                {" - "}
-                {rigori.slice(0, rigoreIndex).filter((k) => k.team === "against" && k.scored).length}
-              </p>
-              {rigoreIndex >= rigori.length && (
-                <p
-                  className="text-sm font-black uppercase tracking-wider"
-                  style={{ color: penalties?.weWon ? "#3ddc6b" : "#ff4d4d" }}
-                >
-                  {penalties?.weWon ? "Vittoria ai Rigori!" : "Sconfitta ai Rigori"}
-                </p>
-              )}
-            </div>
+            <Rigori kicks={rigori} visti={rigoreIndex} weWon={!!penalties?.weWon} />
           )}
         </div>
 
-        {/* Timeline Eventi della Partita */}
-        <div className="border-t border-white/10 bg-slate-950 px-4 py-2 overflow-x-auto">
-          <div className="flex items-center gap-2 min-w-max">
-            <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider">
-              Timeline:
-            </span>
-            {result.events.map((e, idx) => (
-              <span
-                key={idx}
-                className={`flex items-center gap-1 rounded-lg px-2 py-0.5 text-[10px] font-extrabold ${
-                  e.minute <= minuto
-                    ? e.team === "for"
-                      ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40"
-                      : "bg-rose-500/20 text-rose-300 border border-rose-500/40"
-                    : "bg-slate-800/40 text-slate-500"
-                }`}
-              >
-                ⚽ {e.minute}&apos; {nameOf(e.scorerId).split(" ").pop()}
-              </span>
-            ))}
-            {result.events.length === 0 && (
-              <span className="text-[10px] italic text-slate-500">Nessun gol in partita</span>
-            )}
-          </div>
-        </div>
+        <Cronaca righe={cronaca} clubName={clubName} opponent={opponent} />
 
-        {/* Footer Controlli */}
-        <footer className="flex items-center justify-between gap-3 border-t border-white/10 p-3 bg-slate-900/90">
+        <footer className="flex items-center gap-2 border-t border-white/10 bg-slate-950/80 p-3">
           {!finita && (
-            <div className="flex items-center gap-2">
+            <>
               <button
                 type="button"
-                onClick={() => setIsPaused((p) => !p)}
-                className="flex h-10 w-10 items-center justify-center rounded-xl border border-white/15 bg-white/5 text-slate-200 hover:bg-white/15 hover:text-white transition-colors"
-                title={isPaused ? "Riprendi" : "Pausa"}
+                onClick={() => setInPausa((p) => !p)}
+                aria-label={inPausa ? "Riprendi la partita" : "Metti in pausa"}
+                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-white/15 bg-white/5 text-slate-200 transition-colors hover:bg-white/15 hover:text-white"
               >
-                {isPaused ? <Play size={17} /> : <Pause size={17} />}
+                {inPausa ? <Play size={18} /> : <Pause size={18} />}
               </button>
-
               <button
                 type="button"
-                onClick={() => setSpeedMultiplier((s) => (s === 1 ? 2 : 1))}
-                className={`flex h-10 items-center gap-1.5 rounded-xl border px-3.5 text-xs font-black transition-colors ${
-                  speedMultiplier === 2
-                    ? "border-emerald-400 bg-emerald-500/20 text-emerald-300"
-                    : "border-white/15 bg-white/5 text-slate-300"
+                onClick={() => setVelocita((v) => (v === 1 ? 2 : v === 2 ? 4 : 1))}
+                aria-label={`Velocità ${velocita}x, tocca per cambiare`}
+                className={`flex h-11 shrink-0 items-center gap-1.5 rounded-xl border px-3.5 text-xs font-black transition-colors ${
+                  velocita === 1
+                    ? "border-white/15 bg-white/5 text-slate-300"
+                    : "border-emerald-400/70 bg-emerald-500/20 text-emerald-300"
                 }`}
               >
-                <Zap size={14} />
-                {speedMultiplier}x Velocità
+                <Gauge size={15} />
+                {velocita}x
               </button>
-            </div>
+            </>
           )}
-
-          <div className="flex-1">
+          <div className="min-w-0 flex-1">
             {finita ? (
               <button
                 type="button"
                 onClick={onClose}
-                className="w-full rounded-2xl bg-emerald-500 py-3 text-sm font-black text-slate-950 shadow-lg hover:bg-emerald-400 active:scale-[0.98] transition-transform"
+                className="w-full rounded-2xl bg-emerald-500 py-3 text-sm font-black text-slate-950 shadow-lg transition-transform hover:bg-emerald-400 active:scale-[0.98]"
               >
                 Torna alla stagione
               </button>
@@ -550,7 +315,7 @@ export function MatchTheatre({
               <button
                 type="button"
                 onClick={salta}
-                className="flex w-full items-center justify-center gap-2 rounded-2xl border border-white/15 bg-white/5 py-2.5 text-sm font-bold text-slate-300 hover:bg-white/10 hover:text-white transition-colors"
+                className="flex w-full items-center justify-center gap-2 rounded-2xl border border-white/15 bg-white/5 py-2.5 text-sm font-bold text-slate-300 transition-colors hover:bg-white/10 hover:text-white"
               >
                 <FastForward size={16} />
                 Salta al finale
@@ -563,478 +328,564 @@ export function MatchTheatre({
   );
 }
 
-function StatRow({ label, v1, v2 }: { label: string; v1: string | number; v2: string | number }) {
-  return (
-    <div className="flex items-center justify-between font-extrabold text-[11px]">
-      <span className="text-emerald-400 w-10 text-left tabular-nums">{v1}</span>
-      <span className="text-slate-400 font-semibold">{label}</span>
-      <span className="text-rose-400 w-10 text-right tabular-nums">{v2}</span>
-    </div>
-  );
+/* -------------------------------------------------------------------------- */
+/* Il fotogramma: dove sono pallone e ventidue in questo istante               */
+/* -------------------------------------------------------------------------- */
+
+function primoFrame(flow: MatchFlow): Frame {
+  return costruisciFrame(flow, 0);
 }
 
-/** Campo da gioco 2D HD con Traiettorie avanzate e Pop-up d'Azione FX */
+/**
+ * La fotografia di un istante.
+ *
+ * Due dettagli che valgono più di quanto sembri:
+ *  - **chi porta palla è disegnato sul pallone**, non nella sua posizione tattica. Toglie di
+ *    mezzo la circolarità (la forma dipende dal pallone, il pallone dai giocatori) ed è anche
+ *    ciò che si vede davvero guardando dall'alto: il portatore *è* dov'è la palla;
+ *  - **chi la sta per ricevere le va incontro**, con peso crescente man mano che il passaggio
+ *    arriva. Senza, il pallone raggiungerebbe un punto vuoto e il ricevente comparirebbe dopo.
+ */
+function costruisciFrame(flow: MatchFlow, second: number): Frame {
+  const indice = phaseIndexAt(flow.phases, second);
+  const phase = flow.phases[indice] ?? null;
+  const dentro = !!phase && second <= phase.endSecond;
+  const ball = phase ? ballAt(phase, second) : { x: 50, y: 50, height: 0, carrierId: null, receiverId: null, progress: 0, kind: "inizio" as const };
+  const correndo = !(dentro && phase!.notable);
+
+  const positions = new Map<string, { x: number; y: number }>();
+  const ctx = {
+    ball: { x: ball.x, y: ball.y },
+    possession: (phase?.team ?? "for") as "for" | "against",
+    intensity: phase?.notable ? 1 : 0.45,
+  };
+
+  for (const p of flow.players) {
+    const base = tacticalPosition(p, ctx, second);
+    let { x, y } = base;
+
+    if (p.id === ball.carrierId && ball.progress < 0.35) {
+      const peso = 1 - ball.progress / 0.35;
+      x += (ball.x - x) * peso;
+      y += (ball.y - y) * peso;
+    }
+    if (p.id === ball.receiverId && ball.progress > 0.4) {
+      const peso = (ball.progress - 0.4) / 0.6;
+      x += (ball.x - x) * peso * peso;
+      y += (ball.y - y) * peso * peso;
+    }
+    positions.set(p.id, { x, y });
+  }
+
+  return { second, phase, ball, positions, correndo };
+}
+
+/** Quello che si è visto fino a questo istante, non il totale di fine partita. */
+function vistoFinora(flow: MatchFlow, second: number) {
+  const conta = { for: { tiri: 0, porta: 0, angoli: 0, falli: 0 }, against: { tiri: 0, porta: 0, angoli: 0, falli: 0 } };
+  let tempoFor = 0;
+  let tempoTot = 0;
+  for (const fase of flow.phases) {
+    if (fase.endSecond > second) break;
+    const mia = conta[fase.team];
+    const altra = conta[fase.team === "for" ? "against" : "for"];
+    tempoTot += fase.endSecond - fase.startSecond;
+    if (fase.team === "for") tempoFor += fase.endSecond - fase.startSecond;
+    if (fase.outcome === "gol" || fase.outcome === "parata") {
+      mia.tiri++;
+      mia.porta++;
+    } else if (fase.outcome === "fuori" || fase.outcome === "palo") {
+      mia.tiri++;
+    } else if (fase.outcome === "angolo") {
+      mia.angoli++;
+    } else if (fase.outcome === "fallo") {
+      altra.falli++;
+    }
+  }
+  const possesso = tempoTot > 0 ? Math.round((tempoFor / tempoTot) * 100) : 50;
+  return { ...conta, possesso };
+}
+
+/* -------------------------------------------------------------------------- */
+/* Il campo                                                                    */
+/* -------------------------------------------------------------------------- */
+
+const COLORI = {
+  nostri: "#10b981",
+  nostriBordo: "#ecfdf5",
+  loro: "#1e293b",
+  loroBordo: "#94a3b8",
+  portiere: "#f59e0b",
+} as const;
+
+/**
+ * Il campo in SVG, in coordinate 0-100 × 0-64.
+ *
+ * Tutto sta dentro un unico `<svg>` — pallone, ombra, ventidue giocatori, scia — perché il
+ * fotogramma cambia sessanta volte al secondo: con altrettanti elementi DOM animati da una
+ * libreria si perderebbero fotogrammi proprio nel momento in cui si guarda il gol.
+ */
 function Campo({
-  azione,
-  currentStep,
-  clubName: _clubName,
-  opponentName: _opponentName,
-  scorerName,
-  pallini,
-  ambientTick,
+  players,
+  frame,
+  clubName,
+  opponent,
+  nameOf,
 }: {
-  azione: Highlight | null;
-  currentStep: ActionStep | null;
+  players: PitchPlayer[];
+  frame: Frame;
   clubName: string;
-  opponentName: string;
-  scorerName: string;
-  pallini: Pallino[];
-  ambientTick: number;
+  opponent: string;
+  nameOf: (id: string | null) => string;
 }) {
-  const possessoAmbientale = useMemo(
-    () => (azione ? null : palleggioAmbientale(pallini, ambientTick)),
-    [azione, pallini, ambientTick],
-  );
-
-  const ballPos = useMemo(() => {
-    if (currentStep) return { x: currentStep.toX, y: currentStep.toY };
-    if (azione) return { x: azione.x, y: azione.y };
-    if (possessoAmbientale) return possessoAmbientale;
-    return { x: 50, y: 50 };
-  }, [azione, currentStep, possessoAmbientale]);
-
-  // Calcolo altezza/scala del pallone per la fisica 3D di quota
-  const ballHeightStyle = useMemo(() => {
-    const h = currentStep?.ballHeight ?? "ground";
-    if (h === "high_arc") return { scale: 1.65, offsetY: -12, shadowSize: 14 };
-    if (h === "low_arc") return { scale: 1.35, offsetY: -6, shadowSize: 10 };
-    if (h === "rocket") return { scale: 1.45, offsetY: -3, shadowSize: 8 };
-    return { scale: 1.0, offsetY: 0, shadowSize: 6 };
-  }, [currentStep?.ballHeight]);
-
-  const isGoalMoment =
-    currentStep?.trajectory === "shot" &&
-    (azione?.kind === "gol" || azione?.kind === "rigore");
+  const { ball, positions, phase, correndo } = frame;
+  const scia = useScia(ball, correndo);
+  const alzato = ball.height;
+  const golOra = phase?.flash === "GOL" && ball.kind === "rete";
+  const portatore = ball.carrierId;
+  // Solo il cognome: un nome legale per esteso ("Leon Christoph Goretzka") copre mezzo campo.
+  const nomePortatore = portatore ? cognome(nameOf(portatore)) : "";
 
   return (
-    <div className="relative aspect-[16/10] w-full overflow-hidden bg-[#1e5828] shadow-inner select-none border-b border-white/10">
-      {/* Texture Erba HD a strisce erba scura/chiara */}
+    <div className="relative aspect-[16/10] w-full overflow-hidden border-b border-white/10 bg-[#12401f]">
+      {/* Strisce di taglio dell'erba: due verdi vicini, mai un pattern appariscente. */}
       <div
         aria-hidden
-        className="absolute inset-0 opacity-30 pointer-events-none"
+        className="pointer-events-none absolute inset-0 opacity-45"
         style={{
           backgroundImage:
-            "repeating-linear-gradient(90deg, rgba(255,255,255,0.15) 0 10%, transparent 10% 20%)",
+            "repeating-linear-gradient(90deg, rgba(255,255,255,0.06) 0 8.33%, rgba(0,0,0,0.07) 8.33% 16.66%)",
         }}
       />
+      {/* Vignettatura: stacca il campo dal bordo del pannello. */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0"
+        style={{ background: "radial-gradient(ellipse at center, transparent 45%, rgba(0,0,0,0.45) 100%)" }}
+      />
 
-      {/* Goal Flash / Goal Net Ripple Animato */}
-      {isGoalMoment && (
+      {golOra && (
         <motion.div
+          aria-hidden
           initial={{ opacity: 0 }}
-          animate={{ opacity: [0.3, 0.9, 0.4] }}
-          transition={{ repeat: Infinity, duration: 0.25 }}
-          className={`absolute inset-y-0 ${
-            azione.team === "for" ? "right-0 w-[10%]" : "left-0 w-[10%]"
-          } bg-emerald-400/50 blur-sm border-l-2 border-emerald-300`}
+          animate={{ opacity: [0, 0.55, 0] }}
+          transition={{ duration: 0.5 }}
+          className="pointer-events-none absolute inset-0 bg-white"
         />
       )}
 
-      {/* Segnatura del campo SVG HD */}
-      <svg viewBox="0 0 100 62" preserveAspectRatio="none" className="absolute inset-0 h-full w-full pointer-events-none">
-        <g stroke="rgba(255,255,255,0.7)" strokeWidth="0.5" fill="none">
-          <rect x="2" y="2" width="96" height="58" />
-          <line x1="50" y1="2" x2="50" y2="60" />
-          <circle cx="50" cy="31" r="8.5" />
-          {/* Area di rigore sinistra */}
-          <rect x="2" y="15" width="13" height="32" />
-          <rect x="2" y="23" width="4.5" height="16" />
-          <circle cx="11" cy="31" r="0.9" fill="rgba(255,255,255,0.9)" />
-          {/* Area di rigore destra */}
-          <rect x="85" y="15" width="13" height="32" />
-          <rect x="93.5" y="23" width="4.5" height="16" />
-          <circle cx="89" cy="31" r="0.9" fill="rgba(255,255,255,0.9)" />
-        </g>
+      <svg
+        viewBox="0 0 100 64"
+        preserveAspectRatio="none"
+        className="absolute inset-0 h-full w-full"
+        role="img"
+        aria-label={`Campo di gioco, ${clubName} contro ${opponent}`}
+      >
+        <Segnatura />
 
-        {/* Traiettoria Palla SVG avanzata con gradiente scia */}
-        {currentStep && (
-          <TraiettoriaPalla step={currentStep} team={azione?.team ?? "for"} />
-        )}
+        {/* La scia del pallone: pochi punti che sbiadiscono, non un effetto luminoso. */}
+        {scia.map((p, i) => (
+          <circle
+            key={i}
+            cx={p.x}
+            cy={p.y * 0.64}
+            r={0.5 + (i / scia.length) * 0.6}
+            fill="#ffffff"
+            opacity={(i / scia.length) * 0.3}
+          />
+        ))}
+
+        {/* I ventidue. L'ordine di disegno mette il portatore in cima. */}
+        {players.map((p) => {
+          const pos = positions.get(p.id) ?? p.base;
+          const attivo = p.id === ball.carrierId || p.id === ball.receiverId;
+          return (
+            <Giocatore
+              key={p.id}
+              player={p}
+              x={pos.x}
+              y={pos.y * 0.64}
+              attivo={attivo}
+              inPrimoPiano={p.id === ball.carrierId}
+            />
+          );
+        })}
+
+        {/* Ombra a terra: resta al suolo mentre il pallone si alza. È il trucco che dà
+            profondità a una vista 2D senza dover disegnare una terza dimensione. */}
+        <ellipse
+          cx={ball.x}
+          cy={ball.y * 0.64}
+          rx={0.85 + alzato * 0.5}
+          ry={0.5 + alzato * 0.3}
+          fill="rgba(0,0,0,0.45)"
+        />
+        <circle
+          cx={ball.x}
+          cy={ball.y * 0.64 - alzato * 3.2}
+          r={0.95 + alzato * 0.5}
+          fill="#ffffff"
+          stroke="rgba(15,23,42,0.85)"
+          strokeWidth="0.28"
+        />
       </svg>
 
-      {/* Action FX Pop-up sul punto esatto del campo dove avviene l'evento */}
+      {/* Il nome di chi ha il pallone: una sola etichetta, quella che serve. */}
       <AnimatePresence>
-        {currentStep?.actionTag && (
-          <motion.div
-            key={`${currentStep.actionTag}-${currentStep.toX}-${currentStep.toY}`}
-            initial={{ scale: 0.2, y: 10, opacity: 0 }}
-            animate={{ scale: 1.2, y: -22, opacity: 1 }}
-            exit={{ scale: 0.8, opacity: 0 }}
-            transition={{ type: "spring", stiffness: 500, damping: 22 }}
-            className="absolute -translate-x-1/2 z-30 pointer-events-none"
-            style={{ left: `${currentStep.toX}%`, top: `${currentStep.toY}%` }}
+        {!correndo && nomePortatore && (
+          <motion.span
+            key={portatore}
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0 }}
+            className="pointer-events-none absolute z-20 -translate-x-1/2 -translate-y-full rounded-md border border-white/20 bg-slate-950/90 px-1.5 py-0.5 text-[9px] font-black whitespace-nowrap text-white shadow-lg"
+            style={{ left: `${ball.x}%`, top: `${Math.max(7, ball.y - 5)}%` }}
           >
-            <ActionBadge tag={currentStep.actionTag} />
-          </motion.div>
+            {nomePortatore}
+          </motion.span>
         )}
       </AnimatePresence>
 
-      {/* 22 Pallini Giocatori HD con Numeri di Maglia e Colori Sociali */}
-      {pallini.map((p) => {
-        const pos = calcolaPosizioneGiocatore(p, meStep(azione, 0), currentStep, azione, ambientTick);
-        const idNoto = currentStep && (currentStep.fromPlayerId || currentStep.toPlayerId);
-        const isActiveActor =
-          !!currentStep &&
-          (idNoto
-            ? p.id === currentStep.fromPlayerId || p.id === currentStep.toPlayerId
-            : (currentStep.activeActor === "keeper" && p.ruoloGenerico === "GK" && p.nostro !== (azione?.team === "for")) ||
-              (currentStep.activeActor === "shooter" && p.ruoloGenerico === "ATT" && p.nostro === (azione?.team === "for")) ||
-              (currentStep.activeActor === "passer" && p.ruoloGenerico === "MID" && p.nostro === (azione?.team === "for")));
-
-        const isKeeper = p.ruoloGenerico === "GK";
-
-        return (
+      {/* Quando l'orologio corre lo dichiara: fingere che nulla stia succedendo sarebbe peggio. */}
+      <AnimatePresence>
+        {correndo && (
           <motion.div
-            key={p.id}
-            className="absolute -translate-x-1/2 -translate-y-1/2 z-10"
-            style={{ left: `${pos.x}%`, top: `${pos.y}%` }}
-            animate={{ left: `${pos.x}%`, top: `${pos.y}%` }}
-            transition={{ type: "spring", stiffness: 75, damping: 17 }}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="pointer-events-none absolute inset-x-0 bottom-0 flex items-center justify-center gap-1.5 bg-gradient-to-t from-black/70 to-transparent pb-2 pt-8"
           >
-            {/* Spotlight Possesso Palla / Attore Attivo */}
-            {isActiveActor && (
-              <motion.span
-                initial={{ scale: 0.8, opacity: 0 }}
-                animate={{ scale: [1, 1.5, 1], opacity: [0.6, 1, 0.6] }}
-                transition={{ repeat: Infinity, duration: 0.9 }}
-                className="absolute -inset-1.5 rounded-full border-2 border-amber-300 ring-4 ring-amber-400/40 shadow-xl"
-              />
-            )}
-
-            {/* Pallino Giocatore con Numero di Maglia */}
-            <span
-              className="relative flex h-5 w-5 sm:h-6 sm:w-6 items-center justify-center rounded-full shadow-lg border text-[10px] sm:text-[11px] font-black tabular-nums transition-transform"
-              style={{
-                backgroundColor: isKeeper
-                  ? "#f59e0b"
-                  : p.nostro
-                    ? "#10b981"
-                    : "#0f172a",
-                borderColor: p.nostro ? "#ffffff" : "#cbd5e1",
-                color: isKeeper ? "#000000" : "#ffffff",
-                boxShadow: isActiveActor ? "0 0 12px rgba(251, 191, 36, 0.9)" : "0 2px 5px rgba(0,0,0,0.5)",
-              }}
-            >
-              {p.numero}
+            <FastForward size={12} className="text-emerald-300" />
+            <span className="text-[10px] font-black tracking-widest text-emerald-200 uppercase">
+              Si gioca
             </span>
-
-            {/* Etichetta Nome sopra il Marcatore al tiro */}
-            {isActiveActor && currentStep.activeActor === "shooter" && scorerName && (
-              <motion.span
-                initial={{ y: 4, opacity: 0 }}
-                animate={{ y: 0, opacity: 1 }}
-                className="absolute -top-6 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-md bg-slate-950/90 border border-amber-400/60 px-2 py-0.5 text-[9px] font-black text-amber-300 shadow-xl z-30"
-              >
-                ⚽ {scorerName}
-              </motion.span>
-            )}
           </motion.div>
-        );
-      })}
-
-      {/* Ombra a Terra del Pallone */}
-      <motion.div
-        className="absolute -translate-x-1/2 -translate-y-1/2 z-10 rounded-full bg-black/50 blur-xs pointer-events-none"
-        style={{
-          left: `${ballPos.x}%`,
-          top: `${ballPos.y}%`,
-          width: `${ballHeightStyle.shadowSize}px`,
-          height: `${ballHeightStyle.shadowSize * 0.6}px`,
-        }}
-        animate={{ left: `${ballPos.x}%`, top: `${ballPos.y}%` }}
-        transition={transizionePalla(currentStep?.trajectory)}
-      />
-
-      {/* Il Pallone da Calcio HD con Reticolo Neon & Elevazione */}
-      <motion.div
-        className="absolute -translate-x-1/2 -translate-y-1/2 z-20 pointer-events-none"
-        style={{ left: `${ballPos.x}%`, top: `${ballPos.y}%` }}
-        animate={{ left: `${ballPos.x}%`, top: `${ballPos.y}%` }}
-        transition={transizionePalla(currentStep?.trajectory)}
-      >
-        <motion.div
-          animate={{ scale: ballHeightStyle.scale, y: ballHeightStyle.offsetY }}
-          transition={{ type: "spring", stiffness: 180, damping: 15 }}
-          className="relative flex items-center justify-center"
-        >
-          {/* Anello Neon Pulsante della Palla */}
-          <span className="absolute -inset-1 rounded-full bg-amber-400/60 blur-xs animate-pulse" />
-          <span className="block h-3.5 w-3.5 sm:h-4 sm:w-4 rounded-full bg-white shadow-2xl ring-2 ring-slate-950 border border-slate-200" />
-        </motion.div>
-      </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
 
-/** Pop-up visivo d'impatto sul campo per i vari tipi di azione */
-function ActionBadge({ tag }: { tag: string }) {
-  switch (tag) {
-    case "GOAL":
-      return (
-        <span className="flex items-center gap-1 rounded-full bg-amber-400 px-3 py-1 text-xs font-black text-slate-950 shadow-2xl border-2 border-white uppercase tracking-wider">
-          ⚽ GOOOAL!
-        </span>
-      );
-    case "SAVE":
-      return (
-        <span className="flex items-center gap-1 rounded-full bg-cyan-500 px-3 py-1 text-xs font-black text-white shadow-2xl border-2 border-white uppercase tracking-wider">
-          🧤 PARATA!
-        </span>
-      );
-    case "POST":
-      return (
-        <span className="flex items-center gap-1 rounded-full bg-amber-500 px-3 py-1 text-xs font-black text-slate-950 shadow-2xl border-2 border-white uppercase tracking-wider">
-          💥 PALO!
-        </span>
-      );
-    case "CROSS":
-      return (
-        <span className="flex items-center gap-1 rounded-full bg-emerald-500 px-2.5 py-0.5 text-[10px] font-black text-slate-950 shadow-lg border border-white uppercase">
-          🎯 CROSS
-        </span>
-      );
-    case "SHOT":
-      return (
-        <span className="flex items-center gap-1 rounded-full bg-rose-500 px-2.5 py-0.5 text-[10px] font-black text-white shadow-lg border border-white uppercase">
-          ⚡ TIRO!
-        </span>
-      );
-    case "CARD":
-      return (
-        <span className="flex items-center gap-1 rounded-full bg-red-600 px-3 py-1 text-xs font-black text-white shadow-2xl border-2 border-white uppercase">
-          🟥 ESPULSIONE!
-        </span>
-      );
-    default:
-      return null;
-  }
+/** L'ultima parola di un nome: sul campo c'è spazio per il cognome e basta. */
+function cognome(nome: string): string {
+  const parti = nome.trim().split(/\s+/);
+  return parti[parti.length - 1] ?? nome;
 }
 
-/** Disegna la scia o l'arco della palla con SVG avanzato */
-function TraiettoriaPalla({ step, team }: { step: ActionStep; team: "for" | "against" }) {
-  const { fromX, fromY, toX, toY, trajectory } = step;
-
-  if (trajectory === "cross") {
-    const midX = (fromX + toX) / 2;
-    const midY = Math.min(fromY, toY) - 14;
-    return (
-      <g>
-        <path
-          d={`M ${fromX} ${fromY} Q ${midX} ${midY} ${toX} ${toY}`}
-          fill="none"
-          stroke="#f59e0b"
-          strokeWidth="1.2"
-          strokeDasharray="2 2"
-        />
-        <circle cx={toX} cy={toY} r="1.5" fill="#f59e0b" />
-      </g>
-    );
-  }
-
-  if (trajectory === "shot") {
-    return (
-      <g>
-        <line
-          x1={fromX}
-          y1={fromY}
-          x2={toX}
-          y2={toY}
-          stroke={team === "for" ? "#34d399" : "#f87171"}
-          strokeWidth="1.8"
-          strokeLinecap="round"
-        />
-        <circle cx={toX} cy={toY} r="1.8" fill={team === "for" ? "#34d399" : "#f87171"} />
-      </g>
-    );
-  }
-
-  if (trajectory === "save_deflect" || trajectory === "post_rebound") {
-    return (
-      <g>
-        <line
-          x1={fromX}
-          y1={fromY}
-          x2={toX}
-          y2={toY}
-          stroke="#38bdf8"
-          strokeWidth="1.4"
-          strokeDasharray="1.5 1.5"
-        />
-        <circle cx={fromX} cy={fromY} r="2" fill="#facc15" />
-      </g>
-    );
-  }
-
+/** La segnatura del campo, in proporzioni credibili. Grafica originale, nessun asset. */
+function Segnatura() {
   return (
-    <line
-      x1={fromX}
-      y1={fromY}
-      x2={toX}
-      y2={toY}
-      stroke="rgba(255,255,255,0.6)"
-      strokeWidth="0.9"
-      strokeDasharray="1.5 1.5"
-    />
+    <g stroke="rgba(255,255,255,0.55)" strokeWidth="0.32" fill="none">
+      <rect x="2" y="2" width="96" height="60" />
+      <line x1="50" y1="2" x2="50" y2="62" />
+      <circle cx="50" cy="32" r="8" />
+      <circle cx="50" cy="32" r="0.6" fill="rgba(255,255,255,0.8)" stroke="none" />
+      {/* Area sinistra */}
+      <rect x="2" y="14" width="14" height="36" />
+      <rect x="2" y="24" width="5" height="16" />
+      <circle cx="11.5" cy="32" r="0.5" fill="rgba(255,255,255,0.8)" stroke="none" />
+      <path d="M 16 25.5 A 8 8 0 0 1 16 38.5" />
+      <rect x="0.4" y="27.5" width="1.6" height="9" fill="rgba(255,255,255,0.22)" />
+      {/* Area destra */}
+      <rect x="84" y="14" width="14" height="36" />
+      <rect x="93" y="24" width="5" height="16" />
+      <circle cx="88.5" cy="32" r="0.5" fill="rgba(255,255,255,0.8)" stroke="none" />
+      <path d="M 84 25.5 A 8 8 0 0 0 84 38.5" />
+      <rect x="98" y="27.5" width="1.6" height="9" fill="rgba(255,255,255,0.22)" />
+      {/* Bandierine d'angolo */}
+      <path d="M 2 3.2 A 1.2 1.2 0 0 0 3.2 2" />
+      <path d="M 96.8 2 A 1.2 1.2 0 0 0 98 3.2" />
+      <path d="M 2 60.8 A 1.2 1.2 0 0 1 3.2 62" />
+      <path d="M 96.8 62 A 1.2 1.2 0 0 1 98 60.8" />
+    </g>
   );
 }
 
-function seedDaId(id: string): number {
-  let h = 0;
-  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
-  return h;
+function Giocatore({
+  player,
+  x,
+  y,
+  attivo,
+  inPrimoPiano,
+}: {
+  player: PitchPlayer;
+  x: number;
+  y: number;
+  attivo: boolean;
+  inPrimoPiano: boolean;
+}) {
+  const portiere = player.department === "POR";
+  const riempimento = portiere ? COLORI.portiere : player.side === "for" ? COLORI.nostri : COLORI.loro;
+  const bordo = portiere ? "#fef3c7" : player.side === "for" ? COLORI.nostriBordo : COLORI.loroBordo;
+  const testo = portiere ? "#1c1206" : "#ffffff";
+  const r = 1.85;
+
+  return (
+    <g transform={`translate(${x} ${y})`} style={{ transition: "transform 90ms linear" }}>
+      {attivo && (
+        <circle r={r + 0.9} fill="none" stroke="#fbbf24" strokeWidth="0.4" opacity={inPrimoPiano ? 0.95 : 0.5} />
+      )}
+      <ellipse cx="0" cy={r * 0.75} rx={r * 0.85} ry={r * 0.35} fill="rgba(0,0,0,0.3)" />
+      <circle r={r} fill={riempimento} stroke={bordo} strokeWidth="0.32" />
+      <text
+        y="0.72"
+        textAnchor="middle"
+        fontSize="2"
+        fontWeight="800"
+        fill={testo}
+        style={{ pointerEvents: "none" }}
+      >
+        {player.shirt}
+      </text>
+    </g>
+  );
 }
 
-function derivaAmbientale(p: Pallino, tick: number): { x: number; y: number } {
-  const seme = seedDaId(p.id);
-  const fase = ((seme % 1000) / 1000) * Math.PI * 2;
-  const periodo = 5 + (seme % 4);
-  const ampX = 2 + (seme % 3);
-  const ampY = 1.5 + ((seme >> 3) % 3);
-  const t = tick / periodo + fase;
-  const x = p.baseX + Math.sin(t) * ampX;
-  const y = p.baseY + Math.cos(t * 0.85) * ampY;
-  return { x: Math.max(2, Math.min(98, x)), y: Math.max(2, Math.min(98, y)) };
-}
-
-function palleggioAmbientale(pallini: Pallino[], tick: number): { x: number; y: number } | null {
-  if (pallini.length === 0) return null;
-  const squadraNostra = Math.floor(tick / 3) % 2 === 0;
-  const candidati = pallini.filter((p) => p.nostro === squadraNostra && p.ruoloGenerico !== "GK");
-  if (candidati.length < 2) return null;
-  const passo = tick % 3;
-  const idxA = tick % candidati.length;
-  const idxB = (tick + 1 + (tick % (candidati.length - 1 || 1))) % candidati.length;
-  const a = candidati[idxA]!;
-  const b = candidati[idxB === idxA ? (idxA + 1) % candidati.length : idxB]!;
-  const progresso = passo / 2;
-  return {
-    x: a.baseX + (b.baseX - a.baseX) * progresso,
-    y: a.baseY + (b.baseY - a.baseY) * progresso,
-  };
-}
-
-function calcolaPosizioneGiocatore(
-  p: Pallino,
-  _firstStep: ActionStep | null,
-  currentStep: ActionStep | null,
-  azione: Highlight | null,
-  ambientTick = 0,
-): { x: number; y: number } {
-  if (!azione || !currentStep) {
-    return derivaAmbientale(p, ambientTick);
-  }
-
-  const { activeActor, trajectory, fromPlayerId, toPlayerId } = currentStep;
-  const nostraAzione = azione.team === "for";
-  const idNoto = !!(fromPlayerId || toPlayerId);
-  const eProtagonista = idNoto ? p.id === fromPlayerId || p.id === toPlayerId : undefined;
-
-  if (
-    activeActor === "keeper" &&
-    p.nostro !== nostraAzione &&
-    (idNoto ? eProtagonista : p.ruoloGenerico === "GK")
-  ) {
-    return { x: currentStep.toX, y: currentStep.toY };
-  }
-
-  if (
-    p.nostro === nostraAzione &&
-    (activeActor === "shooter" || activeActor === "passer") &&
-    (idNoto ? eProtagonista : p.ruoloGenerico === "ATT")
-  ) {
-    return { x: currentStep.fromX, y: currentStep.fromY };
-  }
-
-  if (trajectory === "celebration" && p.nostro === nostraAzione) {
-    if (idNoto ? eProtagonista : p.ruoloGenerico === "ATT") {
-      return { x: currentStep.toX, y: currentStep.toY };
+/**
+ * La scia del pallone: le ultime posizioni.
+ *
+ * L'aggiornamento sta in un effetto e non nel corpo del render: mutare un ref mentre si
+ * disegna renderebbe il render impuro, e col doppio render di StrictMode la scia si
+ * riempirebbe al doppio della velocità.
+ */
+function useScia(ball: BallState, correndo: boolean) {
+  const punti = useRef<{ x: number; y: number }[]>([]);
+  useEffect(() => {
+    if (correndo) {
+      punti.current = [];
+      return;
     }
-    return {
-      x: currentStep.toX + (p.baseX - 50) * 0.2,
-      y: currentStep.toY + (p.baseY - 50) * 0.2,
-    };
-  }
-
-  const targetX = currentStep.toX;
-  const distanza = Math.abs(p.baseX - targetX);
-  const nonPossidente = p.nostro !== nostraAzione;
-  const propriaAreaVicina = nostraAzione ? targetX > 55 : targetX < 45;
-  const pesoReparto = p.nostro === nostraAzione
-    ? 0.45
-    : nonPossidente && p.ruoloGenerico === "DEF" && propriaAreaVicina
-      ? 0.55
-      : nonPossidente && p.ruoloGenerico === "ATT"
-        ? 0.15
-        : 0.3;
-  const peso = Math.max(0, 1 - distanza / 75) * pesoReparto;
-
-  return {
-    x: p.baseX + (targetX - p.baseX) * peso,
-    y: p.baseY + (currentStep.toY - p.baseY) * peso,
-  };
+    punti.current.push({ x: ball.x, y: ball.y });
+    if (punti.current.length > 9) punti.current.shift();
+  }, [ball.x, ball.y, correndo]);
+  return punti.current;
 }
 
-function transizionePalla(trajectory?: ActionStep["trajectory"]) {
-  if (trajectory === "shot") {
-    return { ease: "linear" as const, duration: 0.35 };
-  }
-  if (trajectory === "cross") {
-    return { type: "spring" as const, stiffness: 140, damping: 18 };
-  }
-  if (trajectory === "save_deflect" || trajectory === "post_rebound") {
-    return { type: "spring" as const, stiffness: 300, damping: 22 };
-  }
-  return { type: "spring" as const, stiffness: 90, damping: 16 };
+/* -------------------------------------------------------------------------- */
+/* HUD                                                                         */
+/* -------------------------------------------------------------------------- */
+
+function Intestazione({
+  reason,
+  clubName,
+  opponent,
+  parziale,
+  colore,
+  inerzia,
+  onClose,
+}: {
+  reason: string;
+  clubName: string;
+  opponent: string;
+  parziale: { nostri: number; loro: number };
+  colore: string;
+  inerzia: number;
+  onClose: () => void;
+}) {
+  return (
+    <header className="border-b border-white/10 bg-gradient-to-r from-slate-950 via-slate-900 to-slate-950 px-4 py-3">
+      <div className="flex items-center gap-3">
+        <div className="min-w-0 flex-1">
+          <p className="flex items-center gap-1.5 truncate text-[10px] font-black tracking-widest text-emerald-400 uppercase">
+            <Crown size={11} />
+            {reason}
+          </p>
+          <p className="truncate text-sm leading-tight font-extrabold text-white">
+            {clubName} <span className="font-normal text-slate-500">vs</span> {opponent}
+          </p>
+        </div>
+        <span
+          className="shrink-0 rounded-2xl border border-white/10 px-4 py-1.5 text-2xl font-black tabular-nums shadow-lg"
+          style={{ backgroundColor: `${colore}22`, color: colore }}
+        >
+          {parziale.nostri} - {parziale.loro}
+        </span>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Chiudi la partita"
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/5 text-slate-300 transition-colors hover:bg-white/15 hover:text-white"
+        >
+          <X size={16} />
+        </button>
+      </div>
+
+      <div className="mt-2.5 flex items-center gap-2">
+        <span className="shrink-0 text-[9px] font-black tracking-wider text-slate-500 uppercase">
+          Inerzia
+        </span>
+        <div className="flex h-1.5 flex-1 overflow-hidden rounded-full bg-slate-800">
+          <div
+            className="h-full bg-emerald-400 transition-[width] duration-700"
+            style={{ width: `${inerzia}%` }}
+          />
+          <div
+            className="h-full bg-rose-500 transition-[width] duration-700"
+            style={{ width: `${100 - inerzia}%` }}
+          />
+        </div>
+        <span className="shrink-0 text-[9px] font-bold text-slate-400 tabular-nums">
+          {inerzia}/{100 - inerzia}
+        </span>
+      </div>
+    </header>
+  );
 }
 
-function meStep(azione: Highlight | null, index: number): ActionStep {
-  if (azione && azione.steps && azione.steps[index]) {
-    return azione.steps[index];
-  }
-  return {
-    fromX: 50,
-    fromY: 50,
-    toX: azione?.x ?? 50,
-    toY: azione?.y ?? 50,
-    trajectory: "pass",
-    durationMs: 700,
-  };
+function Orologio({ minuto, correndo }: { minuto: number; correndo: boolean }) {
+  return (
+    <div className="absolute top-3 left-3 z-20 flex items-center gap-1.5 rounded-xl border border-emerald-400/40 bg-black/80 px-3 py-1 shadow-lg backdrop-blur">
+      <Radio size={11} className={correndo ? "text-slate-500" : "animate-pulse text-emerald-400"} />
+      <span className="text-xs font-black text-white tabular-nums">{minuto}&apos;</span>
+    </div>
+  );
 }
 
-function coloreAzione(azione: Highlight): string {
-  if (azione.kind === "gol" || azione.kind === "rigore") {
-    return azione.team === "for" ? "#3ddc6b" : "#ff6b6b";
-  }
-  if (azione.kind === "espulsione") return "#ff4d4d";
-  return "#ffd166";
+function PannelloStatistiche({ stats }: { stats: ReturnType<typeof vistoFinora> }) {
+  return (
+    <div className="absolute top-3 right-3 z-20 w-36 rounded-xl border border-white/15 bg-slate-950/80 p-2 shadow-lg backdrop-blur">
+      <Riga label="Tiri" a={stats.for.tiri} b={stats.against.tiri} />
+      <Riga label="In porta" a={stats.for.porta} b={stats.against.porta} />
+      <Riga label="Angoli" a={stats.for.angoli} b={stats.against.angoli} />
+      <Riga label="Falli" a={stats.for.falli} b={stats.against.falli} />
+      <Riga label="Possesso" a={`${stats.possesso}%`} b={`${100 - stats.possesso}%`} />
+    </div>
+  );
 }
 
-function RigoreSegno({ kick, visto }: { kick: ShootoutKick; visto: boolean }) {
-  const nostro = kick.team === "for";
+function Riga({ label, a, b }: { label: string; a: string | number; b: string | number }) {
+  return (
+    <div className="flex items-center justify-between text-[10px] font-extrabold">
+      <span className="w-7 text-left text-emerald-400 tabular-nums">{a}</span>
+      <span className="truncate text-[9px] font-semibold text-slate-500">{label}</span>
+      <span className="w-7 text-right text-rose-400 tabular-nums">{b}</span>
+    </div>
+  );
+}
+
+const LAMPO: Record<Exclude<PhaseFlash, null>, { testo: string; colore: string; icona: typeof Target }> = {
+  GOL: { testo: "Gol", colore: "#fbbf24", icona: Target },
+  PARATA: { testo: "Parata", colore: "#38bdf8", icona: ShieldAlert },
+  PALO: { testo: "Palo", colore: "#f97316", icona: ShieldAlert },
+  FUORI: { testo: "Fuori", colore: "#94a3b8", icona: Target },
+  GIALLO: { testo: "Ammonizione", colore: "#facc15", icona: Square },
+  ROSSO: { testo: "Espulsione", colore: "#ef4444", icona: Square },
+};
+
+function Lampo({ flash }: { flash: Exclude<PhaseFlash, null> }) {
+  const { testo, colore, icona: Icona } = LAMPO[flash];
+  return (
+    <motion.div
+      initial={{ scale: 0.7, opacity: 0, y: 10 }}
+      animate={{ scale: 1, opacity: 1, y: 0 }}
+      exit={{ scale: 0.9, opacity: 0 }}
+      transition={{ type: "spring", stiffness: 460, damping: 24 }}
+      className="pointer-events-none absolute inset-x-0 top-1/2 z-30 flex -translate-y-1/2 justify-center"
+    >
+      <span
+        className="flex items-center gap-2 rounded-2xl border-2 px-5 py-2 text-lg font-black tracking-wide uppercase shadow-2xl"
+        style={{ backgroundColor: `${colore}25`, borderColor: colore, color: colore }}
+      >
+        <Icona size={20} />
+        {testo}
+      </span>
+    </motion.div>
+  );
+}
+
+function Cronaca({
+  righe,
+  clubName,
+  opponent,
+}: {
+  righe: { minute: number; text: string; team: "for" | "against"; flash: PhaseFlash }[];
+  clubName: string;
+  opponent: string;
+}) {
+  return (
+    <div className="min-h-[76px] border-t border-white/10 bg-slate-950 px-3 py-2">
+      <AnimatePresence initial={false}>
+        {righe.map((r, i) => (
+          <motion.div
+            key={`${r.minute}-${r.text}`}
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: i === 0 ? 1 : 0.42, y: 0 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.22 }}
+            className="flex items-baseline gap-2 py-0.5"
+          >
+            <span
+              className="w-8 shrink-0 text-right text-[10px] font-black tabular-nums"
+              style={{ color: r.team === "for" ? "#34d399" : "#fb7185" }}
+            >
+              {r.minute}&apos;
+            </span>
+            <span className="min-w-0 flex-1 truncate text-[11px] leading-tight font-semibold text-slate-200">
+              {r.text}
+            </span>
+            <span className="hidden shrink-0 text-[9px] font-bold text-slate-600 uppercase sm:inline">
+              {r.team === "for" ? clubName : opponent}
+            </span>
+          </motion.div>
+        ))}
+      </AnimatePresence>
+      {righe.length === 0 && (
+        <p className="py-1 text-[11px] italic text-slate-600">La partita è appena cominciata.</p>
+      )}
+    </div>
+  );
+}
+
+function Rigori({
+  kicks,
+  visti,
+  weWon,
+}: {
+  kicks: ShootoutKick[];
+  visti: number;
+  weWon: boolean;
+}) {
+  return (
+    <div className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-3 bg-black/85 backdrop-blur-md">
+      <p className="text-[11px] font-black tracking-widest text-amber-300 uppercase">
+        Sequenza dei rigori
+      </p>
+      <div className="flex gap-1.5">
+        {kicks.map((k, i) => (
+          <Segno key={i} kick={k} visto={i < visti} />
+        ))}
+      </div>
+      <p className="text-3xl font-black text-white tabular-nums">
+        {kicks.slice(0, visti).filter((k) => k.team === "for" && k.scored).length}
+        {" - "}
+        {kicks.slice(0, visti).filter((k) => k.team === "against" && k.scored).length}
+      </p>
+      {visti >= kicks.length && (
+        <p
+          className="text-sm font-black tracking-wider uppercase"
+          style={{ color: weWon ? "#3ddc6b" : "#ff4d4d" }}
+        >
+          {weWon ? "Vittoria ai rigori" : "Sconfitta ai rigori"}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function Segno({ kick, visto }: { kick: ShootoutKick; visto: boolean }) {
   if (!visto) {
     return (
       <span
         className="block h-3.5 w-3.5 rounded-full border-2 opacity-40"
-        style={{ borderColor: nostro ? "#ffffff" : "#94a3b8" }}
+        style={{ borderColor: kick.team === "for" ? "#ffffff" : "#94a3b8" }}
       />
     );
   }
   return (
     <span
-      className="flex h-3.5 w-3.5 items-center justify-center rounded-full text-[9px] font-black text-black shadow"
+      className="block h-3.5 w-3.5 rounded-full shadow"
       style={{ backgroundColor: kick.scored ? "#3ddc6b" : "#ff4d4d" }}
-    >
-      {kick.scored ? "✓" : "✕"}
-    </span>
+      aria-label={kick.scored ? "Rigore realizzato" : "Rigore sbagliato"}
+    />
   );
 }
