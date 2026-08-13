@@ -58,6 +58,5 @@ export * from "./ds/commitments";
 export * from "./ds/playerFacts";
 export * from "./ds/playerTopics";
 export * from "./ds/playerDialogue";
-export * from "./ds/playerStandoff";
 export * from "./ds/career";
 

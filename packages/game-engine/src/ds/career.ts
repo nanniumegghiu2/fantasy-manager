@@ -190,7 +190,6 @@ import {
   discontentPenalty,
   fatigueTeamModifier,
   findTransferRequest,
-  isTooGoodForBench,
   MORALE_BASELINE,
   moraleTeamModifier,
   rollInjuries,
@@ -201,17 +200,10 @@ import {
   type MoraleContext,
   type RequestResponse,
   type TransferRequest,
-} from "./events";
-import {
-  applyStandoffMove,
-  openStandoff,
   STANDOFF_MORALE_THRESHOLD,
   verifyPlayerPromises,
   type PlayerPromiseRecord,
-  type PlayerStandoff,
-  type StandoffMove,
-  type StandoffReason,
-} from "./playerStandoff";
+} from "./events";
 import { pickStartingEleven } from "./lineup";
 import { availableEntries, averageOverall, createRosterEntry } from "./roster";
 import {
@@ -2120,295 +2112,6 @@ export function offerPushProbability(state: CareerState, world: CareerWorld, ent
   return Math.min(0.9, prob);
 }
 
-/** Seedato per (stagione, settimana, giocatore): stabile finché la finestra resta la stessa. */
-function pushesForSale(state: CareerState, world: CareerWorld, entry: RosterEntry, offer: IncomingOffer): boolean {
-  const random = derivedRandom(state.seed, "standoffPush", state.season, state.week, entry.playerId);
-  return random() < offerPushProbability(state, world, entry, offer);
-}
-
-/**
- * Chi merita un faccia a faccia adesso: sotto soglia di morale, o (con probabilità realistica,
- * non sempre) spinto a farsi sentire da un'offerta di mercato sul tavolo. È l'elenco della
- * scheda Chat dentro Rosa — un tab che sostituisce l'attesa passiva della richiesta throttled
- * del motore con un elenco su cui il direttore sportivo può agire quando vuole.
- */
-export function standoffCandidates(
-  state: CareerState,
-  world: CareerWorld,
-): { playerId: string; name: string; morale: number; hasOffer: boolean }[] {
-  const offerById = new Map((state.market?.offers ?? []).map((o) => [o.playerId, o]));
-  const anagrafica = careerPlayers(state, world);
-  return state.roster
-    .filter((e) => !e.loan?.hostClubId)
-    .map((e) => {
-      const offer = offerById.get(e.playerId);
-      const spinge = offer ? pushesForSale(state, world, e, offer) : false;
-      return { entry: e, unhappy: e.morale < STANDOFF_MORALE_THRESHOLD, spinge };
-    })
-    .filter((x) => x.unhappy || x.spinge)
-    .map((x) => ({
-      playerId: x.entry.playerId,
-      name: anagrafica[x.entry.playerId]?.name ?? "Giocatore",
-      morale: x.entry.morale,
-      hasOffer: x.spinge,
-    }))
-    .sort((a, b) => a.morale - b.morale);
-}
-
-/** Apre il faccia a faccia con un giocatore, con la sua offerta collegata solo se è lei a spingerlo a parlare. */
-export function openPlayerStandoff(
-  state: CareerState,
-  world: CareerWorld,
-  playerId: string,
-): PlayerStandoff | null {
-  const entry = state.roster.find((e) => e.playerId === playerId);
-  if (!entry) return null;
-  const name = careerPlayers(state, world)[playerId]?.name ?? "Giocatore";
-  const offer = state.market?.offers.find((o) => o.playerId === playerId);
-  const spinge = offer ? pushesForSale(state, world, entry, offer) : false;
-
-  const squadAverage = averageOverall(state.roster);
-  const availableMinutes = Math.max(1, state.league.round * 90);
-  const context: MoraleContext = { squadAverage, availableMinutes, played: false, scored: false };
-
-  // Chi ha già subito una promessa infranta parla da un rapporto rotto, qualunque sia il motivo
-  // per cui lo stiamo contattando adesso: la fiducia tradita viene prima di tutto il resto.
-  const reason: StandoffReason = state.brokenTrust?.[playerId]
-    ? "tradito"
-    : spinge
-      ? "richiamato"
-      : isTooGoodForBench(entry, context)
-        ? "vuole_giocare"
-        : "scontento";
-
-  const val = playerValue(state, world, playerId);
-  const playerObj = careerPlayers(state, world)[playerId];
-  const eta = ageInSeason(playerObj?.birthDate, state.season) ?? 25;
-
-  return openStandoff(
-    entry,
-    name,
-    reason,
-    spinge && offer
-      ? {
-          clubId: offer.fromClubId,
-          clubName: offer.fromClubName,
-          amount: offer.fee,
-          kind: "trasferimento",
-        }
-      : undefined,
-    {
-      age: eta,
-      currentSeason: state.season,
-      marketValue: val,
-    },
-  );
-}
-
-/**
- * Applica una mossa del faccia a faccia allo stato della carriera: morale, liste, promessa di
- * spazio (stesso canale di `applyPlayerTalk`/`minutesPromises`) e, se si accetta la cessione
- * collegata, l'operazione vera e propria — stesso trattamento di `accetta_offerta`
- * (`applyMarket`), perché per l'utente è la stessa identica operazione, solo raggiunta da un'altra porta.
- */
-export function applyPlayerStandoff(
-  state: CareerState,
-  world: CareerWorld,
-  standoff: PlayerStandoff,
-  move: StandoffMove,
-): { state: CareerState; standoff: PlayerStandoff } {
-  const val = standoff.marketValue ?? playerValue(state, world, standoff.playerId);
-
-  const moveCtx = {
-    currentBudget: state.budget,
-    marketValue: val,
-    coachApprovalCtx: {
-      playerOverall: standoff.overall ?? 75,
-      starterOverallInRole: 76,
-      coachHarmony: state.coachHarmony ?? 50,
-    },
-  };
-
-  const {
-    standoff: dopo,
-    moraleDelta,
-    listForTransfer,
-    listForLoan,
-    promiseMinutes,
-    moneyBonus,
-    moneyBonusAmount,
-    moneyEarnedAmount,
-    promise,
-    sellNow,
-    coachResigns,
-    coachBenches,
-  } = applyStandoffMove(standoff, move, moveCtx);
-
-  let next = state;
-  // Bivio giocatore-mister, lato mister: schierarsi col giocatore costa la panchina — stesso
-  // trattamento delle dimissioni per promesse infrante, nessun indennizzo (è una scelta sua).
-  if (coachResigns) {
-    next = { ...next, coachId: null, coachPromises: [], coachHarmony: 40 };
-  }
-  // "Tenerli entrambi" fino alla rottura: il mister smette di schierarlo, per davvero
-  // (`currentLineup` lo esclude), non solo sulla carta.
-  if (coachBenches) {
-    next = { ...next, coachBenched: { ...(next.coachBenched ?? {}), [standoff.playerId]: true } };
-  }
-  if (moneyBonus) {
-    const importo = moneyBonusAmount ?? Math.max(200_000, Math.round(val * 0.04));
-    next = { ...next, budget: next.budget - importo };
-  }
-  if (moneyEarnedAmount) {
-    next = { ...next, budget: next.budget + moneyEarnedAmount };
-  }
-  if (promise) {
-    next = {
-      ...next,
-      playerPromises: {
-        ...(next.playerPromises ?? {}),
-        [standoff.playerId]: { kind: promise.kind, department: promise.department, madeSeason: state.season },
-      },
-    };
-  }
-  if (moraleDelta !== 0) {
-    next = {
-      ...next,
-      roster: next.roster.map((e) =>
-        e.playerId === standoff.playerId
-          ? { ...e, morale: Math.max(0, Math.min(100, e.morale + moraleDelta)) }
-          : e,
-      ),
-    };
-  }
-  if (listForTransfer) {
-    const lista = next.lists?.transferList ?? [];
-    if (!lista.includes(standoff.playerId)) {
-      next = {
-        ...next,
-        lists: { transferList: [...lista, standoff.playerId], loanList: next.lists?.loanList ?? [] },
-      };
-    }
-  }
-  if (listForLoan) {
-    const lista = next.lists?.loanList ?? [];
-    if (!lista.includes(standoff.playerId)) {
-      next = {
-        ...next,
-        lists: { transferList: next.lists?.transferList ?? [], loanList: [...lista, standoff.playerId] },
-      };
-    }
-    // Stessa garanzia del mercato prestiti (sez. 3.7.5): concedere il prestito in chat non deve
-    // aspettare la prossima finestra per proporre una destinazione.
-    if (next.market && world.market && !next.market.loanOffers.some((l) => l.playerId === standoff.playerId)) {
-      const fresche = openMarketWindow(
-        next.roster,
-        world.market,
-        next.clubId,
-        next.leagueId,
-        next.budget,
-        next.market.window,
-        next.seed,
-        next.season,
-        { transferList: [], loanList: [standoff.playerId] },
-      ).loanOffers.filter((l) => l.playerId === standoff.playerId);
-      if (fresche.length > 0) {
-        next = { ...next, market: { ...next.market, loanOffers: [...fresche, ...next.market.loanOffers] } };
-      }
-    }
-  }
-  if (promiseMinutes && !next.minutesPromises?.[standoff.playerId]) {
-    next = {
-      ...next,
-      minutesPromises: { ...(next.minutesPromises ?? {}), [standoff.playerId]: { roundsWaited: 0 } },
-    };
-  }
-  if (sellNow && next.market) {
-    const offer = next.market.offers.find((o) => o.playerId === standoff.playerId);
-    if (offer) {
-      next = {
-        ...next,
-        roster: next.roster.filter((e) => e.playerId !== standoff.playerId),
-        budget: next.budget + offer.fee,
-        market: {
-          ...next.market,
-          offers: next.market.offers.filter((o) => o.playerId !== standoff.playerId),
-          loanOffers: next.market.loanOffers.filter((l) => l.playerId !== standoff.playerId),
-        },
-        lists: {
-          transferList: (next.lists?.transferList ?? []).filter((id) => id !== standoff.playerId),
-          loanList: (next.lists?.loanList ?? []).filter((id) => id !== standoff.playerId),
-        },
-        sessionDeals: [
-          ...(next.sessionDeals ?? []),
-          { playerId: offer.playerId, playerName: offer.playerName, kind: "cessione", amount: offer.fee },
-        ],
-      };
-    }
-  }
-  // La conversazione sulla fiducia tradita si è svolta, quale che sia stato l'esito: il prossimo
-  // standoff riparte da un motivo ordinario, non trascina "tradito" all'infinito.
-  if (dopo.status !== "aperta" && next.brokenTrust?.[standoff.playerId]) {
-    const { [standoff.playerId]: _rimosso, ...restoBrokenTrust } = next.brokenTrust;
-    next = { ...next, brokenTrust: restoBrokenTrust };
-  }
-
-  // Rottura vera col club: la titolarità garantita si perde per davvero, non prima. Un giocatore
-  // con cui non si arriva mai alla rottura non deve subire questa conseguenza — solo qui, non al
-  // primo malumore risolto bene.
-  if (dopo.status === "rotta" && next.guaranteedStarters) {
-    const rimasti = Object.fromEntries(
-      Object.entries(next.guaranteedStarters).filter(([, playerId]) => playerId !== standoff.playerId),
-    ) as typeof next.guaranteedStarters;
-    if (Object.keys(rimasti!).length !== Object.keys(next.guaranteedStarters).length) {
-      next = { ...next, guaranteedStarters: rimasti };
-    }
-  }
-
-  return { state: next, standoff: dopo };
-}
-
-/**
- * **Un solo canale per le richieste di cessione.**
- *
- * Prima esistevano due sistemi paralleli per lo stesso concetto: un popup forzato a 4 bottoni
- * (`events.ts`, `TransferRequest`/`pendingRequest` — bloccava la settimana, ma la sua
- * `resolveTransferRequest` non era nemmeno collegata: `applyRequestResponse` la duplicava con
- * una versione più povera che spostava solo il morale, senza nemmeno iscrivere in lista
- * trasferimenti chi veniva "accettato") e la chat ricca volontaria (`playerStandoff.ts`). Da qui
- * in poi la richiesta forzata **apre la stessa chat**, solo senza la possibilità di chiuderla
- * senza risolverla (`WeekDecisions.requestResponse` blocca ancora la settimana, `findTransferRequest`
- * e il suo cooldown restano gli stessi di sempre — cambia solo *come* si risolve).
- */
-export function openForcedStandoff(state: CareerState): PlayerStandoff | null {
-  const pending = state.pendingRequest;
-  if (!pending) return null;
-  const entry = state.roster.find((e) => e.playerId === pending.playerId);
-  if (!entry) return null;
-  return openStandoff(entry, pending.playerName, pending.reason, undefined, { currentSeason: state.season });
-}
-
-/**
- * Risolve la richiesta forzata: applica la mossa come una chat qualunque (`applyPlayerStandoff`)
- * e, quando la conversazione smette di essere aperta, libera la settimana esattamente come
- * faceva `applyRequestResponse` — `pendingRequest` si svuota e `lastResolvedMatchday` si
- * aggiorna per il cooldown già esistente in `findTransferRequest`.
- */
-export function resolveForcedStandoff(
-  state: CareerState,
-  world: CareerWorld,
-  standoff: PlayerStandoff,
-  move: StandoffMove,
-): { state: CareerState; standoff: PlayerStandoff } {
-  const { state: dopo, standoff: standoffDopo } = applyPlayerStandoff(state, world, standoff, move);
-  if (standoffDopo.status === "aperta") {
-    return { state: dopo, standoff: standoffDopo };
-  }
-  return {
-    state: { ...dopo, pendingRequest: null, lastResolvedMatchday: dopo.league.round },
-    standoff: standoffDopo,
-  };
-}
 
 /* -------------------------------------------------------------------------- */
 /* Rinnovo del rapporto col mister a ogni stagione                            */
@@ -3377,7 +3080,9 @@ function closeSeason(
   const rosaAttuale = state.roster;
   const avgMorale = rosaAttuale.length > 0 ? rosaAttuale.reduce((s, e) => s + e.morale, 0) / rosaAttuale.length : 0;
   const unhappyCount = rosaAttuale.filter((e) => e.morale < STANDOFF_MORALE_THRESHOLD).length;
-  const standoffQueue = standoffCandidates(state, world).map((c) => ({ playerId: c.playerId, name: c.name }));
+  // Chi ha ancora un caso aperto a fine stagione: lo dice lo **Spogliatoio**, cioè il sistema
+  // unico delle conversazioni, non più il vecchio elenco degli standoff.
+  const standoffQueue = dressingRoom(state, world).map((c) => ({ playerId: c.playerId, name: c.name }));
 
   const summary: SeasonSummary = {
     season: state.season,
@@ -4140,12 +3845,49 @@ export function openPlayerDialogue(
   state: CareerState,
   world: CareerWorld,
   playerId: string,
+  options: { ignoreTregua?: boolean } = {},
 ): Dialogue | null {
   const facts = playerFactsOf(state, world, playerId);
   if (!facts) return null;
-  const topic = pickTopic(facts);
+  const topic = pickTopic(facts, options);
   if (!topic) return null;
   return openDialogue(facts, topic);
+}
+
+/**
+ * **La richiesta che ferma la corsa apre la stessa chat di tutte le altre.**
+ *
+ * Fino a qui convivevano due sistemi di conversazione interi: quello nuovo dello Spogliatoio
+ * (fatti → temi → dialogo → impegni) viveva dentro il mercato, mentre `pendingRequest` — la
+ * richiesta che interrompe le giornate — apriva ancora il vecchio `playerStandoff`, cioè proprio
+ * il sistema con i tre `if` e la categoria residuale che la riscrittura del 2026-08-11 era andata
+ * a togliere. Un commento in `CareerScreen` lo diceva apertamente ("le due strade convivono
+ * finché anche quella non passerà"): non era mai passata, ed è il popup che l'utente vedeva
+ * riaprirsi a stagione in corso.
+ *
+ * La tregua si ignora perché qui è **il giocatore a essersi presentato**: rimandarlo indietro
+ * perché "di questo si è già parlato" lascerebbe la settimana bloccata su una richiesta senza
+ * schermata. Se nemmeno così c'è un tema ammissibile, la richiesta si annulla invece di
+ * incastrare il calendario — è il solo caso in cui non aprire è la risposta giusta.
+ */
+export function openForcedDialogue(
+  state: CareerState,
+  world: CareerWorld,
+): { dialogue: Dialogue | null; state: CareerState } {
+  const pending = state.pendingRequest;
+  if (!pending) return { dialogue: null, state };
+
+  const dialogue = openPlayerDialogue(state, world, pending.playerId, { ignoreTregua: true });
+  if (!dialogue) {
+    return {
+      dialogue: null,
+      state: { ...state, pendingRequest: null, lastResolvedMatchday: state.league.round },
+    };
+  }
+  // Bloccante a prescindere dal tema: il cancello è `pendingRequest`, non la gravità
+  // dell'argomento — è il giocatore a essersi presentato, e la settimana resta ferma finché non
+  // gli si risponde.
+  return { dialogue: { ...dialogue, forced: true }, state };
 }
 
 function clampMorale(v: number): number {
@@ -4309,6 +4051,23 @@ export function applyPlayerDialogue(
   }
   if (effetti.coachBenches) {
     next = { ...next, coachBenched: { ...(next.coachBenched ?? {}), [id]: true } };
+  }
+
+  /**
+   * **Una rottura toglie la titolarità garantita.**
+   *
+   * Comportamento che viveva nel vecchio `applyPlayerStandoff` e che va conservato passando al
+   * sistema unico: promettere il posto a chi ha appena rotto col club sarebbe un impegno che
+   * nessuno intende più mantenere, e resterebbe a falsare la scelta dell'undici per tutta la
+   * stagione. Si toglie **solo** alla rottura, non a ogni conversazione finita male.
+   */
+  if (effetti.dialogue.status === "rottura" && next.guaranteedStarters) {
+    const rimasti = Object.fromEntries(
+      Object.entries(next.guaranteedStarters).filter(([, playerId]) => playerId !== id),
+    ) as typeof next.guaranteedStarters;
+    if (Object.keys(rimasti).length !== Object.keys(next.guaranteedStarters).length) {
+      next = { ...next, guaranteedStarters: rimasti };
+    }
   }
 
   if (effetti.dressingRoomDelta) {

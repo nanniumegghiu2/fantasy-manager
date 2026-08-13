@@ -26,8 +26,7 @@ import {
   negotiateLoanOffer,
   negotiateOffer,
   negotiatePurchase,
-  openForcedStandoff,
-  resolveForcedStandoff,
+  openForcedDialogue,
   answerBoardSackDemand,
   seasonObjectiveChoices,
   setSeasonObjective,
@@ -46,18 +45,15 @@ import type { Incident } from "../ds/incidents";
 import { findCoach } from "../ds/coaches";
 import { emptySquadLists, openMarketWindow } from "../ds/careerMarket";
 import {
-  applyPlayerStandoff,
+  applyPlayerDialogue,
   confirmCoachSeasonPromises,
   livePromiseStatus,
   proposePromiseAlternative,
   declineCoachSeasonMeeting,
   offerPushProbability,
-  openPlayerStandoff,
-  standoffCandidates,
 } from "../ds/career";
 import { defaultBoard } from "../ds/board";
 import { createRosterEntry, MIN_SQUAD_SIZE } from "../ds/roster";
-import { openStandoff } from "../ds/playerStandoff";
 import { AI_CLUB_COHESION, careerOpponentTeam } from "../ds/aiClub";
 import { INHERITED_SINCE_SEASON } from "../ds/cohesion";
 import { CAREER_SEASONS, type RosterEntry } from "../ds/types";
@@ -73,22 +69,8 @@ import {
   CUP_CLUBS,
   CUP_LEAGUES,
   withCupAndMarket,
+  fullCareer,
 } from "./helpers/dsWorld";
-
-function fullCareer(seed = "completo", overall = 80) {
-  const base = buildWorld(overall);
-  const world = withCupAndMarket(base);
-  const state = createCareer({
-    seed,
-    clubId: "mio",
-    leagueId: "serie-a",
-    coachId: "c-10",
-    roster: base.roster,
-    budget: 40_000_000,
-    cupEntrants: { clubIds: CUP_CLUBS, leagues: CUP_LEAGUES },
-  });
-  return { state, world };
-}
 
 describe("simmetria fra noi e le avversarie", () => {
   /**
@@ -216,7 +198,13 @@ describe("avanzamento settimanale", () => {
     expect(sbloccato.state.pendingRequest).toBeNull();
   });
 
-  it("la richiesta forzata si risolve con la stessa chat dello standoff volontario", () => {
+  it("la richiesta che ferma le giornate apre la chat dello Spogliatoio, non un secondo sistema", () => {
+    /**
+     * Il difetto che questo test blocca: `pendingRequest` apriva il **vecchio** motore
+     * (`playerStandoff`), quello con i tre `if` e la categoria residuale che la riscrittura dello
+     * Spogliatoio era andata a togliere. Due sistemi di conversazione vivi insieme, e quello
+     * vecchio raggiungibile proprio nel momento più visibile — a stagione in corso.
+     */
     const { state, world } = newCareer();
     const conScontento: CareerState = {
       ...state,
@@ -226,24 +214,39 @@ describe("avanzamento settimanale", () => {
     const { state: dopo } = advanceWeek(conScontento, world);
     expect(dopo.pendingRequest).toBeTruthy();
 
-    const standoff = openForcedStandoff(dopo);
-    expect(standoff).not.toBeNull();
-    expect(standoff!.playerId).toBe(dopo.pendingRequest!.playerId);
+    const { dialogue } = openForcedDialogue(dopo, world);
+    expect(dialogue).not.toBeNull();
+    expect(dialogue!.playerId).toBe(dopo.pendingRequest!.playerId);
+    // Bloccante a prescindere dal tema: il cancello è `pendingRequest`, non la gravità.
+    expect(dialogue!.forced).toBe(true);
 
-    // Una mossa sola non basta sempre a chiudere: si ripete finché non si risolve, come in
-    // qualunque standoff — qui però ogni mossa deve anche tenere sincronizzato `pendingRequest`.
+    // Una mossa sola non basta sempre a chiudere: si ripete finché non si risolve, e ogni mossa
+    // deve tenere sincronizzato `pendingRequest`, che è ciò che blocca la settimana.
     let corrente = dopo;
-    let s = standoff!;
+    let d = dialogue!;
     let guard = 0;
-    while (s.status === "aperta" && guard++ < 10) {
-      const esito = resolveForcedStandoff(corrente, world, s, { kind: "concedi_prestito" });
+    while (d.status === "aperta" && guard++ < 12) {
+      const esito = applyPlayerDialogue(corrente, world, d, { kind: "ignora" });
       corrente = esito.state;
-      s = esito.standoff;
+      d = esito.dialogue;
     }
-    expect(s.status).not.toBe("aperta");
+    expect(d.status).not.toBe("aperta");
     expect(corrente.pendingRequest).toBeNull();
     expect(corrente.lastResolvedMatchday).toBe(corrente.league.round);
-    expect(corrente.lists.loanList).toContain(standoff!.playerId);
+  });
+
+  it("una richiesta senza nulla da dire si annulla invece di bloccare il calendario", () => {
+    // Se nessun tema è ammissibile la chat non può aprirsi: il caso limite non deve lasciare la
+    // settimana ferma su una schermata che non esiste.
+    const { state, world } = newCareer();
+    const bloccato: CareerState = {
+      ...state,
+      phase: "stagione",
+      pendingRequest: { playerId: "non-esiste", playerName: "Fantasma", reason: "scontento" },
+    };
+    const { dialogue, state: dopo } = openForcedDialogue(bloccato, world);
+    expect(dialogue).toBeNull();
+    expect(dopo.pendingRequest).toBeNull();
   });
 });
 
@@ -1180,36 +1183,6 @@ describe("il faccia a faccia dentro il mercato (scheda Chat)", () => {
    * Titolarità garantita legata alla rottura: solo una rottura vera la toglie, non un
    * malumore risolto bene.
    */
-  it("una standoff che si rompe toglie la titolarità garantita del giocatore", () => {
-    const { state, world } = fullCareer("rottura-titolarita", 80);
-    const playerId = state.roster[0]!.playerId;
-    const conGaranzia = { ...state, roster: state.roster.map((e) => (e.playerId === playerId ? { ...e, morale: 40 } : e)), guaranteedStarters: { DC: playerId } };
-    let s = openPlayerStandoff(conGaranzia, world, playerId)!;
-    let corrente = conGaranzia;
-    for (let i = 0; i < 6 && s.status === "aperta"; i++) {
-      const esito = applyPlayerStandoff(corrente, world, s, { kind: "ignora" });
-      corrente = esito.state;
-      s = esito.standoff;
-    }
-    expect(s.status).toBe("rotta");
-    expect(corrente.guaranteedStarters?.DC).toBeUndefined();
-  });
-
-  it("una standoff che si placa NON tocca la titolarità garantita", () => {
-    const { state, world } = fullCareer("standoff-placata-titolarita", 80);
-    const playerId = state.roster[0]!.playerId;
-    const conGaranzia = { ...state, roster: state.roster.map((e) => (e.playerId === playerId ? { ...e, morale: 40 } : e)), guaranteedStarters: { DC: playerId } };
-    let s = openPlayerStandoff(conGaranzia, world, playerId)!;
-    let corrente = conGaranzia;
-    for (let i = 0; i < 6 && s.status === "aperta"; i++) {
-      const esito = applyPlayerStandoff(corrente, world, s, { kind: "prometti_spazio" });
-      corrente = esito.state;
-      s = esito.standoff;
-    }
-    expect(s.status).toBe("placata");
-    expect(corrente.guaranteedStarters?.DC).toBe(playerId);
-  });
-
   describe("setGuaranteedStarter — un solo ruolo a testa, reset a cambio mister", () => {
     it("garantire lo stesso giocatore per un nuovo ruolo sposta la garanzia, non la duplica", () => {
       const { state } = fullCareer("un-solo-ruolo", 80);
@@ -1323,96 +1296,6 @@ describe("il faccia a faccia dentro il mercato (scheda Chat)", () => {
     });
   });
 
-  describe("bivio giocatore-mister — effetti su coachId e currentLineup", () => {
-    it("'scegli_giocatore' fa dimettere il mister: coachId torna null", () => {
-      const { state, world } = fullCareer("bivio-dimissioni", 80);
-      const entry = state.roster[0]!;
-      const s = openStandoff(entry, "Il Bivio", "bivio_mister");
-      const { state: dopo } = applyPlayerStandoff(state, world, s, { kind: "scegli_giocatore" });
-      expect(dopo.coachId).toBeNull();
-    });
-
-    it("ignorare il bivio fino alla rottura esclude il giocatore da currentLineup per sempre", () => {
-      const { state, world } = fullCareer("bivio-panchina-lineup", 80);
-      const playerId = state.roster[0]!.playerId;
-      const entry = state.roster[0]!;
-      let s = openStandoff(entry, "Il Bivio", "bivio_mister");
-      let corrente = state;
-      for (let i = 0; i < 8 && s.status === "aperta"; i++) {
-        const esito = applyPlayerStandoff(corrente, world, s, { kind: "ignora" });
-        corrente = esito.state;
-        s = esito.standoff;
-      }
-      expect(s.status).toBe("rotta");
-      expect(corrente.coachBenched?.[playerId]).toBe(true);
-
-      const lineup = currentLineup(corrente, world);
-      const inCampo = Object.values(lineup.starters).includes(playerId) || lineup.bench.includes(playerId);
-      expect(inCampo).toBe(false);
-    });
-  });
-
-  it("standoffCandidates elenca gli scontenti anche senza offerta", () => {
-    const { state, world } = fullCareer("standoff-elenco");
-    const aperto = advanceWeek(state, world).state;
-    const scontento = aperto.roster[0]!.playerId;
-    const conScontento = {
-      ...aperto,
-      roster: aperto.roster.map((e) => (e.playerId === scontento ? { ...e, morale: 20 } : e)),
-    };
-    const elenco = standoffCandidates(conScontento, world);
-    expect(elenco.some((c) => c.playerId === scontento)).toBe(true);
-  });
-
-  /**
-   * Bug segnalato dall'utente: un regen nostro (nato in carriera, non nel database) appariva
-   * come "Giocatore" nelle conversazioni/richieste/tabellino. `standoffCandidates`,
-   * `openPlayerStandoff` e il resolver di `PendingRequest` leggevano `world.players`
-   * direttamente, che non copre `state.generated` — corretto usando `careerPlayers`
-   * internamente, quindi il nome è giusto anche passando il `world` **grezzo** (non premerso
-   * dalla UI).
-   */
-  it("un regen scontento è riconoscibile per nome vero, non 'Giocatore'", () => {
-    let { state, world } = newCareer("regen-standoff", 80);
-    for (let s = 0; s < 3 && state.phase !== "conclusa" && state.generated.length === 0; s++) {
-      state = playSeason(state, world);
-    }
-    expect(state.generated.length).toBeGreaterThan(0);
-    const regen = state.generated[0]!;
-
-    // Se il regen non è (più) in rosa, forziamo comunque un entry per lui: quel che conta qui
-    // è la risoluzione del nome, non la logistica del ciclo di vita.
-    const inRosa = state.roster.some((e) => e.playerId === regen.id);
-    const conRegenScontento = {
-      ...state,
-      roster: inRosa
-        ? state.roster.map((e) => (e.playerId === regen.id ? { ...e, morale: 20 } : e))
-        : [...state.roster, createRosterEntry({ playerId: regen.id, overall: 70, potential: 75, sinceSeason: state.season })].map(
-            (e) => (e.playerId === regen.id ? { ...e, morale: 20 } : e),
-          ),
-    };
-
-    const elenco = standoffCandidates(conRegenScontento, world);
-    const voce = elenco.find((c) => c.playerId === regen.id);
-    expect(voce).toBeDefined();
-    expect(voce!.name).toBe(regen.name);
-    expect(voce!.name).not.toBe("Giocatore");
-
-    const standoff = openPlayerStandoff(conRegenScontento, world, regen.id);
-    expect(standoff).not.toBeNull();
-    expect(standoff!.playerName).toBe(regen.name);
-  });
-
-  /**
-   * Segnalazione dell'utente: "Giocatore" ancora nelle **offerte di prestito** nelle stagioni
-   * successive alla prima. Verificato di persona che il punto di fusione principale
-   * (`DsMode.tsx`, `careerPlayers` applicato a `world.players`) e `buildMarketWorld` (anagrafica
-   * del mercato) sono già corretti — qui si verifica il lato **consumo** (`buildLoanOffers`/
-   * `buildOffers` dentro `openMarketWindow`): dato un `MarketWorld` la cui anagrafica include
-   * correttamente un regen (esattamente come la produce `buildMarketWorld` in produzione), le
-   * proposte di prestito e le offerte in entrata devono risolvere il suo nome vero, mai il
-   * fallback "Giocatore".
-   */
   it("un regen in lista prestiti/trasferimenti, in una stagione avanzata, ha il nome vero nelle offerte", () => {
     let { state, world } = fullCareer("prestiti-nome-vero", 80);
     for (let s = 0; s < 3 && state.phase !== "conclusa" && state.generated.length === 0; s++) {
@@ -1499,37 +1382,6 @@ describe("il faccia a faccia dentro il mercato (scheda Chat)", () => {
     return { state: forzato, world: mondoConPrestigioClub(world, offerta.fromClubId, 5), offerta };
   }
 
-  function trovaCasoConSpinta() {
-    for (let i = 0; i < 20; i++) {
-      const caso = conOffertaForzata(`standoff-forza-${i}`);
-      if (!caso) continue;
-      const provato = { ...caso.state, week: caso.state.week + i };
-      const s = openPlayerStandoff(provato, caso.world, caso.offerta.playerId)!;
-      if (s.offerFromClubId) return { ...caso, state: provato, s };
-    }
-    return null;
-  }
-
-  it("apre con il motivo giusto quando l'offerta è ciò che lo spinge a parlare", () => {
-    const caso = trovaCasoConSpinta();
-    expect(caso, "nessun caso su 20 tentativi ha spinto per l'offerta").not.toBeNull();
-    expect(caso!.s.reason).toBe("richiamato");
-    expect(caso!.s.offerFromClubId).toBe(caso!.offerta.fromClubId);
-    // E compare nell'elenco della scheda Chat con l'offerta segnalata.
-    const elenco = standoffCandidates(caso!.state, caso!.world);
-    expect(elenco.find((c) => c.playerId === caso!.offerta.playerId)?.hasOffer).toBe(true);
-  });
-
-  it("accettare la cessione dal faccia a faccia esegue davvero la vendita", () => {
-    const caso = trovaCasoConSpinta();
-    expect(caso, "nessun caso su 20 tentativi ha spinto per l'offerta").not.toBeNull();
-    const { state: aperto, world, offerta, s } = caso!;
-    const { state: dopo } = applyPlayerStandoff(aperto, world, s, { kind: "accetta_cessione" });
-    expect(dopo.roster.some((e) => e.playerId === offerta.playerId)).toBe(false);
-    expect(dopo.budget).toBe(aperto.budget + offerta.fee);
-    expect(dopo.sessionDeals?.some((d) => d.playerId === offerta.playerId)).toBe(true);
-  });
-
   it("un giocatore titolare e sereno, con un club modesto, spinge molto più raramente di uno scontento cercato da un top club", () => {
     // Statistico, non un singolo tentativo: la base è 10%, non zero, quindi un solo tiro
     // potrebbe uscire "vero" per puro caso e rendere il test inutilmente instabile.
@@ -1555,9 +1407,8 @@ describe("il faccia a faccia dentro il mercato (scheda Chat)", () => {
             : e,
         ),
       };
-      if (standoffCandidates(quieto, mondoModesto).find((c) => c.playerId === offerta.playerId)?.hasOffer) {
-        spinteQuieto++;
-      }
+      const entryQuieto = quieto.roster.find((e) => e.playerId === offerta.playerId)!;
+      if (offerPushProbability(quieto, mondoModesto, entryQuieto, offerta) > 0.35) spinteQuieto++;
 
       const forzato = {
         ...aperto,
@@ -1568,30 +1419,12 @@ describe("il faccia a faccia dentro il mercato (scheda Chat)", () => {
             : e,
         ),
       };
-      if (standoffCandidates(forzato, mondoTop).find((c) => c.playerId === offerta.playerId)?.hasOffer) {
-        spinteForzato++;
-      }
+      const entryForzato = forzato.roster.find((e) => e.playerId === offerta.playerId)!;
+      if (offerPushProbability(forzato, mondoTop, entryForzato, offerta) > 0.35) spinteForzato++;
     }
 
     expect(spinteForzato).toBeGreaterThan(spinteQuieto);
     expect(spinteQuieto / TENTATIVI).toBeLessThan(0.3);
-  });
-
-  it("ignorare ripetutamente nel faccia a faccia fa crollare il morale, non solo simbolicamente", () => {
-    const { state, world } = newCareer("standoff-ignora", 78);
-    const aperto = { ...state, roster: state.roster.map((e) => ({ ...e, morale: 40 })) };
-    const playerId = aperto.roster[0]!.playerId;
-    let s = openPlayerStandoff(aperto, world, playerId)!;
-    let corrente = aperto;
-    for (let i = 0; i < 6 && s.status === "aperta"; i++) {
-      const esito = applyPlayerStandoff(corrente, world, s, { kind: "ignora" });
-      corrente = esito.state;
-      s = esito.standoff;
-    }
-    expect(s.status).toBe("rotta");
-    const entry = corrente.roster.find((e) => e.playerId === playerId)!;
-    // Parte da 40: la rottura vale almeno -18, un tonfo vero e non simbolico.
-    expect(entry.morale).toBeLessThanOrEqual(22);
   });
 });
 

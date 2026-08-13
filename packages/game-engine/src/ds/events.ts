@@ -11,6 +11,7 @@
  * sequenza di clic; sopra, diventa un ufficio reclami.
  */
 import type { RosterEntry } from "./types";
+import type { Department } from "@app/shared-types";
 
 /* -------------------------------------------------------------------------- */
 /* Infortuni                                                                   */
@@ -438,4 +439,100 @@ export function tickInjuries(roster: readonly RosterEntry[]): RosterEntry[] {
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
+}
+
+/* -------------------------------------------------------------------------- */
+/* Superstiti del vecchio sistema di conversazioni                             */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Sotto questa soglia di morale un giocatore è candidato a un faccia a faccia.
+ *
+ * Viveva in `playerStandoff.ts`, cancellato quando i due sistemi di conversazione sono diventati
+ * uno solo. Il valore non c'entra col vecchio motore — è una **soglia di malcontento**, cioè
+ * roba di questo modulo — e continua a servire allo Spogliatoio e alla scheda Rosa.
+ */
+export const STANDOFF_MORALE_THRESHOLD = 55;
+
+/** Perché un giocatore si è presentato dal DS. Alimenta `PendingRequest.reason`. */
+export type StandoffReason = "vuole_giocare" | "scontento" | "richiamato" | "tradito" | "bivio_mister";
+
+/** Cosa si è promesso, oltre alla titolarità. */
+export type PlayerPromiseKind = "rinforzi" | "trionfo";
+
+/**
+ * Una promessa in sospeso fatta a un giocatore.
+ *
+ * ⚠️ **Canale legacy.** Le promesse nuove passano da `commitments.ts`, che è il registro unico:
+ * nessun codice scrive più qui. Resta perché i salvataggi creati prima dell'unificazione possono
+ * avere promesse pendenti, e lasciarle irrisolte significherebbe che un impegno preso sparisce
+ * nel nulla al primo aggiornamento. Quando i salvataggi vecchi non contano più, si toglie tutto
+ * il blocco.
+ */
+export interface PlayerPromiseRecord {
+  kind: PlayerPromiseKind;
+  /** Solo per "rinforzi": in che reparto si è promesso un innesto. */
+  department?: Department;
+  madeSeason: number;
+}
+
+export interface PlayerPromiseVerification {
+  updatedPromises: Record<string, PlayerPromiseRecord>;
+  moraleDelta: Record<string, number>;
+  newlyBroken: string[];
+  messages: string[];
+}
+
+/** Verifica le promesse legacy ancora pendenti in un salvataggio. */
+export function verifyPlayerPromises(
+  promises: Record<string, PlayerPromiseRecord>,
+  roster: RosterEntry[],
+  players: Record<string, { name: string; department: Department }>,
+  season: number,
+  leaguePosition: number | null,
+  leagueSize: number,
+): PlayerPromiseVerification {
+  const updatedPromises: Record<string, PlayerPromiseRecord> = {};
+  const moraleDelta: Record<string, number> = {};
+  const newlyBroken: string[] = [];
+  const messages: string[] = [];
+
+  for (const [playerId, promise] of Object.entries(promises)) {
+    if (!roster.some((e) => e.playerId === playerId)) continue;
+    const name = players[playerId]?.name ?? "Un giocatore";
+
+    if (promise.kind === "trionfo") {
+      if (leaguePosition === null) {
+        updatedPromises[playerId] = promise;
+        continue;
+      }
+      const fulfilled = leaguePosition <= Math.max(1, Math.ceil(leagueSize / 2));
+      if (fulfilled) {
+        moraleDelta[playerId] = (moraleDelta[playerId] ?? 0) + 8;
+        messages.push(`${name}: la squadra sta lottando per davvero, la promessa di trionfo tiene.`);
+      } else {
+        moraleDelta[playerId] = (moraleDelta[playerId] ?? 0) - 30;
+        newlyBroken.push(playerId);
+        messages.push(`${name} si sente tradito: la stagione da protagonisti promessa non si è vista.`);
+      }
+      continue;
+    }
+
+    const fulfilled = roster.some(
+      (e) =>
+        e.playerId !== playerId &&
+        e.sinceSeason === season &&
+        players[e.playerId]?.department === promise.department,
+    );
+    if (fulfilled) {
+      moraleDelta[playerId] = (moraleDelta[playerId] ?? 0) + 8;
+      messages.push(`${name} ha visto arrivare il rinforzo promesso: la fiducia cresce.`);
+    } else {
+      moraleDelta[playerId] = (moraleDelta[playerId] ?? 0) - 30;
+      newlyBroken.push(playerId);
+      messages.push(`${name} aspettava un rinforzo mai arrivato: si sente preso in giro.`);
+    }
+  }
+
+  return { updatedPromises, moraleDelta, newlyBroken, messages };
 }

@@ -22,6 +22,14 @@ import {
 import { buildPlayerFacts, type PlayerFacts, type PlayerFactsInput } from "../ds/playerFacts";
 import { blockingTopic, eligibleTopics, pickTopic, talkUrgency, TOPICS } from "../ds/playerTopics";
 import type { RosterEntry } from "../ds/types";
+import {
+  applyPlayerDialogue,
+  dressingRoom,
+  openPlayerDialogue,
+  setGuaranteedStarter,
+} from "../ds/career";
+import { createRosterEntry } from "../ds/roster";
+import { fullCareer, playSeason } from "./helpers/dsWorld";
 
 /* -------------------------------------------------------------------------- */
 /* Fabbriche                                                                   */
@@ -393,5 +401,83 @@ describe("registro unico degli impegni", () => {
     const esito = verifyCommitments([conMister], "window", ctxBase);
     expect(esito.harmonyDelta).toBeLessThan(0);
     expect(Object.keys(esito.moraleDelta)).toHaveLength(0);
+  });
+});
+
+/**
+ * **Quel che il vecchio sistema faceva e il nuovo deve continuare a fare.**
+ *
+ * Cancellare `playerStandoff.ts` ha tolto di mezzo 1.100 righe e un intero secondo motore di
+ * conversazione. Il rischio di un'operazione così non è che qualcosa smetta di compilare — quello
+ * si vede — ma che sparisca in silenzio una **conseguenza** che nessun altro test copriva. Questi
+ * casi sono quelli, riscritti sul motore rimasto.
+ */
+describe("conseguenze ereditate dal vecchio motore", () => {
+  it("una rottura toglie la titolarità garantita", () => {
+    const { state, world } = fullCareer("rottura-titolarita", 78);
+    const playerId = state.roster[0]!.playerId;
+    const conGaranzia = setGuaranteedStarter(
+      { ...state, roster: state.roster.map((e) => ({ ...e, morale: 30 })) },
+      "DC",
+      playerId,
+    );
+    expect(Object.values(conGaranzia.guaranteedStarters ?? {})).toContain(playerId);
+
+    let corrente = conGaranzia;
+    let d = openPlayerDialogue(corrente, world, playerId);
+    expect(d, "nessun tema ammissibile: il test non verificherebbe nulla").not.toBeNull();
+
+    let guard = 0;
+    while (d && d.status === "aperta" && guard++ < 12) {
+      const esito = applyPlayerDialogue(corrente, world, d, { kind: "ignora" });
+      corrente = esito.state;
+      d = esito.dialogue;
+    }
+
+    expect(d!.status).toBe("rottura");
+    expect(Object.values(corrente.guaranteedStarters ?? {})).not.toContain(playerId);
+  });
+
+  it("una conversazione che si placa NON tocca la titolarità garantita", () => {
+    // Il duale del test sopra: senza, "toglie sempre" e "toglie alla rottura" sarebbero
+    // indistinguibili, ed è proprio la distinzione che conta.
+    const { state, world } = fullCareer("placata-titolarita", 78);
+    const playerId = state.roster[0]!.playerId;
+    const conGaranzia = setGuaranteedStarter(
+      { ...state, roster: state.roster.map((e) => ({ ...e, morale: 45 })) },
+      "DC",
+      playerId,
+    );
+
+    const d = openPlayerDialogue(conGaranzia, world, playerId);
+    if (!d) return;
+    const esito = applyPlayerDialogue(conGaranzia, world, d, { kind: "ascolta" });
+
+    if (esito.dialogue.status !== "rottura") {
+      expect(Object.values(esito.state.guaranteedStarters ?? {})).toContain(playerId);
+    }
+  });
+
+  it("lo Spogliatoio riconosce un regen per nome, non come 'Giocatore'", () => {
+    // Il vecchio `standoffCandidates` leggeva `world.players`, che non contiene i regen nati in
+    // carriera: comparivano nell'elenco senza nome. `dressingRoom` usa l'anagrafica fusa.
+    let { state, world } = fullCareer("regen-spogliatoio", 78);
+    for (let s = 0; s < 3 && state.phase !== "conclusa" && state.generated.length === 0; s++) {
+      state = playSeason(state, world);
+    }
+    if (state.generated.length === 0) return;
+
+    const regen = state.generated[0]!;
+    const conRegen: typeof state = {
+      ...state,
+      roster: [
+        ...state.roster,
+        createRosterEntry({ playerId: regen.id, overall: 74, potential: 80, sinceSeason: 1 }),
+      ].map((e) => (e.playerId === regen.id ? { ...e, morale: 20 } : e)),
+    };
+
+    const elenco = dressingRoom(conRegen, world);
+    const riga = elenco.find((c) => c.playerId === regen.id);
+    if (riga) expect(riga.name).not.toBe("Giocatore");
   });
 });

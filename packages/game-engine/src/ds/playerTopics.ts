@@ -378,9 +378,9 @@ export function topicById(id: TopicId): Topic | undefined {
  * Nessun ripiego: se torna vuoto, **non c'è niente di cui parlare**. Un giocatore sereno, o
  * scontento per motivi che il club non può toccare, non deve produrre una conversazione finta.
  */
-export function eligibleTopics(f: PlayerFacts): Topic[] {
+export function eligibleTopics(f: PlayerFacts, options: { ignoreTregua?: boolean } = {}): Topic[] {
   if (f.onLoanOut) return [];
-  return TOPICS.filter((t) => t.eligible(f) && !inTregua(f, t)).sort(
+  return TOPICS.filter((t) => t.eligible(f) && (options.ignoreTregua || !inTregua(f, t))).sort(
     (a, b) => b.urgency(f) - a.urgency(f),
   );
 }
@@ -402,9 +402,17 @@ function inTregua(f: PlayerFacts, topic: Topic): boolean {
   return f.lastTopicId === topic.id && f.weeksSinceLastTalk < TALK_COOLDOWN;
 }
 
-/** Il tema di cui parlerebbe adesso: il più urgente fra gli ammissibili. */
-export function pickTopic(f: PlayerFacts): Topic | null {
-  return eligibleTopics(f)[0] ?? null;
+/**
+ * Il tema di cui parlerebbe adesso: il più urgente fra gli ammissibili.
+ *
+ * `ignoreTregua` serve alla **richiesta forzata**, quella che ferma la corsa delle giornate: lì
+ * è il giocatore a essersi presentato dal DS, quindi la tregua — che esiste per non riproporre
+ * un caso di cui si è appena parlato — non ha voce in capitolo. Senza questa deroga la
+ * conversazione poteva non aprirsi affatto e la settimana sarebbe rimasta bloccata su una
+ * richiesta senza schermata.
+ */
+export function pickTopic(f: PlayerFacts, options: { ignoreTregua?: boolean } = {}): Topic | null {
+  return eligibleTopics(f, options)[0] ?? null;
 }
 
 /** C'è un argomento abbastanza grave da fermare la corsa delle giornate? */

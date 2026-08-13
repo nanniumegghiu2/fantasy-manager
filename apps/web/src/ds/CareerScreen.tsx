@@ -41,11 +41,10 @@ import {
   signIncomingPlayer,
   signingDemandOf,
   abandonSigning,
-  openForcedStandoff,
+  openForcedDialogue,
   playNegotiation,
   proposePromiseAlternative,
   setGuaranteedStarter,
-  resolveForcedStandoff,
   answerBoardSackDemand,
   defaultBoard,
   seasonObjectiveChoices,
@@ -69,14 +68,12 @@ import {
   type MatchResult,
   type NegotiationMove,
   type MatchTheatreContext,
-  type PlayerStandoff,
   type RoleCandidate,
   type SearchResult,
   type SearchCriteria,
   type SessionDeal,
   type SeasonSummary,
   type StandingRow,
-  type StandoffMove,
   type WeekReport,
 } from "@app/game-engine";
 import type { Department } from "@app/shared-types";
@@ -84,7 +81,6 @@ import { ClubViewerModal } from "./ClubViewerModal";
 import { CoachDepartureDialog } from "./CoachDepartureDialog";
 import { CoachMarketMeetingModal } from "./CoachMarketMeetingModal";
 import { CoachNegotiationChat } from "./CoachNegotiationChat";
-import { PlayerStandoffChat } from "./PlayerStandoffChat";
 import { PlayerDialogueChat } from "./PlayerDialogueChat";
 import { RenewalModal } from "./RenewalModal";
 import { ContractOfferForm } from "./ContractOfferForm";
@@ -553,39 +549,50 @@ export function CareerScreen({
   );
 
   /**
-   * **La richiesta di cessione forzata usa la stessa chat, non più il vecchio popup a 4
-   * bottoni.** A differenza dello standoff volontario sopra, questo blocca la settimana
-   * (`state.pendingRequest`) finché non si risolve — niente `onClose` libero mentre è aperta.
+   * **La richiesta che ferma le giornate apre la stessa chat di tutte le altre.**
+   *
+   * Fino a ieri apriva il *vecchio* sistema (`playerStandoff`), quello con i tre `if` e la
+   * categoria residuale che la riscrittura dello Spogliatoio era andata a togliere: è il popup
+   * che l'utente vedeva riaprirsi a stagione in corso. Ora è un `Dialogue` come gli altri,
+   * marcato `forced` perché blocca la settimana finché non si risolve.
+   *
    * Si apre una sola volta quando la richiesta compare, non ad ogni render: altrimenti ogni
-   * mossa (che aggiorna `state`) la ricostruirebbe daccapo, perdendo il log e la pazienza già
+   * mossa (che aggiorna `state`) la ricostruirebbe daccapo, perdendo il filo e la pazienza già
    * consumata.
    */
-  const [standoffForzato, setStandoffForzato] = useState<PlayerStandoff | null>(null);
+  const [dialogoForzato, setDialogoForzato] = useState<Dialogue | null>(null);
   useEffect(() => {
-    if (state.pendingRequest && !standoffForzato) {
-      setStandoffForzato(openForcedStandoff(state));
+    if (state.pendingRequest && !dialogoForzato) {
+      const { dialogue, state: next } = openForcedDialogue(state, world);
+      if (dialogue) setDialogoForzato(dialogue);
+      // Nessun tema ammissibile: il motore annulla la richiesta invece di bloccare il calendario
+      // su una schermata che non esiste.
+      else if (next !== state) onChange(next);
     }
-    // Si chiude solo per mano dell'utente (`chiudiStandoffForzato`), mai in reazione allo stato:
-    // appena la trattativa si risolve `pendingRequest` torna null, ma la chat deve restare
-    // visibile finché non si legge l'esito e non si preme "Torna alla rosa".
+    // Si chiude solo per mano dell'utente (`chiudiDialogoForzato`), mai in reazione allo stato:
+    // appena la conversazione si risolve `pendingRequest` torna null, ma la chat deve restare
+    // visibile finché non si legge l'esito.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.pendingRequest]);
 
-  const mossaStandoffForzato = useCallback(
-    (move: StandoffMove) => {
-      if (!standoffForzato) return;
-      const { state: next, standoff: dopo } = resolveForcedStandoff(state, world, standoffForzato, move);
-      if (move.kind === "premio_denaro") segnalaPremio(state.budget, next.budget, standoffForzato.playerName);
-      onChange(next);
-      setStandoffForzato(dopo);
+  const mossaDialogoForzato = useCallback(
+    (move: DialogueMove) => {
+      if (!dialogoForzato) return;
+      const budgetPrima = state.budget;
+      const esito = applyPlayerDialogue(state, world, dialogoForzato, move);
+      if (esito.state.budget !== budgetPrima) {
+        segnalaPremio(budgetPrima, esito.state.budget, dialogoForzato.playerName);
+      }
+      onChange(esito.state);
+      setDialogoForzato(esito.dialogue);
     },
-    [state, world, standoffForzato, onChange, segnalaPremio],
+    [state, world, dialogoForzato, onChange, segnalaPremio],
   );
   // Come per gli imprevisti: la stagione riparte da sola, ma solo quando l'utente ha letto
-  // l'esito e chiude la chat — non nell'istante in cui la trattativa si risolve, altrimenti la
-  // corsa ripartirebbe sotto un popup ancora aperto.
-  const chiudiStandoffForzato = useCallback(() => {
-    setStandoffForzato(null);
+  // l'esito e chiude la chat — non nell'istante in cui la conversazione si risolve, altrimenti
+  // la corsa ripartirebbe sotto un popup ancora aperto.
+  const chiudiDialogoForzato = useCallback(() => {
+    setDialogoForzato(null);
     setRipartire(true);
   }, []);
 
@@ -1202,13 +1209,14 @@ export function CareerScreen({
           />
         )}
 
-        {!correndo && !incident && !teatro && !keyMatch && !state.coachDeparture && standoffForzato && (
-          <PlayerStandoffChat
+        {!correndo && !incident && !teatro && !keyMatch && !state.coachDeparture && dialogoForzato && (
+          <PlayerDialogueChat
             key="richiesta"
-            standoff={standoffForzato}
-            onMove={mossaStandoffForzato}
-            onClose={chiudiStandoffForzato}
-            forced
+            state={state}
+            world={world}
+            dialogue={dialogoForzato}
+            onMove={mossaDialogoForzato}
+            onClose={chiudiDialogoForzato}
           />
         )}
 

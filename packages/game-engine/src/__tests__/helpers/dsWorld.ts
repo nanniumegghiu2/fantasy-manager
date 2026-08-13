@@ -201,3 +201,19 @@ export function withCupAndMarket(base: { world: CareerWorld; roster: RosterEntry
   };
 }
 
+
+/** Una carriera con Corona e mercato accesi: il mondo completo. */
+export function fullCareer(seed = "completo", overall = 80) {
+  const base = buildWorld(overall);
+  const world = withCupAndMarket(base);
+  const state = createCareer({
+    seed,
+    clubId: "mio",
+    leagueId: "serie-a",
+    coachId: "c-10",
+    roster: base.roster,
+    budget: 40_000_000,
+    cupEntrants: { clubIds: CUP_CLUBS, leagues: CUP_LEAGUES },
+  });
+  return { state, world };
+}
