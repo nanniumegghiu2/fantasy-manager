@@ -123,15 +123,19 @@ describe("budget", () => {
     expect(cupMultiplier(undefined)).toBe(1);
   });
 
-  it("accumulare è possibile ma costoso: si riporta solo il 30% dell'avanzo", () => {
+  it("l'avanzo si riporta per intero: quel che non spendi resta tuo", () => {
+    /**
+     * Decisione esplicita dell'utente (2026-08-13), che supera il vecchio 30%. La regola
+     * dev'essere **esatta**, non "circa": è ciò che permette di riconoscere il proprio
+     * tesoretto nel budget dell'anno dopo invece di doverlo prendere sulla fiducia.
+     */
     const senzaAvanzo = nextSeasonBudget({
       averageOverall: 78, position: 5, teamsInLeague: 20, leftover: 0,
     });
     const conAvanzo = nextSeasonBudget({
       averageOverall: 78, position: 5, teamsInLeague: 20, leftover: 10_000_000,
     });
-    expect(conAvanzo - senzaAvanzo).toBeGreaterThan(2_000_000);
-    expect(conAvanzo - senzaAvanzo).toBeLessThan(4_000_000);
+    expect(conAvanzo - senzaAvanzo).toBe(10_000_000);
   });
 
   it("la crescita per rose d'élite è smorzata e limitata dai tetti di difficoltà", () => {
@@ -159,7 +163,12 @@ describe("budget", () => {
     // In difficile 60M * 1.45 cap = 87M max base reward
     expect(topBudgetDifficile).toBeLessThanOrEqual(87_000_000);
 
-    // Con tesoretto da 40M risparmiati, l'avanzo al 30% (12M) si somma al budget
+    /**
+     * Il tesoretto si somma **intero** e resta **fuori dal tetto**: il cap governa i premi
+     * (piazzamento, coppa, miglioramento), non i soldi che il DS aveva già in cassa. Se fosse
+     * dentro, risparmiare per due anni non servirebbe a nulla proprio a chi gioca in difficile,
+     * cioè a chi ne ha più bisogno.
+     */
     const topBudgetConTesoretto = nextSeasonBudget({
       averageOverall: 84,
       position: 1,
@@ -169,7 +178,7 @@ describe("budget", () => {
       previousPosition: 9,
       difficulty: "difficile",
     });
-    expect(topBudgetConTesoretto - topBudgetDifficile).toBe(12_000_000);
+    expect(topBudgetConTesoretto - topBudgetDifficile).toBe(40_000_000);
   });
 });
 

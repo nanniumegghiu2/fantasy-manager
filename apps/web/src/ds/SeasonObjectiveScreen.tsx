@@ -1,6 +1,6 @@
 import { motion } from "framer-motion";
-import { ArrowUpCircle, Crown, Shield, ShieldHalf, Star, Swords, Target } from "lucide-react";
-import type { ObjectiveTier } from "@app/game-engine";
+import { ArrowUpCircle, Crown, Shield, ShieldHalf, Star, Swords, Target, Users, Wallet } from "lucide-react";
+import { formatEuro, type ObjectiveTier } from "@app/game-engine";
 
 /**
  * **L'obiettivo stagionale, dichiarato dal DS.**
@@ -30,10 +30,20 @@ const ICONA: Record<ObjectiveTier["label"], typeof Target> = {
 export function SeasonObjectiveScreen({
   season,
   choices,
+  finances,
   onChoose,
 }: {
   season: number;
   choices: ObjectiveTier[];
+  /**
+   * **I mezzi che la società mette a disposizione**, dichiarati qui e non solo nel pannello
+   * Finanze.
+   *
+   * È il momento narrativo giusto — è chi dà i soldi a dire quanti sono — e soprattutto è
+   * l'unica schermata che compare *ogni* stagione prima di qualunque decisione. Senza, il
+   * fatturato non veniva mai detto in chiaro: si vedeva solo un budget che cala.
+   */
+  finances?: { revenue: number; wageBudget: number; transferBudget: number };
   onChoose: (tier: ObjectiveTier) => void;
 }) {
   return (
@@ -59,6 +69,28 @@ export function SeasonObjectiveScreen({
             e sul rapporto col mister a fine stagione.
           </p>
         </div>
+
+        {finances && (
+          <div className="border-y border-[var(--surface-border)] bg-[var(--surface-raised)] px-4 py-3">
+            <p className="text-[10px] font-bold tracking-widest text-[var(--text-secondary)] uppercase">
+              La società mette a disposizione
+            </p>
+            <p className="mt-0.5 text-lg leading-none font-extrabold tabular-nums">
+              {formatEuro(finances.revenue)}
+            </p>
+            <p className="mt-1.5 flex items-center gap-3 text-[11px] font-semibold text-[var(--text-secondary)]">
+              <span className="flex items-center gap-1">
+                <Wallet size={11} /> {formatEuro(finances.transferBudget)} mercato
+              </span>
+              <span className="flex items-center gap-1">
+                <Users size={11} /> {formatEuro(finances.wageBudget)} ingaggi
+              </span>
+            </p>
+            <p className="mt-1 text-[10px] leading-snug text-[var(--text-secondary)]">
+              La divisione la decidi tu, dal pannello Finanze o da qualunque tavolo contrattuale.
+            </p>
+          </div>
+        )}
 
         <div className="flex flex-col gap-2 p-4">
           {choices.map((tier) => {

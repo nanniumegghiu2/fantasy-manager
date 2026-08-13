@@ -159,13 +159,23 @@ export function cupMultiplier(outcome: string | undefined): number {
 }
 
 /**
- * Quanta parte del budget non speso si porta all'anno dopo.
+ * Quanta parte del budget non speso si porta all'anno dopo: **tutta**.
  *
- * Solo il 30%: accumulare per due stagioni e poi fare il colpo deve restare possibile, ma
- * costoso. Riportare tutto renderebbe ottimale non spendere mai, che è il contrario di ciò
- * che rende viva una carriera.
+ * Decisione esplicita dell'utente (2026-08-13). Valeva il 30%, con questa motivazione: riportare
+ * tutto rende ottimale non spendere mai, perché il tetto per difficoltà
+ * (`DIFFICULTY_BASE_BUDGET_CAP`) limita il budget *base* ma non la somma accumulata, quindi tre
+ * stagioni di parsimonia si sommano senza freno.
+ *
+ * Il compromesso resta vero e va **misurato**, non ignorato: se accumulare risultasse dominante
+ * sul comprare ogni anno (`pnpm calibrate-piccola`, carriere da sei stagioni), la leva da
+ * ritoccare è il **budget base**, non il riporto. Il riporto resta pieno in ogni caso: "i miei
+ * soldi non spariscono" è una regola che un direttore sportivo si aspetta, ed è anche la sola
+ * versione leggibile — con una trattenuta, il numero che compare l'anno dopo non torna mai con
+ * quello che si è lasciato in cassa.
+ *
+ * Si riporta la **cassa mercato**: la cassa ingaggi non avanza, è un impegno annuale ricorrente.
  */
-export const CARRY_OVER_SHARE = 0.3;
+export const CARRY_OVER_SHARE = 1;
 
 export interface SeasonBudgetInput {
   /** Overall medio della rosa **attuale**, dopo il ciclo di vita di fine stagione. */

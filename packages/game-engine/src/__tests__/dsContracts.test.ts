@@ -21,6 +21,7 @@ import {
 import {
   DEFAULT_WAGE_SHARE,
   MIN_WAGE_SHARE,
+  MAX_WAGE_SHARE,
   WINTER_SHIFT_LIMIT,
   defaultFinances,
   financesView,
@@ -268,5 +269,35 @@ describe("finanze: un'unica cassa, due destinazioni", () => {
     const v = financesView(revenue, { wageShare: 0.3 }, 35_000_000);
     expect(v.overrunNow).toBe(5_000_000);
     expect(v.wageRoom).toBeLessThan(0);
+  });
+
+  it("con un monte ingaggi oltre il tetto in quota, coprirlo resta possibile", () => {
+    /**
+     * Il caso che rompeva lo slider, e che si raggiunge dopo qualche stagione di rinnovi
+     * generosi: `MAX_WAGE_SHARE` è espresso in quota (75%), il pavimento in euro. Con impegni
+     * all'85% del fatturato il minimo richiesto finiva **sopra** il massimo consentito, cioè uno
+     * slider senza una sola posizione valida — proprio quando serve di più.
+     *
+     * Il tetto cede: portare la quota all'85% deve riuscire e azzerare lo sforamento.
+     */
+    const impegni = Math.round(revenue * 0.85);
+    const esito = shiftWageShare({
+      revenue,
+      finances: defaultFinances(),
+      transferCash: revenue,
+      committedWages: impegni,
+      newShare: 0.85,
+    });
+
+    expect(esito.ok, esito.reason).toBe(true);
+    expect(esito.view.wageShare).toBeGreaterThan(MAX_WAGE_SHARE);
+    expect(esito.view.overrunNow).toBe(0);
+  });
+
+  it("il pavimento in euro si legge senza il tetto in quota davanti", () => {
+    // `minShareForCommitments` è ciò che la UI usa per fermare lo slider a sinistra: se fosse
+    // ancora limitato a MAX_WAGE_SHARE indicherebbe una posizione che non copre gli impegni.
+    const v = financesView(revenue, defaultFinances(), Math.round(revenue * 0.9));
+    expect(v.minShareForCommitments).toBeCloseTo(0.9, 2);
   });
 });

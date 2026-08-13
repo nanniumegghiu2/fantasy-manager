@@ -24,6 +24,7 @@ import {
   renewContract,
   signCoachContract,
   buildStandings,
+  financesOf,
   openPlayerDialogue,
   setWageShare,
   signFreeAgent,
@@ -213,6 +214,8 @@ export function CareerScreen({
 
   const calendar = useMemo(() => seasonCalendar(state, world), [state, world]);
   const lineup = useMemo(() => currentLineup(state, world), [state, world]);
+  /** Le due casse: il margine ingaggi sta in testata accanto al budget, non dietro una scheda. */
+  const finanze = useMemo(() => financesOf(state, world), [state, world]);
   const coach = state.coachId ? findCoach(state.coachId) : undefined;
 
   const nameById = useMemo(() => {
@@ -789,9 +792,21 @@ export function CareerScreen({
             </div>
 
             <div className="shrink-0 text-right">
+              {/* **Le casse sono due, e in testata si vedevano solo i soldi del mercato.**
+                  Il margine ingaggi decide se un rinnovo o un parametro zero sono possibili
+                  quanto il budget decide se lo è un cartellino: tenerne uno nascosto dietro una
+                  scheda faceva sembrare il sistema più opaco di quanto sia. */}
               <p className="flex items-center justify-end gap-1 text-sm font-extrabold">
                 <Wallet size={14} />
                 {euro(state.budget)}
+              </p>
+              <p
+                className="flex items-center justify-end gap-1 text-[10px] font-bold"
+                title="Margine ancora disponibile per nuovi ingaggi"
+                style={{ color: finanze.wageRoom < 0 ? "#ff4d4d" : "var(--text-secondary)" }}
+              >
+                <Users size={10} />
+                {euro(finanze.wageRoom)}
               </p>
               <p className="flex items-center justify-end gap-1 text-[10px] font-semibold text-[var(--text-secondary)]">
                 {saveEnabled ? (
@@ -1354,6 +1369,7 @@ export function CareerScreen({
             key="obiettivo-stagionale"
             season={state.season}
             choices={seasonObjectiveChoices(state, world)}
+            finances={finanze}
             onChoose={(tier) => onChange(setSeasonObjective(state, tier))}
           />
         )}

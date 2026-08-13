@@ -4,7 +4,6 @@ import {
   MAX_WAGE_SHARE,
   MIN_WAGE_SHARE,
   WINTER_SHIFT_LIMIT,
-  contractFor,
   financesOf,
   formatEuro,
   formatWage,
@@ -13,15 +12,21 @@ import {
 } from "@app/game-engine";
 
 /**
- * **Lo slider delle finanze: il DS è padrone del proprio bilancio.**
+ * **Le finanze in due numeri.**
  *
- * Il fatturato è uno solo e va diviso fra cartellini e stipendi. Tre accorgimenti perché lo
- * strumento sia usabile e non frustrante:
- *  1. il **pavimento degli impegni firmati** è disegnato *sul binario* (la tacca), non nascosto in
- *     un errore che compare dopo aver rilasciato il cursore;
- *  2. mentre si trascina, sotto si legge **cosa quella cifra permette davvero** — un numero
- *     astratto non aiuta a decidere, "ti basta per due rinnovi" sì;
- *  3. lo sforamento non è vietato ma **dichiarato**: si vede subito quanto costerà l'anno prossimo.
+ * Riscritto su richiesta esplicita dell'utente (2026-08-13): il pannello parlava di quote,
+ * ripartizioni e percentuali, e la domanda vera — *quanto posso spendere sul mercato, e quanto
+ * mi costano gli stipendi* — andava ricostruita mentalmente ogni volta.
+ *
+ * Adesso ci sono **due sole cifre**, e lo slider sposta euro fra loro:
+ *
+ *  - **Costo annuale ingaggi** — quanto costano i contratti già firmati. È il **pavimento**: la
+ *    manopola si ferma lì, e non perché un errore lo dica dopo il rilascio, ma perché a sinistra
+ *    non c'è più binario. La percentuale resta nel motore, dov'è la logica; qui non compare.
+ *  - **Budget mercato disponibile** — la liquidità con cui si compra.
+ *
+ * Lo sforamento non è vietato ma **dichiarato**: si può firmare oltre il tetto, e la differenza
+ * si sconta dal fatturato dell'anno prossimo.
  */
 export function FinancesPanel({
   state,
@@ -37,40 +42,42 @@ export function FinancesPanel({
   const inverno = state.market?.window === "riparazione";
   const estiva = state.finances?.summerShare ?? vista.wageShare;
 
+  /**
+   * Gli estremi in **quota**, che è la lingua del motore. In interfaccia non si vedono mai:
+   * lo slider li traduce in euro prima di mostrarli.
+   */
   const minConsentito = Math.max(
     MIN_WAGE_SHARE,
     vista.minShareForCommitments,
     inverno ? estiva - WINTER_SHIFT_LIMIT : 0,
   );
-  const maxConsentito = Math.min(MAX_WAGE_SHARE, inverno ? estiva + WINTER_SHIFT_LIMIT : MAX_WAGE_SHARE);
+  const maxConsentito = Math.max(
+    minConsentito,
+    Math.min(
+      Math.max(MAX_WAGE_SHARE, vista.minShareForCommitments),
+      inverno ? estiva + WINTER_SHIFT_LIMIT : 1,
+    ),
+  );
 
   const anteprima = useMemo(() => {
     const tetto = Math.round(vista.revenue * bozza);
-    const margine = tetto - vista.committedWages;
-    const mercato = vista.revenue - tetto;
-    return { tetto, margine, mercato, delta: tetto - vista.wageBudget };
-  }, [bozza, vista]);
+    const delta = tetto - vista.wageBudget;
+    return {
+      tetto,
+      margine: tetto - vista.committedWages,
+      // La liquidità che resta davvero da spendere, non la dotazione teorica: spostare verso gli
+      // ingaggi toglie cassa al mercato, ed è quel numero a decidere se un colpo è possibile.
+      mercato: Math.max(0, state.budget - delta),
+      delta,
+    };
+  }, [bozza, vista, state.budget]);
 
-  /** Quanti rinnovi in sospeso copre quel margine: è la traduzione concreta del numero. */
-  const cosaPermette = useMemo(() => {
-    const inScadenza = state.roster
-      .map((e) => contractFor(state, world, e.playerId))
-      .filter((c) => c && c.until - state.season + 1 <= 1)
-      .map((c) => Math.round((c!.wage ?? 0) * 0.25));
-    let residuo = anteprima.margine;
-    let quanti = 0;
-    for (const costo of inScadenza.sort((a, b) => a - b)) {
-      if (residuo < costo) break;
-      residuo -= costo;
-      quanti += 1;
-    }
-    return { rinnovi: quanti, inScadenza: inScadenza.length };
-  }, [anteprima.margine, state, world]);
-
-  const posizionePavimento = Math.min(
-    100,
-    Math.max(0, ((minConsentito - MIN_WAGE_SHARE) / (MAX_WAGE_SHARE - MIN_WAGE_SHARE)) * 100),
-  );
+  const passo = (valore: number) => Math.round((valore / vista.revenue) * 1000) / 1000;
+  const applica = (nuova: number) => {
+    const limitata = Math.min(maxConsentito, Math.max(minConsentito, nuova));
+    setBozza(limitata);
+    if (Math.abs(limitata - vista.wageShare) > 0.001) onShift(limitata);
+  };
 
   return (
     <section className="flex flex-col gap-3 rounded-2xl border border-[var(--surface-border)] bg-[var(--surface-raised)] p-4">
@@ -79,77 +86,110 @@ export function FinancesPanel({
           <Landmark size={15} className="text-[var(--brand)]" /> Finanze della stagione
         </h3>
         <span className="text-right">
-          <span className="block text-sm font-extrabold tabular-nums">{formatEuro(vista.revenue)}</span>
+          <span className="block text-sm font-extrabold tabular-nums">
+            {formatEuro(vista.revenue)}
+          </span>
           <span className="block text-[9px] font-bold tracking-widest text-[var(--text-secondary)] uppercase">
             fatturato
           </span>
         </span>
       </header>
 
+      {/* I due numeri, e nient'altro. */}
       <div className="grid grid-cols-2 gap-3">
         <div className="rounded-xl bg-[var(--surface)] p-3">
           <p className="flex items-center gap-1.5 text-[10px] font-extrabold tracking-widest text-[var(--text-secondary)] uppercase">
             <Wallet size={11} /> Mercato
           </p>
-          <p className="mt-1 text-base font-extrabold tabular-nums">{formatEuro(anteprima.mercato)}</p>
-          <p className="text-[10px] text-[var(--text-secondary)]">
-            liquidità ora: {formatEuro(state.budget)}
+          <p className="mt-1 text-lg leading-none font-extrabold tabular-nums">
+            {formatEuro(anteprima.mercato)}
           </p>
+          <p className="mt-1 text-[10px] text-[var(--text-secondary)]">disponibile ora</p>
         </div>
         <div className="rounded-xl bg-[var(--surface)] p-3">
           <p className="flex items-center gap-1.5 text-[10px] font-extrabold tracking-widest text-[var(--text-secondary)] uppercase">
             <Users size={11} /> Ingaggi
           </p>
-          <p className="mt-1 text-base font-extrabold tabular-nums">{formatWage(anteprima.tetto)}</p>
-          <p className="text-[10px] text-[var(--text-secondary)]">
-            impegni: {formatEuro(vista.committedWages)}
+          <p className="mt-1 text-lg leading-none font-extrabold tabular-nums">
+            {formatWage(anteprima.tetto)}
+          </p>
+          <p className="mt-1 text-[10px] text-[var(--text-secondary)]">
+            di cui {formatWage(vista.committedWages)} già firmati
           </p>
         </div>
       </div>
 
-      <div className="relative pt-1">
+      {/* Il binario parte dal pavimento: a sinistra degli impegni firmati non si va, e non
+          perché un messaggio lo dica dopo — semplicemente non c'è dove andare. */}
+      <div className="flex flex-col gap-1.5 pt-1">
         <input
           type="range"
-          min={MIN_WAGE_SHARE * 100}
-          max={MAX_WAGE_SHARE * 100}
-          value={Math.round(bozza * 100)}
-          aria-label="Ripartizione fra cassa mercato e cassa ingaggi"
-          onChange={(e) => setBozza(Number(e.target.value) / 100)}
-          onPointerUp={() => {
-            const limitata = Math.min(maxConsentito, Math.max(minConsentito, bozza));
-            setBozza(limitata);
-            if (Math.abs(limitata - vista.wageShare) > 0.001) onShift(limitata);
-          }}
+          min={Math.round(minConsentito * 1000)}
+          max={Math.round(maxConsentito * 1000)}
+          value={Math.round(Math.min(maxConsentito, Math.max(minConsentito, bozza)) * 1000)}
+          aria-label="Sposta risorse fra ingaggi e mercato"
+          aria-valuetext={`${formatWage(anteprima.tetto)} agli ingaggi, ${formatEuro(anteprima.mercato)} al mercato`}
+          onChange={(e) => setBozza(Number(e.target.value) / 1000)}
+          onPointerUp={() => applica(bozza)}
+          onKeyUp={() => applica(bozza)}
           className="w-full accent-[var(--brand)]"
         />
-        {/* Il pavimento degli impegni, disegnato sul binario. */}
-        <span
-          aria-hidden
-          className="pointer-events-none absolute top-0 h-5 w-0.5 bg-[#ff4d4d]"
-          style={{ left: `${posizionePavimento}%` }}
-        />
+        <div className="flex items-center justify-between text-[10px] font-bold text-[var(--text-secondary)]">
+          <span>min {formatWage(vista.committedWages)}</span>
+          <span>max {formatWage(Math.round(vista.revenue * maxConsentito))}</span>
+        </div>
       </div>
 
-      <p className="text-[11px] font-semibold text-[var(--text-secondary)]">
-        Non puoi scendere sotto <strong>{formatWage(vista.committedWages)}</strong> di impegni già
-        firmati{inverno ? ` · a stagione in corso puoi spostare al più ${Math.round(WINTER_SHIFT_LIMIT * 100)} punti` : ""}.
+      {/* Scorciatoie a passo fisso: su mobile trascinare con precisione un cursore è la parte
+          scomoda, e la decisione vera è quasi sempre "spostane cinque milioni". */}
+      <div className="flex gap-1.5">
+        {[5_000_000, 10_000_000].map((importo) => (
+          <button
+            key={`giu-${importo}`}
+            type="button"
+            onClick={() => applica(bozza - passo(importo))}
+            className="min-h-9 flex-1 rounded-lg border border-[var(--surface-border)] text-[11px] font-bold text-[var(--text-secondary)] active:scale-95"
+          >
+            −{formatEuro(importo)}
+          </button>
+        ))}
+        {[5_000_000, 10_000_000].map((importo) => (
+          <button
+            key={`su-${importo}`}
+            type="button"
+            onClick={() => applica(bozza + passo(importo))}
+            className="min-h-9 flex-1 rounded-lg border border-[var(--brand)]/40 bg-[var(--brand)]/10 text-[11px] font-bold text-[var(--brand)] active:scale-95"
+          >
+            +{formatEuro(importo)}
+          </button>
+        ))}
+      </div>
+
+      <p className="text-[11px] leading-snug font-semibold text-[var(--text-secondary)]">
+        Sposta verso gli ingaggi per firmare rinnovi e svincolati; verso il mercato per i
+        cartellini. Sotto {formatWage(vista.committedWages)} non si scende: sono contratti già
+        firmati
+        {inverno
+          ? ` · a stagione in corso puoi spostare al più ${Math.round(WINTER_SHIFT_LIMIT * 100)} punti rispetto all'estate`
+          : ""}
+        .
       </p>
 
-      <div className="rounded-xl border border-[var(--surface-border)] bg-[var(--surface)] p-3">
-        <p className="text-[11px] font-bold">
-          Margine ingaggi:{" "}
+      {anteprima.margine !== 0 && (
+        <p className="rounded-xl border border-[var(--surface-border)] bg-[var(--surface)] px-3 py-2 text-[11px] font-bold">
+          Margine per nuove firme:{" "}
           <span className={anteprima.margine < 0 ? "text-[#ff4d4d]" : "text-[#3ddc6b]"}>
             {formatWage(anteprima.margine)}
           </span>
+          {anteprima.delta !== 0 && (
+            <span className="font-semibold text-[var(--text-secondary)]">
+              {" "}
+              · sposti {formatEuro(Math.abs(anteprima.delta))}{" "}
+              {anteprima.delta > 0 ? "sugli ingaggi" : "sul mercato"}
+            </span>
+          )}
         </p>
-        <p className="mt-1 text-[11px] leading-snug text-[var(--text-secondary)]">
-          {cosaPermette.inScadenza === 0
-            ? "Nessun contratto in scadenza da coprire quest'anno."
-            : `Copre ${cosaPermette.rinnovi} dei ${cosaPermette.inScadenza} rinnovi in scadenza.`}
-          {anteprima.delta !== 0 &&
-            ` Sposti ${formatEuro(Math.abs(anteprima.delta))} ${anteprima.delta > 0 ? "sugli ingaggi" : "sul mercato"}.`}
-        </p>
-      </div>
+      )}
 
       {vista.overrunNow > 0 && (
         <p className="flex items-start gap-2 rounded-xl bg-[#ff4d4d]/15 px-3 py-2 text-[11px] font-bold text-[#ff4d4d]">

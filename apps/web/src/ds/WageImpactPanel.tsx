@@ -53,9 +53,18 @@ export function WageImpactPanel({
     vista.minShareForCommitments,
     inverno ? estiva - WINTER_SHIFT_LIMIT : 0,
   );
-  const maxConsentito = Math.min(
-    MAX_WAGE_SHARE,
-    inverno ? estiva + WINTER_SHIFT_LIMIT : MAX_WAGE_SHARE,
+  /**
+   * Il tetto **cede davanti al pavimento**, come nel motore (`finances.ts`): con un monte
+   * ingaggi oltre il 75% del fatturato — raggiungibile dopo qualche stagione di rinnovi
+   * generosi — un massimo fisso in quota risulterebbe *sotto* il minimo, e lo slider non
+   * avrebbe una sola posizione valida proprio quando serve di più.
+   */
+  const maxConsentito = Math.max(
+    minConsentito,
+    Math.min(
+      Math.max(MAX_WAGE_SHARE, vista.minShareForCommitments),
+      inverno ? estiva + WINTER_SHIFT_LIMIT : 1,
+    ),
   );
 
   /** La fotografia **a firma avvenuta**: è la sola che aiuti a decidere. */
@@ -140,11 +149,14 @@ export function WageImpactPanel({
           </p>
           <input
             type="range"
-            min={MIN_WAGE_SHARE * 100}
-            max={MAX_WAGE_SHARE * 100}
-            value={Math.round(bozza * 100)}
-            aria-label="Ripartizione fra cassa mercato e cassa ingaggi"
-            onChange={(e) => setBozza(Number(e.target.value) / 100)}
+            /* Il binario parte dal pavimento degli impegni firmati: sotto non c'è dove andare,
+               che è più chiaro di un errore dopo il rilascio. */
+            min={Math.round(minConsentito * 1000)}
+            max={Math.round(maxConsentito * 1000)}
+            value={Math.round(Math.min(maxConsentito, Math.max(minConsentito, bozza)) * 1000)}
+            aria-label="Sposta risorse fra ingaggi e mercato"
+            aria-valuetext={`${formatWage(dopo.tetto)} agli ingaggi, ${formatEuro(dopo.mercato)} al mercato`}
+            onChange={(e) => setBozza(Number(e.target.value) / 1000)}
             onPointerUp={() => {
               const limitata = Math.min(maxConsentito, Math.max(minConsentito, bozza));
               setBozza(limitata);

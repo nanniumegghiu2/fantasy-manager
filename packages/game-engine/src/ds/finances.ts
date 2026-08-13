@@ -77,7 +77,17 @@ export function financesView(
   finances: FinancesState | undefined,
   committedWages: number,
 ): FinancesView {
-  const share = clampShare(finances?.wageShare ?? DEFAULT_WAGE_SHARE);
+  /**
+   * ⚠️ **Il tetto cede davanti al pavimento.**
+   *
+   * `MAX_WAGE_SHARE` è espresso in quota, il pavimento in euro: dopo qualche stagione di rinnovi
+   * generosi il monte ingaggi può superare il 75% del fatturato, e allora il minimo richiesto
+   * risulterebbe **sopra** il massimo consentito — uno slider senza nemmeno una posizione
+   * valida, proprio nel caso in cui serve di più. Coprire gli impegni già firmati non può mai
+   * essere vietato: il tetto governa quanto si *vuole* spendere, non quanto si *deve*.
+   */
+  const minRichiesta = revenue > 0 ? committedWages / revenue : MIN_WAGE_SHARE;
+  const share = clampShare(finances?.wageShare ?? DEFAULT_WAGE_SHARE, minRichiesta);
   const wageBudget = Math.round(revenue * share);
   return {
     revenue,
@@ -86,13 +96,26 @@ export function financesView(
     committedWages,
     wageRoom: wageBudget - committedWages,
     transferBudget: revenue - wageBudget,
-    minShareForCommitments: revenue > 0 ? Math.min(MAX_WAGE_SHARE, committedWages / revenue) : MIN_WAGE_SHARE,
+    minShareForCommitments: Math.min(1, minRichiesta),
     overrunNow: Math.max(0, committedWages - wageBudget),
   };
 }
 
-function clampShare(share: number): number {
-  return Math.max(MIN_WAGE_SHARE, Math.min(MAX_WAGE_SHARE, share));
+/**
+ * Riporta la quota fra i suoi estremi, **senza mai impedire di coprire gli impegni firmati**.
+ *
+ * `minRequired` alza **solo il tetto**, mai il pavimento. La distinzione non è pedanteria: alzare
+ * anche il pavimento sembrava sensato — "sotto gli impegni non si scende" — e invece cancella lo
+ * **sforamento**, che è uno stato legittimo e voluto (si può firmare oltre il tetto, e la
+ * differenza si sconta l'anno dopo). Verificato da un test che è passato da verde a rosso al
+ * primo tentativo: `financesView` con quota 0.3 e impegni al 35% deve restare in sforamento, non
+ * essere silenziosamente riportata in pari.
+ *
+ * Il limite assoluto resta 1: oltre il fatturato non si ripartisce, si sfora.
+ */
+function clampShare(share: number, minRequired = MIN_WAGE_SHARE): number {
+  const tetto = Math.min(1, Math.max(MAX_WAGE_SHARE, minRequired));
+  return Math.max(MIN_WAGE_SHARE, Math.min(tetto, share));
 }
 
 export interface ShiftRequest {
@@ -132,8 +155,9 @@ export interface ShiftResult {
  * sulla dimensione della rosa.
  */
 export function shiftWageShare(req: ShiftRequest): ShiftResult {
-  const attuale = clampShare(req.finances.wageShare);
-  const richiesta = clampShare(req.newShare);
+  const minRichiesta = req.revenue > 0 ? req.committedWages / req.revenue : MIN_WAGE_SHARE;
+  const attuale = clampShare(req.finances.wageShare, minRichiesta);
+  const richiesta = clampShare(req.newShare, minRichiesta);
   const estiva = req.finances.summerShare ?? attuale;
 
   const fallisci = (reason: string): ShiftResult => ({
