@@ -38,6 +38,8 @@ import {
   proposePromiseAlternative,
   setGuaranteedStarter,
   resolveForcedStandoff,
+  answerBoardSackDemand,
+  defaultBoard,
   seasonObjectiveChoices,
   setSeasonObjective,
   coachChoices,
@@ -78,6 +80,7 @@ import { PlayerStandoffChat } from "./PlayerStandoffChat";
 import { PlayerDialogueChat } from "./PlayerDialogueChat";
 import { RenewalModal } from "./RenewalModal";
 import { SeasonObjectiveScreen } from "./SeasonObjectiveScreen";
+import { BoardDemandDialog } from "./BoardDemandDialog";
 import { StandingsTable } from "../classic/StandingsTable";
 import { CupPanel } from "./CupPanel";
 import { CupProgress } from "./CupProgress";
@@ -616,6 +619,18 @@ export function CareerScreen({
    */
   const bisognaRinnovare = !!state.coachId && state.seasonNegotiationDone === false;
   const bisognaObiettivo = state.seasonObjectiveSet === false;
+
+  /**
+   * **La dirigenza chiede la testa del mister** (`board.ts`).
+   *
+   * È il primo gate di inizio stagione, prima del rinnovo col mister — che potrebbe non esserci
+   * più — e prima dell'obiettivo, che si dichiara con la panchina già assegnata.
+   */
+  const richiestaDirigenza = state.board?.sackDemand;
+  const rispondiDirigenza = useCallback(
+    (scelta: "esonera" | "difendi") => onChange(answerBoardSackDemand(state, scelta).state),
+    [state, onChange],
+  );
   const coachAttuale = state.coachId ? findCoach(state.coachId) : undefined;
   const marketCandidatesRinnovo = useMemo(
     () =>
@@ -1037,6 +1052,7 @@ export function CareerScreen({
             world={world}
             playerId={rinnovoPer}
             onRenew={proponiRinnovo}
+            onShiftFinances={spostaFinanze}
             onClose={() => setRinnovoPer(null)}
           />
         )}
@@ -1093,7 +1109,19 @@ export function CareerScreen({
           />
         )}
 
-        {!correndo && !incident && !teatro && !keyMatch && !riepilogo && bisognaRinnovare && coachAttuale && (
+        {/* **La dirigenza parla per prima.** Se ha chiesto un esonero, quella decisione viene
+            prima del rinnovo col mister — che potrebbe non esserci più — e prima dell'obiettivo,
+            che si dichiara con la panchina già assegnata. */}
+        {!correndo && !incident && !teatro && !keyMatch && !riepilogo && richiestaDirigenza && (
+          <BoardDemandDialog
+            key="dirigenza"
+            demand={richiestaDirigenza}
+            board={state.board ?? defaultBoard()}
+            onChoose={rispondiDirigenza}
+          />
+        )}
+
+        {!correndo && !incident && !teatro && !keyMatch && !riepilogo && !richiestaDirigenza && bisognaRinnovare && coachAttuale && (
           <CoachNegotiationChat
             key="rinnovo-mister"
             coach={coachAttuale}
@@ -1114,7 +1142,7 @@ export function CareerScreen({
 
         {/* L'obiettivo si dichiara dopo il rinnovo col mister: stesso momento, la "sveglia" di
             inizio stagione, un passo alla volta. */}
-        {!correndo && !incident && !teatro && !keyMatch && !riepilogo && !bisognaRinnovare && bisognaObiettivo && (
+        {!correndo && !incident && !teatro && !keyMatch && !riepilogo && !richiestaDirigenza && !bisognaRinnovare && bisognaObiettivo && (
           <SeasonObjectiveScreen
             key="obiettivo-stagionale"
             season={state.season}

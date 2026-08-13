@@ -304,4 +304,47 @@ describe("lo Spogliatoio dentro la carriera", () => {
     expect(dopo).toBeGreaterThan(prima);
     expect((esito.state.commitments ?? []).some((c) => c.playerId === bersaglio.playerId)).toBe(true);
   });
+
+  /**
+   * **Il difetto segnalato dall'utente**: si affrontava un caso, si chiudeva la conversazione, e
+   * il giocatore restava nell'elenco. La ragione è che i fatti non cambiano premendo "chiudi" —
+   * un morale basso resta basso — quindi il tema tornava ammissibile all'istante.
+   */
+  it("chi ha appena parlato esce dall'elenco: di quell'argomento si è già discusso", () => {
+    let { state, world } = mondo();
+    for (let i = 0; i < 12 && !state.market; i++) {
+      state = advanceWeek(state, world, { closeMarket: true }).state;
+    }
+
+    const elenco = dressingRoom(state, world);
+    const primo = elenco[0];
+    if (!primo) return; // nessun caso aperto in questo seme: l'invariante non ha nulla da dire
+
+    // "Ignora" non chiude al primo colpo: consuma pazienza, e la rottura arriva quando finisce.
+    let dialogo = openPlayerDialogue(state, world, primo.playerId)!;
+    let corrente = state;
+    for (let i = 0; i < 12 && dialogo.status === "aperta"; i++) {
+      const passo = applyPlayerDialogue(corrente, world, dialogo, { kind: "ignora" });
+      corrente = passo.state;
+      dialogo = passo.dialogue;
+    }
+    expect(dialogo.status).not.toBe("aperta");
+
+    const dopo = dressingRoom(corrente, world);
+    expect(dopo.some((e) => e.playerId === primo.playerId && e.topicId === primo.topicId)).toBe(false);
+  });
+
+  /**
+   * L'altra metà della stessa segnalazione: quattordici richieste di cessione a gennaio. In una
+   * rosa da venticinque, metà squadra gioca meno del 30% dei minuti — è la normalità, non una
+   * pratica da aprire. Il tetto ai casi ordinari è la regola di prodotto che lo dice.
+   */
+  it("l'elenco non diventa mai un ufficio reclami, nemmeno a metà stagione", () => {
+    let { state, world } = mondo();
+    for (let i = 0; i < 30; i++) {
+      state = advanceWeek(state, world, { closeMarket: true }).state;
+    }
+    const ordinari = dressingRoom(state, world).filter((e) => !e.blocking);
+    expect(ordinari.length).toBeLessThanOrEqual(4);
+  });
 });

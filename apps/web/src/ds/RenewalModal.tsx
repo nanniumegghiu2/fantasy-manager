@@ -5,13 +5,13 @@ import {
   contractFor,
   financesOf,
   formatContractTotal,
-  formatEuro,
   formatWage,
   playerFactsOf,
   renewalDemandOf,
   type CareerState,
   type CareerWorld,
 } from "@app/game-engine";
+import { WageImpactPanel } from "./WageImpactPanel";
 
 /**
  * **Il tavolo del rinnovo.**
@@ -21,14 +21,17 @@ import {
  * mercenario e offende un giovane che voleva giocare — ed è la ragione per cui qui si vede sempre
  * *cosa chiede*, non solo quanto costa.
  *
- * Il margine della cassa ingaggi è mostrato accanto alla cifra: senza, l'utente scopriva di non
- * potersi permettere il rinnovo solo dopo aver premuto.
+ * Le **finanze si vedono mentre si tratta** (`WageImpactPanel`), e si possono riequilibrare da
+ * qui: senza, l'utente scopriva di non potersi permettere il rinnovo solo dopo aver premuto, e
+ * per fare spazio doveva uscire dalla trattativa, spostare il bilancio nel pannello Finanze e
+ * ricominciare da capo.
  */
 export function RenewalModal({
   state,
   world,
   playerId,
   onRenew,
+  onShiftFinances,
   onClose,
 }: {
   state: CareerState;
@@ -40,6 +43,8 @@ export function RenewalModal({
     guaranteedStarter?: boolean;
     captain?: boolean;
   }) => { ok: boolean; message: string };
+  /** Riequilibra il bilancio senza uscire dalla trattativa. */
+  onShiftFinances?: (share: number) => void;
   onClose: () => void;
 }) {
   const facts = useMemo(() => playerFactsOf(state, world, playerId), [state, world, playerId]);
@@ -182,15 +187,16 @@ export function RenewalModal({
             </button>
           </div>
 
-          <p
-            className={`text-[11px] font-semibold ${
-              fuoriMargine ? "text-[#ff4d4d]" : "text-[var(--text-secondary)]"
-            }`}
-          >
-            {aumento > 0
-              ? `L'aumento pesa ${formatWage(aumento)} sul monte · margine ${formatEuro(margine)}`
-              : `Margine cassa ingaggi: ${formatEuro(margine)}`}
-          </p>
+          {/* **Le finanze si vedono mentre si tratta**, e si possono riequilibrare qui: prima
+              lo slider viveva solo nel pannello Finanze, quindi per fare spazio a un rinnovo
+              bisognava uscire dalla trattativa e ricominciarla. */}
+          <WageImpactPanel
+            state={state}
+            world={world}
+            proposedWage={ingaggio}
+            currentWage={facts.wage}
+            onShift={onShiftFinances}
+          />
 
           {esito && (
             <p

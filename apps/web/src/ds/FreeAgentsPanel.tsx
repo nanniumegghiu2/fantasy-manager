@@ -14,6 +14,7 @@ import {
   type CareerWorld,
   type FreeAgent,
 } from "@app/game-engine";
+import { WageImpactPanel } from "./WageImpactPanel";
 import { NationFlag } from "../classic/NationFlag";
 
 /**
@@ -38,10 +39,16 @@ const REPARTI: { id: Department | "tutti"; label: string }[] = [
 function Card({
   agente,
   margine,
+  state,
+  world,
+  onShiftFinances,
   onFirma,
 }: {
   agente: FreeAgent;
   margine: number;
+  state: CareerState;
+  world: CareerWorld;
+  onShiftFinances?: (share: number) => void;
   onFirma: (offer: { wage: number; seasons: number; guaranteedStarter: boolean }) => void;
 }) {
   const [aperto, setAperto] = useState(false);
@@ -154,9 +161,19 @@ function Card({
             <span className="text-[9px]">{titolare ? "impegno verificato" : "no"}</span>
           </button>
 
+          {/* Le finanze si vedono e si riequilibrano **qui**: il vecchio avviso diceva "sposta
+              le finanze", ma per farlo bisognava chiudere questa scheda e andare altrove. */}
+          <WageImpactPanel
+            state={state}
+            world={world}
+            proposedWage={ingaggio}
+            onShift={onShiftFinances}
+          />
+
           {fuoriBudget && (
             <p className="text-[10px] font-bold text-[#ff4d4d]">
-              Oltre il margine ingaggi ({formatEuro(margine)}): sposta le finanze o vendi prima.
+              Oltre il margine ingaggi ({formatEuro(margine)}): sposta la ripartizione qui sopra,
+              oppure libera un ingaggio in rosa.
             </p>
           )}
 
@@ -187,10 +204,13 @@ export function FreeAgentsPanel({
   state,
   world,
   onSign,
+  onShiftFinances,
 }: {
   state: CareerState;
   world: CareerWorld;
   onSign: (agentId: string, offer: { wage: number; seasons: number; guaranteedStarter: boolean }) => void;
+  /** Riequilibra il bilancio senza uscire dalla scheda. */
+  onShiftFinances?: (share: number) => void;
 }) {
   const [reparto, setReparto] = useState<Department | "tutti">("tutti");
   const pool = useMemo(() => freeAgentMarket(state, world), [state, world]);
@@ -234,7 +254,15 @@ export function FreeAgentsPanel({
       ) : (
         <div className="grid gap-2 sm:grid-cols-2">
           {visibili.map((a) => (
-            <Card key={a.id} agente={a} margine={margine} onFirma={(o) => onSign(a.id, o)} />
+            <Card
+              key={a.id}
+              agente={a}
+              margine={margine}
+              state={state}
+              world={world}
+              onShiftFinances={onShiftFinances}
+              onFirma={(o) => onSign(a.id, o)}
+            />
           ))}
         </div>
       )}

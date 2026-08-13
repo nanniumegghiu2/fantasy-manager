@@ -1,8 +1,18 @@
 import { useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Activity, ChevronDown, HeartCrack, ShieldAlert, Sprout, TrendingUp } from "lucide-react";
+import {
+  Activity,
+  Building2,
+  ChevronDown,
+  HeartCrack,
+  ShieldAlert,
+  Sprout,
+  TrendingUp,
+} from "lucide-react";
 import {
   ageInSeason,
+  boardConfidenceLabel,
+  defaultBoard,
   findCoach,
   getFormation,
   type CareerState,
@@ -74,6 +84,9 @@ export function MarketBriefing({ state, world, standings }: MarketBriefingProps)
   }).length;
   const senzaRicambio = repartiSenzaRicambio(state, world);
 
+  const board = state.board ?? defaultBoard();
+  const fiducia = { ...boardConfidenceLabel(board.confidence), valore: board.confidence };
+
   return (
     <div className="border-b border-[var(--surface-border)] bg-[var(--surface-raised)]/60">
       <button
@@ -144,6 +157,25 @@ export function MarketBriefing({ state, world, standings }: MarketBriefingProps)
             className="overflow-hidden"
           >
             <div className="px-4 pb-3">
+              {/* **La dirigenza è parte del contesto**, non una sorpresa di fine stagione: se la
+                  fiducia sta scendendo lo si deve poter leggere mentre si decide come spendere. */}
+              <div className="mb-2 flex items-center justify-between gap-2 rounded-xl border border-[var(--surface-border)] bg-[var(--surface)] px-2.5 py-2">
+                <span className="flex items-center gap-1.5 text-[10px] font-extrabold tracking-widest text-[var(--text-secondary)] uppercase">
+                  <Building2 size={11} /> Dirigenza
+                </span>
+                <span className="flex items-center gap-2">
+                  <span className="h-1.5 w-20 overflow-hidden rounded-full bg-[var(--surface-raised)]">
+                    <span
+                      className="block h-full rounded-full"
+                      style={{ width: `${fiducia.valore}%`, backgroundColor: fiducia.tone }}
+                    />
+                  </span>
+                  <span className="text-[11px] font-extrabold" style={{ color: fiducia.tone }}>
+                    {fiducia.label}
+                  </span>
+                </span>
+              </div>
+
               <Legenda
                 infortunati={infortunati}
                 scontenti={scontenti}

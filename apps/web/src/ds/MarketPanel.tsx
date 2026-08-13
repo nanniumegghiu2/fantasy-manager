@@ -360,7 +360,12 @@ export function MarketPanel({
                 />
               )}
               {subMercato === "svincolati" && (
-                <FreeAgentsPanel state={state} world={world} onSign={onSignFreeAgent} />
+                <FreeAgentsPanel
+                  state={state}
+                  world={world}
+                  onSign={onSignFreeAgent}
+                  onShiftFinances={onShiftFinances}
+                />
               )}
               {subMercato === "mister" && (
                 <SchedaMister
@@ -1540,7 +1545,12 @@ function SchedaRosa({
       )}
 
       {subView === "spogliatoio" && (
-        <SpogliatoioPanel state={state} world={world} onApri={onOpenStandoff} />
+        <SpogliatoioPanel
+          state={state}
+          world={world}
+          chiuse={standoffChiuse}
+          onApri={onOpenStandoff}
+        />
       )}
     </div>
   );

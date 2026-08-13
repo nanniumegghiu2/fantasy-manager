@@ -28,6 +28,7 @@ import {
   negotiatePurchase,
   openForcedStandoff,
   resolveForcedStandoff,
+  answerBoardSackDemand,
   seasonObjectiveChoices,
   setSeasonObjective,
   playNegotiation,
@@ -54,6 +55,7 @@ import {
   openPlayerStandoff,
   standoffCandidates,
 } from "../ds/career";
+import { defaultBoard } from "../ds/board";
 import { createRosterEntry, MIN_SQUAD_SIZE } from "../ds/roster";
 import { openStandoff } from "../ds/playerStandoff";
 import { AI_CLUB_COHESION, careerOpponentTeam } from "../ds/aiClub";
@@ -439,6 +441,62 @@ describe("obiettivo stagionale", () => {
     } else {
       expect(dopo.coachHarmony ?? 75).toBeLessThan(75);
     }
+  });
+});
+
+/**
+ * **La dirigenza dentro la carriera** (`board.ts`). Richiesta esplicita dell'utente: *"un
+ * obiettivo non raggiunto deve portare la dirigenza a chiedere l'esonero del mister"*. Qui si
+ * verifica che il collegamento esista davvero a fine stagione, non solo nel modulo isolato.
+ */
+describe("la dirigenza a fine stagione", () => {
+  it("promettere il titolo con una rosa media apre la richiesta di esonero del mister", () => {
+    const { state, world } = fullCareer("dirigenza-esonero", 73);
+    const conObiettivo = setSeasonObjective(state, { targetPosition: 1, label: "Titolo" });
+    const dopo = playSeason(conObiettivo, world);
+    if (dopo.phase === "conclusa" && dopo.ending === "retrocessione") return; // altro esito
+
+    const finale = dopo.history[dopo.history.length - 1]!;
+    if (finale.position === 1) return; // titolo vinto: non c'è nulla da contestare
+
+    const trofei = finale.trophies
+      ? Number(finale.trophies.league) +
+        Number(finale.trophies.continental) +
+        Number(finale.trophies.national)
+      : 0;
+    if (trofei > 0) return; // un trofeo mette il mister al riparo, per costruzione
+
+    expect(dopo.board?.sackDemand).toBeDefined();
+    expect(dopo.board!.confidence).toBeLessThan(defaultBoard().confidence);
+  });
+
+  it("difendere il mister costa fiducia; assecondare la dirigenza libera la panchina", () => {
+    const { state } = fullCareer("dirigenza-risposta");
+    const conRichiesta: typeof state = {
+      ...state,
+      coachHarmony: 50,
+      board: {
+        confidence: 50,
+        sackDemand: {
+          season: 1,
+          objectiveLabel: "Titolo",
+          targetPosition: 1,
+          finalPosition: 9,
+          coachName: "Il mister",
+          severity: "richiesta",
+        },
+      },
+    };
+
+    const difeso = answerBoardSackDemand(conRichiesta, "difendi").state;
+    expect(difeso.coachId).toBe(state.coachId);
+    expect(difeso.board!.confidence).toBeLessThan(50);
+    expect(difeso.coachHarmony!).toBeGreaterThan(50);
+    expect(difeso.board!.sackDemand).toBeUndefined();
+
+    const esonerato = answerBoardSackDemand(conRichiesta, "esonera").state;
+    expect(esonerato.coachId).toBeNull();
+    expect(esonerato.board!.confidence).toBeGreaterThan(50);
   });
 });
 

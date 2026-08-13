@@ -21,7 +21,12 @@ import {
 } from "../season/leagueState";
 import type { MatchResult } from "../season/matchModel";
 import { computeSquadStrength } from "../squadStrength";
-import { PROMOTION_SLOTS, promotionAndRelegation, type DivisionMove } from "../divisions";
+import {
+  PROMOTION_SLOTS,
+  isSecondDivision,
+  promotionAndRelegation,
+  type DivisionMove,
+} from "../divisions";
 import { orderedClubIds, simulateSiblingSeason } from "./siblingLeague";
 import {
   createNationalCupSave,
@@ -104,7 +109,15 @@ import {
   type PlayerFacts,
   type RelationshipState,
 } from "./playerFacts";
-import { blockingTopic, pickTopic, talkUrgency } from "./playerTopics";
+import { MAX_OPEN_CASES, blockingTopic, pickTopic, talkUrgency } from "./playerTopics";
+import {
+  boardMidSeasonWarning,
+  boardSeasonVerdict,
+  defaultBoard,
+  resolveSackDemand,
+  type BoardState,
+  type SackDemandChoice,
+} from "./board";
 import {
   captaincyClaims,
   coachCaptainPick,
@@ -417,6 +430,13 @@ export interface CareerState {
   coachDeparture?: { coachName: string; clubName: string } | null;
   /** L'obiettivo dichiarato per la stagione in corso, scelto dal DS nel dossier iniziale. */
   seasonObjective?: { targetPosition: number; label: ObjectiveLabel; setSeason: number };
+  /**
+   * **La dirigenza** (`board.ts`): fiducia nel DS e richiesta di esonero del mister pendente.
+   *
+   * Assente nei salvataggi precedenti a questa versione: ogni lettura passa da `defaultBoard()`,
+   * quindi una carriera già avviata riparte con la fiducia iniziale invece di rompersi.
+   */
+  board?: BoardState;
   /** Se l'obiettivo di questa stagione è già stato scelto: azzerato a ogni nuova stagione. */
   seasonObjectiveSet?: boolean;
   /** Budget al calcio d'inizio della stagione in corso: la base per il saldo di mercato annuale. */
@@ -610,6 +630,7 @@ export function createCareer(input: CreateCareerInput): CareerState {
     pendingRequest: null,
     seasonNegotiationDone: true,
     seasonObjectiveSet: false,
+    board: defaultBoard(),
   };
 }
 
@@ -1229,6 +1250,24 @@ export function advanceWeek(
             `Entusiasmo alle stelle: stiamo facendo molto meglio dell'obiettivo "${next.seasonObjective.label}" dichiarato.`,
           );
         }
+      }
+
+      /**
+       * **La dirigenza si fa sentire mentre le cose vanno male**, non solo a bocce ferme
+       * (`board.ts`). Una volta per stagione e non prima che il campionato dica qualcosa:
+       * altrimenti sarebbe un messaggio a ogni giornata storta, cioè rumore.
+       */
+      const richiamo = boardMidSeasonWarning({
+        board: next.board,
+        season: next.season,
+        matchday: round + 1,
+        totalMatchdays: world.leagueRounds,
+        positionsBelowTarget: posizioneSottoObiettivo,
+        objectiveLabel: next.seasonObjective.label,
+      });
+      if (richiamo) {
+        next = { ...next, board: richiamo.board };
+        messages.push(richiamo.message);
       }
     }
 
@@ -2489,9 +2528,99 @@ function maybePoachOurCoach(state: CareerState, world: CareerWorld): CareerState
   };
 }
 
+/**
+ * **La forza dei nostri undici migliori**, nella stessa unità di misura del `rating` di ogni
+ * avversaria (`aiClub.ts`): media degli Overall della formazione che scenderebbe in campo.
+ *
+ * È la grandezza con cui si stima dove finiremo. La media dell'**intera rosa** — quella che si
+ * usava prima — misura una cosa diversa: una rosa lunga con dodici riserve risulta più debole di
+ * una corta con gli stessi titolari, e siccome le avversarie sono sempre valutate sui loro
+ * undici, il paragone ci sottostimava sistematicamente. Con la squadra più forte del campionato
+ * ne usciva "Europa" come massima ambizione, che è il difetto segnalato dall'utente.
+ */
+export function bestElevenRating(state: CareerState, world: CareerWorld): number {
+  const lineup = currentLineup(state, world);
+  const overalls: number[] = [];
+  for (const playerId of Object.values(lineup.starters)) {
+    const entry = state.roster.find((e) => e.playerId === playerId);
+    if (entry) overalls.push(entry.overall);
+  }
+  // Senza formazione risolvibile (rosa incompleta, test del solo campo) restano gli undici
+  // Overall più alti: sempre gli undici, mai la rosa intera.
+  if (overalls.length === 0) {
+    const migliori = [...state.roster]
+      .filter((e) => !e.loan?.hostClubId)
+      .sort((a, b) => b.overall - a.overall)
+      .slice(0, 11);
+    if (migliori.length === 0) return 70;
+    return migliori.reduce((s, e) => s + e.overall, 0) / migliori.length;
+  }
+  return overalls.reduce((s, v) => s + v, 0) / overalls.length;
+}
+
+/** Il campionato in cui giochiamo adesso è una seconda divisione? */
+export function inSecondDivision(state: CareerState, world: CareerWorld): boolean {
+  const nome = world.divisions
+    ? state.leagueId === world.divisions.secondLeagueId
+      ? world.divisions.secondLeagueName
+      : world.leagueName
+    : world.leagueName;
+  return nome ? isSecondDivision(nome) : false;
+}
+
 /** Le tre fasce fra cui il DS può scegliere l'obiettivo di questa stagione. */
 export function seasonObjectiveChoices(state: CareerState, world: CareerWorld): ObjectiveTier[] {
-  return suggestObjectiveTiers(state.roster, world.opponents, world.opponents.length + 1);
+  return suggestObjectiveTiers(
+    bestElevenRating(state, world),
+    world.opponents,
+    world.opponents.length + 1,
+    inSecondDivision(state, world),
+  );
+}
+
+/**
+ * **La risposta alla dirigenza che chiede l'esonero del mister.**
+ *
+ * Assecondarla libera la panchina — si passa dal flusso di ingaggio già esistente, quindi il
+ * nuovo mister costa comunque il suo ingaggio — e ricompone il rapporto col presidente.
+ * Difenderlo lega il mister a te ma consuma fiducia, e su un **ultimatum** può finire lì la
+ * carriera: è ciò che rende la richiesta una decisione invece di un avviso da chiudere.
+ */
+export function answerBoardSackDemand(
+  state: CareerState,
+  choice: SackDemandChoice,
+): { state: CareerState; message: string } {
+  const esito = resolveSackDemand(state.board, choice);
+
+  let next: CareerState = { ...state, board: esito.board };
+
+  if (esito.fireCoach) {
+    // Stesso trattamento delle dimissioni: la panchina resta vuota e il DS deve sceglierne uno.
+    next = {
+      ...next,
+      coachId: null,
+      coachPromises: [],
+      coachContract: undefined,
+      guaranteedStarters: {},
+      coachBenched: {},
+      coachHarmony: 50,
+    };
+  } else if (esito.coachHarmonyDelta !== 0) {
+    next = {
+      ...next,
+      coachHarmony: Math.max(0, Math.min(100, (next.coachHarmony ?? 75) + esito.coachHarmonyDelta)),
+    };
+  }
+
+  if (esito.dsSacked) {
+    next = { ...next, phase: "conclusa", ending: "esonero" };
+    return {
+      state: next,
+      message: `${esito.message} La società non ha retto un'altra sfida: il direttore sportivo è stato esonerato.`,
+    };
+  }
+
+  return { state: next, message: esito.message };
 }
 
 /** Dichiara l'obiettivo: chiude il gate di inizio stagione, come il rinnovo col mister. */
@@ -3593,10 +3722,48 @@ function closeSeason(
     );
   }
 
+  /**
+   * **Il giudizio della dirigenza** (`board.ts`), che è la parte che mancava: fino a qui un
+   * obiettivo mancato costava sei punti di sintonia col mister e nient'altro. Ora c'è un
+   * presidente che tiene il conto, e che se la stagione è andata male chiede la testa
+   * dell'allenatore — una richiesta che il DS dovrà accogliere o respingere prima di ripartire.
+   */
+  const verdetto = boardSeasonVerdict({
+    board: state.board,
+    season: state.season,
+    objective: state.seasonObjective
+      ? { label: state.seasonObjective.label, targetPosition: state.seasonObjective.targetPosition }
+      : undefined,
+    finalPosition: row.position,
+    teamsInLeague,
+    trophies: Number(trophies.league) + Number(trophies.continental) + Number(trophies.national),
+    divisionOutcome: divisioni?.ourFate === "resta" ? undefined : divisioni?.ourFate,
+    coachName: state.coachId ? findCoach(state.coachId)?.name : undefined,
+    hasCoach: !!state.coachId,
+  });
+  messages.push(verdetto.message);
+
+  if (verdetto.dsSacked) {
+    return {
+      state: {
+        ...state,
+        phase: "conclusa",
+        ending: "esonero",
+        board: verdetto.board,
+        history: [...state.history, summary],
+      },
+      messages: [
+        ...messages,
+        "La società ha esonerato il direttore sportivo: la fiducia era finita da un pezzo.",
+      ],
+    };
+  }
+
   return {
     state: {
       ...state,
       coachHarmony,
+      board: verdetto.board,
       season,
       week: 0,
       phase: "mercato_estivo",
@@ -3944,7 +4111,14 @@ export function dressingRoom(state: CareerState, world: CareerWorld): DressingRo
       blocking: blockingTopic(facts) !== null,
     });
   }
-  return out.sort((a, b) => b.urgency - a.urgency);
+  out.sort((a, b) => b.urgency - a.urgency);
+
+  // **Il tetto ai casi aperti.** I bloccanti passano tutti — sono emergenze, e nasconderne una
+  // sarebbe peggio di mostrarne troppe — gli altri si fermano ai più urgenti. Chi resta fuori
+  // non è risolto: tornerà quando sarà lui il caso più caldo.
+  const bloccanti = out.filter((v) => v.blocking);
+  const ordinari = out.filter((v) => !v.blocking).slice(0, MAX_OPEN_CASES);
+  return [...bloccanti, ...ordinari].sort((a, b) => b.urgency - a.urgency);
 }
 
 /** Il contesto con cui si valutano le mosse: liquidità, margine ingaggi, parere del mister. */
@@ -4179,6 +4353,11 @@ export function applyPlayerDialogue(
           trust: effetti.dialogue.trust,
           feud: effetti.dialogue.status === "rottura" ? true : next.relationships?.[id]?.feud,
           lastTalkedWeek: next.league.round,
+          // Stagione e argomento sono ciò che rende la tregua verificabile: senza il primo si
+          // azzererebbe da sola al cambio d'anno, senza il secondo silenzierebbe il giocatore
+          // anche su un caso nuovo e più grave (`playerTopics.ts`, `inTregua`).
+          lastTalkedSeason: next.season,
+          lastTopicId: effetti.dialogue.topicId,
         },
       },
     };

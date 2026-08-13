@@ -64,6 +64,18 @@ export interface Topic {
 
 /** Giornate di tregua personale dopo una conversazione chiusa bene. */
 export const TALK_COOLDOWN = 8;
+
+/**
+ * Quanti casi lo Spogliatoio tiene aperti insieme (oltre a quelli **bloccanti**, che passano
+ * sempre).
+ *
+ * Non è una comodità di interfaccia, è la regola di prodotto: in un club vero non ci sono
+ * quattordici casi contemporaneamente sul tavolo del direttore sportivo. Senza tetto, a gennaio
+ * ogni riserva con pochi minuti apriva la sua pratica e l'elenco diventava un ufficio reclami —
+ * segnalato dall'utente con quattordici richieste di cessione nella stessa finestra. Chi resta
+ * fuori non è "risolto": è meno urgente, e tornerà quando lo diventerà.
+ */
+export const MAX_OPEN_CASES = 4;
 /** Minimo di giornate disponibili prima che un discorso sul minutaggio abbia senso. */
 const MIN_MATCHDAYS_FOR_MINUTES = 6;
 
@@ -83,6 +95,25 @@ const ordinaria = (v: number) => Math.max(0, Math.min(URGENZA_ORDINARIA, Math.ro
 
 const percentuale = (v: number) => `${Math.round(v * 100)}%`;
 
+/** Sopra questo morale un giocatore accetta il suo ruolo: non è contento, è **sereno**. */
+const MORALE_SERENO = 62;
+
+/**
+ * **Ha davvero titolo per lamentarsi della panchina?**
+ *
+ * La condizione che mancava, ed è la causa delle richieste di massa: `playedShare < 0.3` è vera
+ * per *metà rosa* a gennaio — undici giocano, quattordici no. Ma stare in panchina è una
+ * lamentela solo per chi può ragionevolmente pretendere il posto: chi vale quanto la squadra, o
+ * chi è alla pari del compagno che gli sta davanti nella sua casella. Un rincalzo sei punti
+ * sotto la media della rosa la panchina se l'aspetta.
+ *
+ * `bestRivalOverallInRole` vale `-1` quando **nessun altro** copre quel ruolo: lì il titolo a
+ * giocare è ovvio, e la condizione passa da sola.
+ */
+function pretendeIlPosto(f: PlayerFacts): boolean {
+  return f.overall >= f.squadAverage - 1 || f.overall >= f.bestRivalOverallInRole - 2;
+}
+
 export const TOPICS: Topic[] = [
   /* ------------------------------------------------------------------ campo */
   {
@@ -93,7 +124,9 @@ export const TOPICS: Topic[] = [
       f.matchdaysAvailable >= MIN_MATCHDAYS_FOR_MINUTES &&
       f.injuryMatchdaysLeft === 0 &&
       !f.arrivedThisSeason &&
-      !f.onLoanOut,
+      !f.onLoanOut &&
+      f.morale < MORALE_SERENO &&
+      pretendeIlPosto(f),
     urgency: (f) => ordinaria(55 + (0.3 - f.playedShare) * 100 + (f.overall - f.squadAverage) * 2),
     demand: () => ({ description: "Pretende spazio da titolare, o valuterà di andarsene." }),
     opening: (f) =>
@@ -109,7 +142,8 @@ export const TOPICS: Topic[] = [
       f.playedShare < 0.45 &&
       f.matchdaysAvailable >= MIN_MATCHDAYS_FOR_MINUTES &&
       f.injuryMatchdaysLeft === 0 &&
-      !f.onLoanOut,
+      !f.onLoanOut &&
+      f.morale < MORALE_SERENO + 6,
     urgency: (f) => ordinaria(60 + ((f.lastSeasonPlayedShare ?? 0) - f.playedShare) * 60),
     demand: () => ({ description: "Vuole capire perché è passato da titolare a comprimario." }),
     opening: (f) =>
@@ -118,7 +152,19 @@ export const TOPICS: Topic[] = [
   {
     id: "corteggiato",
     label: "Corteggiato da un club",
-    eligible: (f) => !!f.incomingOffer && !f.onLoanOut,
+    /**
+     * Un'offerta sul tavolo non basta: la porta al DS solo chi ne è **tentato** — perché chiama
+     * un club più blasonato, perché qui gioca poco, o perché sta già male. Chi è titolare
+     * sereno in un club all'altezza lascia che siano le società a parlarsi, e infatti nella
+     * realtà non è lui a bussare.
+     */
+    eligible: (f) =>
+      !!f.incomingOffer &&
+      !f.onLoanOut &&
+      ((f.incomingOffer?.prestige ?? 3) >= 4 ||
+        f.playedShare < 0.45 ||
+        f.morale < MORALE_SERENO ||
+        f.isOnTransferList),
     urgency: (f) => ordinaria(70 + (f.incomingOffer?.prestige ?? 3) * 4),
     demand: (f) => ({
       description: f.incomingOffer
@@ -334,7 +380,26 @@ export function topicById(id: TopicId): Topic | undefined {
  */
 export function eligibleTopics(f: PlayerFacts): Topic[] {
   if (f.onLoanOut) return [];
-  return TOPICS.filter((t) => t.eligible(f)).sort((a, b) => b.urgency(f) - a.urgency(f));
+  return TOPICS.filter((t) => t.eligible(f) && !inTregua(f, t)).sort(
+    (a, b) => b.urgency(f) - a.urgency(f),
+  );
+}
+
+/**
+ * **L'argomento di cui abbiamo appena parlato è chiuso, per un po'.**
+ *
+ * Era il difetto più visibile dello Spogliatoio: si affrontava un caso, si chiudeva la chat, e
+ * il giocatore ricompariva subito nell'elenco. La ragione è che i fatti non cambiano premendo
+ * "chiudi" — un morale basso resta basso, e un rapporto rotto (`isFeuding`) resta rotto **per
+ * sempre**, quindi `promessa_infranta` sarebbe stato ammissibile a vita. La tregua non finge che
+ * il problema sia risolto: dice che *di quello* si è già parlato, e che il giocatore aspetta di
+ * vedere i fatti prima di ripresentarsi.
+ *
+ * Vale per **quel** tema, non per il giocatore: se nel frattempo nasce un caso nuovo e più
+ * grave — un precontratto, la fascia tolta — quello passa comunque.
+ */
+function inTregua(f: PlayerFacts, topic: Topic): boolean {
+  return f.lastTopicId === topic.id && f.weeksSinceLastTalk < TALK_COOLDOWN;
 }
 
 /** Il tema di cui parlerebbe adesso: il più urgente fra gli ammissibili. */

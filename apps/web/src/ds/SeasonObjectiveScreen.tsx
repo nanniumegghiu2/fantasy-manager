@@ -1,5 +1,5 @@
 import { motion } from "framer-motion";
-import { Crown, Shield, ShieldHalf, Star, Target } from "lucide-react";
+import { ArrowUpCircle, Crown, Shield, ShieldHalf, Star, Swords, Target } from "lucide-react";
 import type { ObjectiveTier } from "@app/game-engine";
 
 /**
@@ -12,12 +12,19 @@ import type { ObjectiveTier } from "@app/game-engine";
  * esigente, mancarlo più accomodante.
  */
 
+/**
+ * Le fasce sono **due scale**, una per divisione (`seasonObjectives.ts`): in Serie B non
+ * esistono Europa e Titolo, esistono promozione e playoff. Il motore sceglie la scala giusta,
+ * qui si dà un'icona a ciascuna etichetta possibile.
+ */
 const ICONA: Record<ObjectiveTier["label"], typeof Target> = {
   Salvezza: Shield,
   "Parte bassa": ShieldHalf,
   "Metà classifica": Target,
   Europa: Star,
   Titolo: Crown,
+  Playoff: Swords,
+  Promozione: ArrowUpCircle,
 };
 
 export function SeasonObjectiveScreen({

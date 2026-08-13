@@ -89,13 +89,25 @@ function Riga({ voce, onApri }: { voce: DressingRoomEntry; onApri: () => void })
 export function SpogliatoioPanel({
   state,
   world,
+  chiuse,
   onApri,
 }: {
   state: CareerState;
   world: CareerWorld;
+  /**
+   * Chi ha già avuto la sua conversazione in questa finestra.
+   *
+   * La tregua vera vive nel motore (`playerTopics.ts`, `inTregua`), ma copre solo le chat
+   * **risolte**: chiudere la finestra senza rispondere non è una risposta, e senza questo
+   * elenco il giocatore restava in lista — il difetto segnalato dall'utente.
+   */
+  chiuse?: ReadonlySet<string>;
   onApri: (playerId: string) => void;
 }) {
-  const voci = useMemo(() => dressingRoom(state, world), [state, world]);
+  const voci = useMemo(
+    () => dressingRoom(state, world).filter((v) => !chiuse?.has(v.playerId)),
+    [state, world, chiuse],
+  );
   const impegni = state.commitments ?? [];
   const nomeDi = (id?: string) =>
     id ? (voci.find((v) => v.playerId === id)?.name ?? world.players[id]?.name ?? "Un giocatore") : "Il mister";

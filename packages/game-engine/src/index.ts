@@ -36,6 +36,7 @@ export * from "./ds/highlights";
 export * from "./ds/scouting";
 export * from "./ds/aiWorld";
 export * from "./ds/seasonObjectives";
+export * from "./ds/board";
 export * from "./ds/coachRequests";
 export * from "./ds/coachRequestsCatalog";
 export * from "./ds/coachDialogueEngine";

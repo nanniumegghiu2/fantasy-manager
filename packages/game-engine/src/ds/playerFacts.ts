@@ -29,6 +29,23 @@ export interface RelationshipState {
   brokenCount?: number;
   keptCount?: number;
   lastTalkedWeek?: number;
+  /**
+   * La stagione in cui è avvenuta l'ultima conversazione.
+   *
+   * Senza, la tregua si rompeva da sola al cambio di stagione: `league.round` riparte da zero,
+   * quindi `round - lastTalkedWeek` diventava negativo e, azzerato dal `Math.max(0, …)`, faceva
+   * sembrare che avessimo parlato *proprio adesso* con tutta la rosa. Con la soppressione del
+   * tema (sotto) quel difetto latente sarebbe diventato "nessuno parla più per un'intera
+   * stagione": la stagione va confrontata, non dedotta.
+   */
+  lastTalkedSeason?: number;
+  /**
+   * Di **cosa** si è parlato l'ultima volta.
+   *
+   * È la chiave della tregua: un argomento già affrontato non si riapre subito, mentre un
+   * argomento nuovo e più grave (un precontratto comparso ieri) deve poter passare comunque.
+   */
+  lastTopicId?: string;
 }
 
 export const DEFAULT_TRUST = 50;
@@ -112,6 +129,8 @@ export interface PlayerFacts {
   openCommitments: Commitment[];
   lastTalkedWeek?: number;
   weeksSinceLastTalk: number;
+  /** Il tema dell'ultima conversazione chiusa, per la tregua di `playerTopics.ts`. */
+  lastTopicId?: string;
 
   /* — mister — */
   coachHarmony: number;
@@ -287,8 +306,14 @@ export function buildPlayerFacts(input: PlayerFactsInput): PlayerFacts {
     keptCommitments: rapporto?.keptCount ?? 0,
     openCommitments: [...(input.openCommitments ?? [])],
     lastTalkedWeek: rapporto?.lastTalkedWeek,
+    // Una conversazione di **un'altra stagione** è acqua passata: confrontare i soli numeri di
+    // giornata direbbe "ne abbiamo appena parlato" a ogni inizio d'anno.
     weeksSinceLastTalk:
-      rapporto?.lastTalkedWeek === undefined ? Infinity : Math.max(0, settimana - rapporto.lastTalkedWeek),
+      rapporto?.lastTalkedWeek === undefined ||
+      (rapporto.lastTalkedSeason !== undefined && rapporto.lastTalkedSeason !== input.season)
+        ? Infinity
+        : Math.max(0, settimana - rapporto.lastTalkedWeek),
+    lastTopicId: rapporto?.lastTopicId,
 
     coachHarmony: input.coachHarmony ?? 50,
     personality,
