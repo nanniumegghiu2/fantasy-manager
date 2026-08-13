@@ -1,6 +1,12 @@
 import { useState } from "react";
 import { Check, Minus, Plus, Star } from "lucide-react";
-import { formatContractTotal, formatWage, type CareerState, type CareerWorld } from "@app/game-engine";
+import {
+  formatContractTotal,
+  formatEuro,
+  formatWage,
+  type CareerState,
+  type CareerWorld,
+} from "@app/game-engine";
 import { WageImpactPanel } from "./WageImpactPanel";
 
 /**
@@ -95,7 +101,7 @@ export function ContractOfferForm({
         <p className="text-[10px] font-extrabold tracking-wider text-amber-300 uppercase">Chiede</p>
         <p className="mt-0.5 text-xs leading-snug font-medium text-amber-100/90">
           {formatWage(demand.wage)} · {demand.seasons} {demand.seasons === 1 ? "anno" : "anni"}
-          {demand.clause > 0 && ` · clausola ${formatWage(demand.clause)}`}
+          {demand.clause > 0 && ` · clausola ${formatEuro(demand.clause)}`}
           {demand.wantsStarter && " · un posto da titolare"}
           {demand.wantsCaptaincy && " · la fascia"}
         </p>
@@ -132,7 +138,7 @@ export function ContractOfferForm({
         {demand.clause > 0 && (
           <Passo
             label="Clausola"
-            valore={clausola > 0 ? formatWage(clausola) : "nessuna"}
+            valore={clausola > 0 ? formatEuro(clausola) : "nessuna"}
             onMeno={() => setClausola((v) => Math.max(0, v - passoClausola))}
             onPiu={() => setClausola((v) => v + passoClausola)}
           />

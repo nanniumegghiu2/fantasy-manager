@@ -1,6 +1,8 @@
 # Piano — Rifinitura globale della modalità Direttore Sportivo
 
-> Stato: **approvato** (2026-08-13). Scritto prima di toccare il codice, come `piano-serie-b.md`
+> Stato: **implementato** (2026-08-14) — tutte e otto le fasi, verificate con test, tipi, build e una sessione nel browser. Le voci qui sotto restano come registro di cosa si e perche.
+>
+> Approvato il 2026-08-13. Scritto prima di toccare il codice, come `piano-serie-b.md`
 > e `piano-spogliatoio-contratti.md`. Undici segnalazioni dell'utente da una sessione di gioco
 > reale, tutte sul cuore manageriale della modalità. Le otto decisioni aperte sono state prese
 > dall'utente e sono registrate in **Parte C**; due di esse (D2 e le finanze) hanno **superato**

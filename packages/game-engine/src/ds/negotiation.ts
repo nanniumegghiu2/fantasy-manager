@@ -359,19 +359,30 @@ export function applyNegotiationMove(
 }
 
 /** Probabilità che un accordo raggiunto salti per una sorpresa dell'ultimo momento. */
+/**
+ * ⚠️ **Non è più un tiro di dado: adesso il giocatore lo si convince al tavolo.**
+ *
+ * Serviva quando l'acquisto si chiudeva con l'accordo col club e basta: senza un momento in cui
+ * il giocatore potesse dire di no, comprare era un'operazione contabile. Con la seconda fase
+ * contrattuale quel momento **esiste davvero** — e tenere anche il dado significava farlo
+ * rifiutare due volte, una a caso e una per le condizioni offerte. Verificato nel browser: la
+ * trattativa saltava prima ancora di arrivare al tavolo.
+ *
+ * La costante resta esportata perché è un numero di bilanciamento citato altrove; il suo unico
+ * uso era qui.
+ */
 export const PLAYER_REFUSAL_ODDS = 0.09;
 export const MEDICAL_FAILURE_ODDS = 0.06;
 
 /**
- * Stretta la mano, resta l'ultimo scoglio.
+ * Stretta la mano col club, resta l'ultimo scoglio.
  *
- * Due sorprese, rare ma non rarissime, che si vedono **solo in acquisto**: il giocatore può
- * dire di no (non è una merce, ha una volontà) e le visite mediche possono andare male. In
- * cessione non hanno senso — chi va via non deve convincere noi — e aggiungerle sarebbe una
- * penalità gratuita su una decisione già presa.
+ * Le **visite mediche** possono ancora andare male, e restano qui perché si fanno prima della
+ * firma: è l'unica sorpresa che sopravvive all'introduzione del tavolo contrattuale. Il rifiuto
+ * del giocatore no — non è più un caso, è l'esito di come lo si tratta.
  *
- * Servono a togliere la certezza dall'ultimo passo: un mercato in cui ogni accordo si chiude è
- * un mercato senza rischio, e senza rischio non c'è tensione.
+ * In cessione non ha senso nemmeno questa: chi va via non deve convincere noi, e aggiungerla
+ * sarebbe una penalità gratuita su una decisione già presa.
  */
 function concludi(
   negotiation: Negotiation,
@@ -380,21 +391,6 @@ function concludi(
   log: NegotiationMessage[],
 ): Negotiation {
   if (negotiation.kind === "acquisto") {
-    if (random() < PLAYER_REFUSAL_ODDS) {
-      return {
-        ...negotiation,
-        amount,
-        status: "arenata",
-        ending: "rifiuto_giocatore",
-        log: [
-          ...log,
-          {
-            speaker: "loro",
-            text: "Con noi avevamo chiuso. Ma lui ha detto di no: aveva un'altra idea in testa. Mi dispiace.",
-          },
-        ],
-      };
-    }
     if (random() < MEDICAL_FAILURE_ODDS) {
       return {
         ...negotiation,
