@@ -1270,7 +1270,34 @@ export function advanceWeek(
       }
     }
 
-    next = applyMatchdayToRoster(next, lineup, followedResult, injuries, round, posizioneSottoObiettivo);
+    /**
+     * **Quante partite gioca la squadra in questa settimana**, coppe comprese.
+     *
+     * Fino a ieri la fatica si aggiornava solo sulla giornata di campionato: i quindici impegni
+     * infrasettimanali che il calendario produce a chi gioca entrambe le coppe **non pesavano
+     * nulla**, cioè il fenomeno che la fatica esiste per modellare non veniva modellato affatto.
+     *
+     * Si contano gli slot del calendario e non i referti perché le coppe si giocano più sotto,
+     * dopo questo punto: spostare l'aggiornamento della rosa dopo di loro cambierebbe la forza
+     * con cui si scende in campo in Europa, e con essa risultati già calibrati. Chi è stato
+     * eliminato non gioca — `cupParticipation` lo sa — quindi non paga.
+     */
+    const partiteSettimana =
+      1 +
+      (cupSlotOf(week) && next.cup && stillInCup(next.cup, next.clubId) ? 1 : 0) +
+      (nationalCupSlotOf(week) && next.nationalCup && stillInNationalCup(next.nationalCup, next.clubId)
+        ? 1
+        : 0);
+
+    next = applyMatchdayToRoster(
+      next,
+      lineup,
+      followedResult,
+      injuries,
+      round,
+      posizioneSottoObiettivo,
+      partiteSettimana,
+    );
     next.league = { round: league.round, tallies: league.tallies };
 
     // Chi era a riposo per decisione del DS torna disponibile una giornata alla volta.
@@ -2704,6 +2731,20 @@ function scorerPoolOf(state: CareerState, lineup: Lineup, world: CareerWorld) {
 }
 
 /** Aggiorna minuti, gol, fatica, morale e infortuni dopo una giornata. */
+/** Siamo ancora in corsa in Corona? Girone o tabellone, basta essere fra chi gioca. */
+function stillInCup(cup: NonNullable<CareerState["cup"]>, clubId: string): boolean {
+  const i = cup.entrants.indexOf(clubId);
+  if (i < 0) return false;
+  return cup.stage === "girone" || cup.bracket.includes(i);
+}
+
+/** Siamo ancora in corsa in Coppa Tricolore? Nel tabellone o in attesa di entrarci. */
+function stillInNationalCup(save: NonNullable<CareerState["nationalCup"]>, clubId: string): boolean {
+  const i = save.entrants.indexOf(clubId);
+  if (i < 0) return false;
+  return save.bracket.includes(i) || save.byes.includes(i);
+}
+
 function applyMatchdayToRoster(
   state: CareerState,
   lineup: Lineup,
@@ -2711,6 +2752,15 @@ function applyMatchdayToRoster(
   injuriesOut: Injury[],
   round: number,
   positionsBelowTarget?: number,
+  /**
+   * Partite giocate dalla squadra in questa settimana, coppe comprese.
+   *
+   * Semplificazione dichiarata: si assume che chi era titolare in campionato abbia giocato anche
+   * l'impegno infrasettimanale. Il motore non tiene una formazione separata per le coppe — le
+   * risolve con la stessa forza di squadra — quindi una distinzione più fine sarebbe finta
+   * precisione su un dato che non esiste.
+   */
+  matchesThisWeek = 1,
 ): CareerState {
   const startersIds = new Set(Object.values(lineup.starters));
   const scorers = new Set(result?.scorerIds ?? []);
@@ -2739,7 +2789,7 @@ function applyMatchdayToRoster(
     return {
       ...withStats,
       morale: updateMorale(withStats, context).after,
-      fatigue: updateFatigue(withStats, played),
+      fatigue: updateFatigue(withStats, played ? matchesThisWeek : 0),
     };
   });
 

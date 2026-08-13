@@ -282,8 +282,22 @@ export const TOPICS: Topic[] = [
   {
     id: "sovraccarico",
     label: "È sfinito",
-    eligible: (f) => f.fatigue >= 78 && f.playedShare >= 0.8,
-    urgency: (f) => ordinaria(30 + (f.fatigue - 78)),
+    /**
+     * ⚠️ **Era la segnalazione "troppi giocatori mi chiedono di riposare".**
+     *
+     * La soglia non era sbagliata: era il modello della fatica a esserlo. Con `played ? +18 :
+     * −22` chi giocava non recuperava mai, quindi **tutti gli undici titolari** superavano 78
+     * dalla quinta giornata e ci restavano — il tema era ammissibile per l'intera formazione,
+     * ogni settimana, per tutta la stagione.
+     *
+     * Sistemato il modello (`events.ts`: recupero proporzionale, sovrapprezzo di congestione),
+     * un titolare che gioca solo il campionato si assesta intorno a 30 e non entra mai qui: la
+     * soglia sale a 85 perché ora *significa* qualcosa — ci si arriva solo con settimane di
+     * doppio impegno. Alzarla senza correggere il modello avrebbe nascosto il sintomo lasciando
+     * in piedi il malus permanente su tutta la squadra.
+     */
+    eligible: (f) => f.fatigue >= 85 && f.playedShare >= 0.8,
+    urgency: (f) => ordinaria(30 + (f.fatigue - 85)),
     demand: () => ({ description: "Chiede di rifiatare: ha giocato tutto." }),
     opening: () => `Sono a pezzi, Direttore. Ho giocato tutte le partite: mi serve respirare.`,
   },

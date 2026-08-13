@@ -45,7 +45,26 @@ export const POSITIONAL_PENALTY = {
 } as const;
 
 /** Sotto questa soglia la stanchezza non si vede: un giocatore fresco non ha malus. */
-const FATIGUE_FREE_THRESHOLD = 40;
+/**
+ * **Quanto pesa una titolarità garantita nella scelta dell'undici.**
+ *
+ * ⚠️ Valeva **+100**, cioè un ordine e non una preferenza: cento punti su una scala di Overall
+ * 60-99 sono incompensabili da qualunque penalità, quindi il garantito giocava sfinito, giocava
+ * demotivato, giocava fuori ruolo e giocava al posto di un compagno più forte di venti punti.
+ *
+ * L'utente ha dichiarato la semantica giusta: *"non significa che deve giocare a ogni costo, ma
+ * che a parità di condizione ottimale deve giocare il prescelto"*. Quattro punti sono la
+ * traduzione onesta di "a parità": bastano a decidere un ballottaggio fra due giocatori
+ * confrontabili — che è il caso in cui la promessa deve contare — e non bastano a scavalcare un
+ * divario reale né a mandare in campo chi è a pezzi.
+ *
+ * Una regola di pareggio puro (vince il garantito solo a punteggio identico) sarebbe stata la
+ * lettura letterale, ma il pareggio esatto non capita quasi mai su punteggi con le penalità
+ * continue di fatica e morale: la promessa sarebbe risultata di fatto inerte.
+ */
+export const GUARANTEED_STARTER_BONUS = 4;
+
+export const FATIGUE_FREE_THRESHOLD = 40;
 /** Penalità massima a stanchezza 100 (placeholder di bilanciamento). */
 const MAX_FATIGUE_PENALTY = 8;
 /** Il morale conta solo quando è sotto la neutralità: sopra non regala nulla. */
@@ -147,12 +166,12 @@ export function playerSlotScore(
     (slotId && options.guaranteedStarters?.[slotId] === entry.playerId) ||
     options.guaranteedStarters?.[slotRole] === entry.playerId
   ) {
-    score += 100;
+    score += GUARANTEED_STARTER_BONUS;
   } else if (
     options.anyRoleBoost?.includes(entry.playerId) &&
     (player.role === slotRole || player.secondaryRoles.includes(slotRole))
   ) {
-    score += 100;
+    score += GUARANTEED_STARTER_BONUS;
   }
   return score;
 }

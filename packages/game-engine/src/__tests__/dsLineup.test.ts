@@ -8,7 +8,13 @@
 import { describe, expect, it } from "vitest";
 import { FORMATIONS, getFormation } from "../formations";
 import { computeCohesion, cohesionLabel } from "../ds/cohesion";
-import { isLineupComplete, pickStartingEleven, playerSlotScore, positionalPenalty } from "../ds/lineup";
+import {
+  GUARANTEED_STARTER_BONUS,
+  isLineupComplete,
+  pickStartingEleven,
+  playerSlotScore,
+  positionalPenalty,
+} from "../ds/lineup";
 import { canBuy, canSell, createRosterEntry, MAX_SQUAD_SIZE, MIN_SQUAD_SIZE } from "../ds/roster";
 import type { PlayerIndex, PlayerRef, RosterEntry } from "../ds/types";
 import type { Role } from "@app/shared-types";
@@ -120,7 +126,7 @@ describe("guaranteedStarters — esclusiva per casella", () => {
       guaranteedStarters: { DC: "p5" },
     });
     const scoreSenzaGaranzia = playerSlotScore(entry, player, "DC", {});
-    expect(scoreSullaCasellaGarantita).toBe(scoreSenzaGaranzia + 100);
+    expect(scoreSullaCasellaGarantita).toBe(scoreSenzaGaranzia + GUARANTEED_STARTER_BONUS);
 
     // Garantito per un ALTRO ruolo (es. CC): qui non vale, anche se DC è compatibile per
     // reparto — la titolarità è per una casella specifica, non un lasciapassare generale.
@@ -166,12 +172,56 @@ describe("guaranteedStarters — esclusiva per casella", () => {
     expect(scorePrimoDopo).toBe(scorePrimoSenzaGaranzia);
   });
 
+  /**
+   * **La titolarità garantita è una preferenza, non un ordine.**
+   *
+   * Valeva +100 su una scala di Overall 60-99, cioè un bonus incompensabile: il garantito
+   * giocava sfinito, giocava demotivato, giocava al posto di un compagno più forte di venti
+   * punti. La semantica dichiarata dall'utente è un'altra — *"a parità di condizione ottimale
+   * deve giocare il prescelto"* — e questi due casi sono la sua forma misurabile: uno dice che
+   * la promessa conta, l'altro che non è un lasciapassare.
+   */
+  it("a parità di condizioni il garantito vince il ballottaggio", () => {
+    const { entries, players } = buildSquad();
+    const formation = getFormation("4-3-3")!;
+    const primo = "p5";
+    const secondo = "p6";
+    // Stessa forza, stesso ruolo: senza garanzia deciderebbe il criterio di parità del motore.
+    const pari = entries.map((e) =>
+      e.playerId === primo || e.playerId === secondo ? { ...e, overall: 75 } : e,
+    );
+
+    const conGaranzia = pickStartingEleven(formation, pari, players, {
+      guaranteedStarters: { DC: secondo },
+    });
+    expect(Object.values(conGaranzia.starters)).toContain(secondo);
+  });
+
+  it("ma non scavalca un divario reale, né manda in campo chi è a pezzi", () => {
+    const { entries, players } = buildSquad();
+    const formation = getFormation("4-3-3")!;
+    const garantito = "p5";
+    const moltoMeglio = "p6";
+
+    const squilibrato = entries.map((e) => {
+      if (e.playerId === garantito) return { ...e, overall: 62, fatigue: 95 };
+      if (e.playerId === moltoMeglio) return { ...e, overall: 84 };
+      return e;
+    });
+
+    const undici = pickStartingEleven(formation, squilibrato, players, {
+      guaranteedStarters: { DC: garantito },
+    });
+    expect(Object.values(undici.starters)).toContain(moltoMeglio);
+    expect(Object.values(undici.starters)).not.toContain(garantito);
+  });
+
   it("anyRoleBoost premia qualunque ruolo compatibile, a differenza di guaranteedStarters", () => {
     const entry = createRosterEntry({ playerId: "jolly", overall: 70, potential: 80, sinceSeason: 1 });
     const player: PlayerRef = { id: "jolly", name: "Jolly", nation: "Italia", role: "DC", secondaryRoles: ["MED"] };
     const conRuoloSecondario = playerSlotScore(entry, player, "MED", { anyRoleBoost: ["jolly"] });
     const senzaBoost = playerSlotScore(entry, player, "MED", {});
-    expect(conRuoloSecondario).toBe(senzaBoost + 100);
+    expect(conRuoloSecondario).toBe(senzaBoost + GUARANTEED_STARTER_BONUS);
   });
 
   it("supporta la garanzia di più titolari per ruoli con slot multipli (es. 2x DC) tramite slot.id", () => {

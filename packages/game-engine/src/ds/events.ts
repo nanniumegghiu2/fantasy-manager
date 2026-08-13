@@ -70,21 +70,66 @@ export function rollInjuries(
 /* Fatica                                                                      */
 /* -------------------------------------------------------------------------- */
 
-/** Fatica accumulata giocando una partita intera. */
-export const FATIGUE_PER_MATCH = 18;
-/** Fatica smaltita in una settimana da chi non ha giocato. */
-export const FATIGUE_RECOVERY = 22;
+/**
+ * Fatica accumulata giocando una partita intera.
+ *
+ * Tarato **insieme** a `FATIGUE_RECOVERY_RATE`: i due numeri contano solo per il rapporto fra
+ * loro, che fissa il punto di equilibrio (vedi sotto).
+ */
+export const FATIGUE_PER_MATCH = 10.5;
 
 /**
- * Aggiorna la fatica dopo una giornata.
+ * Quanta parte della fatica si smaltisce ogni settimana, **per tutti**.
  *
- * È l'unica ragione per cui la panchina conta davvero: senza, i quattordici giocatori oltre
- * l'undici sarebbero solo un'assicurazione contro gli infortuni, e la Corona Continentale non
- * avrebbe alcun prezzo sportivo.
+ * ⚠️ Il difetto che questa costante corregge era strutturale, non di taratura. Prima il modello
+ * era `played ? +18 : −22`: **chi giocava non recuperava nulla**. Un titolare fisso faceva +18 a
+ * giornata — 18, 36, 54, 72, 90, 100 — e restava a 100 per il resto della stagione. Non era un
+ * caso limite: era il comportamento di ogni titolare di ogni squadra, sempre, dalla quinta
+ * giornata in poi.
+ *
+ * Da quella singola riga discendevano tre cose che l'utente osservava come problemi separati: il
+ * tema "chiede di riposare" ammissibile a *tutti* gli undici (la sua segnalazione), il malus
+ * massimo da stanchezza su tutta la formazione, e il rischio di infortunio permanentemente
+ * maggiorato. E soprattutto la rotazione — la meccanica che tutto questo doveva rendere
+ * necessaria — era **impossibile**: nessuna scelta evitava la saturazione, perché chi giocava
+ * saliva e basta.
+ *
+ * Il recupero è ora **proporzionale alla fatica accumulata**, non una sottrazione fissa. È
+ * l'unica forma che tiene insieme le due proprietà volute: chi riposa torna fresco in fretta
+ * (decadimento rapido dai valori alti) e chi gioca sempre si assesta su un **equilibrio** invece
+ * di saturare. L'equilibrio vale `carico settimanale / tasso`, quindi:
+ *  - **una partita a settimana → ~30**, sotto la soglia di malus: un professionista che gioca il
+ *    campionato e basta non è "sfinito", ed è giusto così;
+ *  - **due partite a settimana → ~90**, perché la seconda costa di più (`CONGESTION_SURCHARGE`):
+ *    è lì che la rotazione smette di essere un consiglio.
  */
-export function updateFatigue(entry: RosterEntry, played: boolean): number {
-  const next = played ? entry.fatigue + FATIGUE_PER_MATCH : entry.fatigue - FATIGUE_RECOVERY;
-  return clamp(next, 0, 100);
+export const FATIGUE_RECOVERY_RATE = 0.35;
+
+/**
+ * Quanto costa **in più** ogni partita oltre la prima nella stessa settimana.
+ *
+ * Senza, due impegni infrasettimanali costerebbero come due settimane normali e la congestione
+ * non esisterebbe come fenomeno: sarebbe solo "più partite". È il sovrapprezzo a rendere diverso
+ * giocare due coppe dal giocarne nessuna.
+ */
+export const CONGESTION_SURCHARGE = 0.5;
+
+/**
+ * Aggiorna la fatica dopo una settimana di calendario.
+ *
+ * È l'unica ragione per cui la panchina conta davvero: senza, i giocatori oltre l'undici
+ * sarebbero solo un'assicurazione contro gli infortuni, e le coppe non avrebbero alcun prezzo
+ * sportivo.
+ *
+ * `matchesPlayed` è il numero di partite giocate **in quella settimana** (campionato più coppe),
+ * non un booleano: contarne una sola ignorava del tutto i quindici impegni infrasettimanali che
+ * il calendario produce, cioè proprio la congestione che la fatica deve modellare.
+ */
+export function updateFatigue(entry: RosterEntry, matchesPlayed: number | boolean): number {
+  const partite = typeof matchesPlayed === "boolean" ? (matchesPlayed ? 1 : 0) : matchesPlayed;
+  const carico =
+    partite > 0 ? partite * FATIGUE_PER_MATCH * (1 + CONGESTION_SURCHARGE * (partite - 1)) : 0;
+  return clamp(Math.round(entry.fatigue * (1 - FATIGUE_RECOVERY_RATE) + carico), 0, 100);
 }
 
 /* -------------------------------------------------------------------------- */

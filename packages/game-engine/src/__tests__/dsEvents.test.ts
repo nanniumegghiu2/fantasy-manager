@@ -25,6 +25,7 @@ import {
   updateMorale,
   type MoraleContext,
 } from "../ds/events";
+import { FATIGUE_FREE_THRESHOLD } from "../ds/lineup";
 import { createRosterEntry } from "../ds/roster";
 import type { RosterEntry } from "../ds/types";
 
@@ -96,14 +97,57 @@ describe("infortuni", () => {
 });
 
 describe("fatica", () => {
-  it("giocare stanca, riposare recupera", () => {
-    expect(updateFatigue(entry({ fatigue: 40 }), true)).toBeGreaterThan(40);
-    expect(updateFatigue(entry({ fatigue: 40 }), false)).toBeLessThan(40);
+  it("giocare stanca più che riposare, a parità di punto di partenza", () => {
+    // La proprietà comparativa vale sempre; il valore assoluto no, ed è il punto del nuovo
+    // modello: da una fatica già alta, una sola partita a settimana lascia comunque recuperare.
+    const partenza = 40;
+    expect(updateFatigue(entry({ fatigue: partenza }), 1)).toBeGreaterThan(
+      updateFatigue(entry({ fatigue: partenza }), 0),
+    );
+    expect(updateFatigue(entry({ fatigue: partenza }), 0)).toBeLessThan(partenza);
   });
 
   it("resta nella scala 0-100", () => {
-    expect(updateFatigue(entry({ fatigue: 95 }), true)).toBeLessThanOrEqual(100);
-    expect(updateFatigue(entry({ fatigue: 5 }), false)).toBeGreaterThanOrEqual(0);
+    expect(updateFatigue(entry({ fatigue: 95 }), 2)).toBeLessThanOrEqual(100);
+    expect(updateFatigue(entry({ fatigue: 5 }), 0)).toBeGreaterThanOrEqual(0);
+  });
+
+  /**
+   * **Il difetto che questi tre casi bloccano.**
+   *
+   * Il modello precedente era `played ? +18 : −22`: chi giocava **non recuperava mai**. Un
+   * titolare fisso arrivava a 100 alla quinta giornata e ci restava tutta la stagione — quindi
+   * malus massimo per tutti, rischio infortuni permanentemente maggiorato, e il tema "chiede di
+   * riposare" ammissibile a tutti gli undici. Soprattutto: la rotazione, che tutto questo doveva
+   * rendere necessaria, era **impossibile**, perché nessuna scelta evitava la saturazione.
+   *
+   * I tre casi sono la forma misurabile del bersaglio dichiarato nel piano (D6).
+   */
+  function dopoSettimane(partite: number, settimane: number): number {
+    let e = entry({ fatigue: 0 });
+    for (let i = 0; i < settimane; i++) e = { ...e, fatigue: updateFatigue(e, partite) };
+    return e.fatigue;
+  }
+
+  it("chi gioca solo il campionato non si sfinisce: resta sotto la soglia di malus", () => {
+    // 38 giornate, sempre titolare, nessuna coppa: un professionista che gioca una partita a
+    // settimana non è "a pezzi", e il gioco non deve dire il contrario.
+    expect(dopoSettimane(1, 38)).toBeLessThan(FATIGUE_FREE_THRESHOLD);
+  });
+
+  it("il doppio impegno, e solo quello, porta in zona rossa", () => {
+    // Due partite in una settimana costano più di due settimane da una: è il sovrapprezzo di
+    // congestione a rendere diverso giocare due coppe dal non giocarne nessuna.
+    expect(dopoSettimane(2, 6)).toBeGreaterThan(70);
+    expect(dopoSettimane(2, 6)).toBeGreaterThan(dopoSettimane(1, 12));
+  });
+
+  it("qualche giornata di riposo rimette a posto anche chi era a pezzi", () => {
+    // Il recupero è proporzionale, non una sottrazione fissa: è ciò che rende la rotazione una
+    // leva vera invece di un palliativo.
+    let e = entry({ fatigue: 90 });
+    for (let i = 0; i < 3; i++) e = { ...e, fatigue: updateFatigue(e, 0) };
+    expect(e.fatigue).toBeLessThan(30);
   });
 });
 
