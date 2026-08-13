@@ -101,6 +101,73 @@ export function isLoanListed(
   return derivedRandom(seed, "loanlist", season, hashSeed(player.playerId))() < 0.66;
 }
 
+/**
+ * **Un giocatore passa i filtri?** Una regola sola, per tutte le liste del mercato.
+ *
+ * La ricerca globale l'aveva; le schede *Svincolati* e *Cedibili IA* no — la prima filtrava per
+ * solo reparto, la seconda per niente. Su quelle liste l'utente si trovava a scorrere decine di
+ * nomi senza modo di stringere, ed è la segnalazione da cui nasce questa funzione.
+ *
+ * Sta qui e non in tre componenti perché tre copie della stessa condizione divergono alla prima
+ * modifica: basta che una dimentichi i ruoli secondari e "cerca un terzino" darebbe risultati
+ * diversi a seconda della scheda aperta.
+ *
+ * Prezzo e prestito **non** sono qui: dipendono dalla valutazione e dal seme, quindi vivono in
+ * `searchPlayers` dove quei dati esistono. Chi filtra una lista già costruita usa `maxPrice` su
+ * `SearchResult.price`, che è la stessa cifra.
+ */
+export function matchesCriteria(
+  player: {
+    name: string;
+    clubName?: string;
+    role: Role;
+    secondaryRoles: readonly Role[];
+    overall: number;
+    age: number;
+  },
+  criteria: SearchCriteria,
+): boolean {
+  const termine = criteria.query?.trim().toLowerCase() ?? "";
+  if (
+    termine &&
+    !player.name.toLowerCase().includes(termine) &&
+    !(player.clubName ?? "").toLowerCase().includes(termine)
+  ) {
+    return false;
+  }
+
+  if (criteria.department && ROLE_DEPARTMENT[player.role] !== criteria.department) return false;
+
+  // Un ruolo secondario vale quanto il principale in una ricerca: chi cerca un terzino sinistro
+  // vuole vedere anche chi lo sa fare, non solo chi lo fa di mestiere. Multi-selezione: basta
+  // coprire **uno qualunque** dei ruoli scelti.
+  if (
+    criteria.roles &&
+    criteria.roles.length > 0 &&
+    !criteria.roles.some((r) => player.role === r || player.secondaryRoles.includes(r))
+  ) {
+    return false;
+  }
+
+  if (criteria.minOverall !== undefined && player.overall < criteria.minOverall) return false;
+  if (criteria.maxOverall !== undefined && player.overall > criteria.maxOverall) return false;
+  if (criteria.minAge !== undefined && player.age < criteria.minAge) return false;
+  if (criteria.maxAge !== undefined && player.age > criteria.maxAge) return false;
+  return true;
+}
+
+/** Ordina una lista già filtrata, con gli stessi quattro criteri della ricerca globale. */
+export function sortResults<T extends { overall: number; price: number; age: number }>(
+  results: T[],
+  sort: SearchCriteria["sort"],
+): T[] {
+  const out = [...results];
+  if (sort === "prezzo") out.sort((a, b) => a.price - b.price);
+  else if (sort === "eta") out.sort((a, b) => a.age - b.age);
+  else out.sort((a, b) => b.overall - a.overall);
+  return out;
+}
+
 export interface SearchInput {
   players: SearchablePlayer[];
   clubs: Record<string, SearchableClub>;
@@ -126,38 +193,15 @@ export function searchPlayers({
   season,
   criteria,
 }: SearchInput): SearchResult[] {
-  const termine = criteria.query?.trim().toLowerCase() ?? "";
-
   const risultati: SearchResult[] = [];
   for (const player of players) {
     if (player.clubId === ownClubId) continue;
 
     const club = clubs[player.clubId];
     const nomeClub = club?.name ?? "";
-    if (
-      termine &&
-      !player.name.toLowerCase().includes(termine) &&
-      !nomeClub.toLowerCase().includes(termine)
-    ) {
-      continue;
-    }
-
     const department = ROLE_DEPARTMENT[player.role];
-    if (criteria.department && department !== criteria.department) continue;
-    // Un ruolo secondario vale quanto il principale in una ricerca: chi cerca un terzino
-    // sinistro vuole vedere anche chi lo sa fare, non solo chi lo fa di mestiere. Multi-
-    // selezione: basta coprire **uno qualunque** dei ruoli scelti.
-    if (
-      criteria.roles &&
-      criteria.roles.length > 0 &&
-      !criteria.roles.some((r) => player.role === r || player.secondaryRoles.includes(r))
-    ) {
-      continue;
-    }
-    if (criteria.minOverall !== undefined && player.overall < criteria.minOverall) continue;
-    if (criteria.maxOverall !== undefined && player.overall > criteria.maxOverall) continue;
-    if (criteria.minAge !== undefined && player.age < criteria.minAge) continue;
-    if (criteria.maxAge !== undefined && player.age > criteria.maxAge) continue;
+
+    if (!matchesCriteria({ ...player, clubName: nomeClub }, criteria)) continue;
 
     const price = currentValue(player, valuation);
     if (criteria.maxPrice !== undefined && price > criteria.maxPrice) continue;

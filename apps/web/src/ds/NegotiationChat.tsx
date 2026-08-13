@@ -1,6 +1,15 @@
 import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Building2, Check, HandCoins, Hourglass, SlidersHorizontal, X, Zap } from "lucide-react";
+import {
+  Building2,
+  Check,
+  HandCoins,
+  Hourglass,
+  SlidersHorizontal,
+  UserRound,
+  X,
+  Zap,
+} from "lucide-react";
 import {
   endingLabel,
   suggestedMoves,
@@ -29,6 +38,15 @@ interface NegotiationChatProps {
   budget: number;
   onMove: (move: NegotiationMove) => void;
   onClose: () => void;
+  /**
+   * **La seconda fase**: trovato l'accordo col club, si tratta il contratto col giocatore.
+   *
+   * Sta nella stessa finestra e non in una modale a parte perché l'operazione è **una sola**
+   * (piano DS, D3): spezzarla in due superfici la farebbe sembrare due decisioni scollegate, ed
+   * è già successo una volta con il tasto "acquista subito" che scavalcava la trattativa.
+   * Assente = l'app non gestisce ancora questa fase e la trattativa si chiude come prima.
+   */
+  contractPhase?: React.ReactNode;
 }
 
 /**
@@ -57,7 +75,13 @@ function etichettaPasso(kind: Negotiation["kind"], passo: number): string {
   return passo >= 1_000_000 ? `${passo / 1_000_000}M` : `${passo / 1000}k`;
 }
 
-export function NegotiationChat({ negotiation, budget, onMove, onClose }: NegotiationChatProps) {
+export function NegotiationChat({
+  negotiation,
+  budget,
+  onMove,
+  onClose,
+  contractPhase,
+}: NegotiationChatProps) {
   const fondo = useRef<HTMLDivElement>(null);
   const [scrive, setScrive] = useState(false);
   const messaggiVisti = useRef(negotiation.log.length);
@@ -86,6 +110,14 @@ export function NegotiationChat({ negotiation, budget, onMove, onClose }: Negoti
   useEffect(() => {
     setCifra(negotiation.amount);
   }, [negotiation.amount, negotiation.round]);
+
+  /**
+   * Siamo alla seconda fase: col club è fatta, manca la firma del giocatore.
+   *
+   * Il contenuto arriva da fuori (`contractPhase`) perché il tavolo del contratto è lo stesso
+   * di rinnovi e parametri zero: qui si decide solo *quando* mostrarlo.
+   */
+  const inContratto = !!negotiation.awaitingContract && !!contractPhase;
 
   const chiusa = negotiation.status !== "aperta";
   const mosse = suggestedMoves(negotiation);
@@ -119,19 +151,27 @@ export function NegotiationChat({ negotiation, budget, onMove, onClose }: Negoti
       >
         <header className="flex items-center gap-3 border-b border-[var(--surface-border)] px-4 py-3">
           <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--surface-raised)] text-[var(--text-secondary)]">
-            <Building2 size={18} />
+            {inContratto ? <UserRound size={18} /> : <Building2 size={18} />}
           </span>
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm leading-tight font-extrabold">
-              Direttore sportivo · {negotiation.clubName}
+              {inContratto ? `Agente di ${negotiation.playerName}` : `Direttore sportivo · ${negotiation.clubName}`}
             </p>
             <p className="truncate text-[11px] text-[var(--text-secondary)]">
-              {negotiation.kind === "cessione"
-                ? "Vuole"
-                : negotiation.kind === "prestito"
-                  ? "Prestito per"
-                  : "Trattativa per"}{" "}
-              {negotiation.playerName}
+              {inContratto ? (
+                <>
+                  Accordo col {negotiation.clubName} a {formattaCifra("acquisto", negotiation.amount)}
+                </>
+              ) : (
+                <>
+                  {negotiation.kind === "cessione"
+                    ? "Vuole"
+                    : negotiation.kind === "prestito"
+                      ? "Prestito per"
+                      : "Trattativa per"}{" "}
+                  {negotiation.playerName}
+                </>
+              )}
             </p>
           </div>
           <button
@@ -144,6 +184,25 @@ export function NegotiationChat({ negotiation, budget, onMove, onClose }: Negoti
           </button>
         </header>
 
+        {/* Le due fasi dell'operazione, come una scala: si vede che il club è cosa fatta e che
+            manca il giocatore. Senza, la comparsa improvvisa di un secondo tavolo si leggerebbe
+            come "la trattativa è ricominciata da capo". */}
+        {negotiation.kind === "acquisto" && (inContratto || negotiation.status === "aperta") && (
+          <ol className="flex items-center gap-2 border-b border-[var(--surface-border)] px-4 py-2 text-[10px] font-bold tracking-wide uppercase">
+            <li className={inContratto ? "text-[#3ddc6b]" : "text-[var(--brand)]"}>
+              1 · Club {inContratto && "✓"}
+            </li>
+            <li aria-hidden className="h-px flex-1 bg-[var(--surface-border)]" />
+            <li className={inContratto ? "text-[var(--brand)]" : "text-[var(--text-secondary)]"}>
+              2 · Contratto
+            </li>
+          </ol>
+        )}
+
+        {inContratto ? (
+          contractPhase
+        ) : (
+          <>
         {/* Pazienza: quanto ancora si può tirare la corda. */}
         <div className="flex items-center gap-2 border-b border-[var(--surface-border)] px-4 py-2">
           <span className="text-[10px] font-bold tracking-widest text-[var(--text-secondary)] uppercase">
@@ -362,6 +421,8 @@ export function NegotiationChat({ negotiation, budget, onMove, onClose }: Negoti
             </div>
           )}
         </footer>
+          </>
+        )}
       </motion.div>
     </motion.div>
   );

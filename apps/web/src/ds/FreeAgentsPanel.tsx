@@ -1,20 +1,19 @@
 import { useMemo, useState } from "react";
-import { motion } from "framer-motion";
-import { Clock, Star, TrendingDown, UserPlus } from "lucide-react";
-import {
-  ROLE_LABELS,
-  type Department,
-} from "@app/shared-types";
+import { AnimatePresence, motion } from "framer-motion";
+import { Clock, Search, SlidersHorizontal, TrendingDown, UserPlus, Users, X } from "lucide-react";
+import { ROLE_LABELS, type Department } from "@app/shared-types";
 import {
   financesOf,
   formatEuro,
   formatWage,
   freeAgentMarket,
+  matchesCriteria,
   type CareerState,
   type CareerWorld,
   type FreeAgent,
+  type SearchCriteria,
 } from "@app/game-engine";
-import { WageImpactPanel } from "./WageImpactPanel";
+import { ContractOfferForm, type ContractOffer } from "./ContractOfferForm";
 import { NationFlag } from "../classic/NationFlag";
 
 /**
@@ -22,8 +21,14 @@ import { NationFlag } from "../classic/NationFlag";
  *
  * Non costano cartellino, quindi non è il portafoglio a decidere: contano ingaggio, durata,
  * **minuti garantiti**, ambizione e ruolo, pesati dalla personalità del giocatore. È il posto in
- * cui una piccola può battere una grande offrendo il campo — e infatti l'offerta si compone qui,
- * non si preme un tasto "compra".
+ * cui una piccola può battere una grande offrendo il campo — e infatti l'offerta si compone al
+ * **tavolo del contratto**, lo stesso di rinnovi e acquisti, non con un modulo a parte:
+ * richiesta esplicita dell'utente, e ha una ragione oltre la coerenza visiva — è la stessa
+ * decisione, quindi deve avere la stessa forma e le stesse informazioni sotto gli occhi.
+ *
+ * I **filtri** sono quelli della ricerca globale (`matchesCriteria`, nel motore). Prima qui si
+ * poteva stringere solo per reparto, e con qualche decina di svincolati l'unico modo di trovare
+ * il terzino destro under 24 era scorrere tutto.
  *
  * Due cose che la lista deve dire a colpo d'occhio, perché sono ciò che rende la scelta a tempo:
  * quanto **decade** chi resta libero, e quanti club lo stanno già seguendo.
@@ -36,28 +41,7 @@ const REPARTI: { id: Department | "tutti"; label: string }[] = [
   { id: "ATT", label: "ATT" },
 ];
 
-function Card({
-  agente,
-  margine,
-  state,
-  world,
-  onShiftFinances,
-  onFirma,
-}: {
-  agente: FreeAgent;
-  margine: number;
-  state: CareerState;
-  world: CareerWorld;
-  onShiftFinances?: (share: number) => void;
-  onFirma: (offer: { wage: number; seasons: number; guaranteedStarter: boolean }) => void;
-}) {
-  const [aperto, setAperto] = useState(false);
-  const [ingaggio, setIngaggio] = useState(agente.askingWage);
-  const [anni, setAnni] = useState(agente.askingSeasons);
-  const [titolare, setTitolare] = useState(agente.wantsStarter);
-
-  const fuoriBudget = ingaggio > margine;
-
+function Card({ agente, onApri }: { agente: FreeAgent; onApri: () => void }) {
   return (
     <motion.div
       layout
@@ -76,7 +60,10 @@ function Card({
           </p>
         </div>
         {agente.windowsFree > 0 && (
-          <span className="flex shrink-0 items-center gap-1 rounded-lg bg-[#ff8a3d]/15 px-1.5 py-0.5 text-[9px] font-extrabold text-[#ff8a3d]">
+          <span
+            className="flex shrink-0 items-center gap-1 rounded-lg bg-[#ff8a3d]/15 px-1.5 py-0.5 text-[9px] font-extrabold text-[#ff8a3d]"
+            title="Chi resta libero perde smalto a ogni finestra"
+          >
             <TrendingDown size={10} /> −{agente.baseOverall - agente.overall}
           </span>
         )}
@@ -88,114 +75,13 @@ function Card({
         {agente.wantsStarter && " · vuole giocare"}
       </p>
 
-      {!aperto ? (
-        <button
-          type="button"
-          onClick={() => setAperto(true)}
-          className="flex items-center justify-center gap-1.5 rounded-xl bg-[var(--brand)] py-2 text-[11px] font-extrabold text-[var(--brand-contrast)]"
-        >
-          <UserPlus size={12} /> Fai un'offerta
-        </button>
-      ) : (
-        <div className="flex flex-col gap-2 border-t border-[var(--surface-border)] pt-2">
-          <label className="flex items-center justify-between text-[11px] font-bold">
-            Ingaggio
-            <span className="flex items-center gap-1">
-              <button
-                type="button"
-                aria-label="Riduci ingaggio"
-                onClick={() => setIngaggio((v) => Math.max(60_000, v - 100_000))}
-                className="h-6 w-6 rounded-lg border border-[var(--surface-border)] text-xs"
-              >
-                −
-              </button>
-              <span className={`w-24 text-right tabular-nums ${fuoriBudget ? "text-[#ff4d4d]" : ""}`}>
-                {formatWage(ingaggio)}
-              </span>
-              <button
-                type="button"
-                aria-label="Aumenta ingaggio"
-                onClick={() => setIngaggio((v) => v + 100_000)}
-                className="h-6 w-6 rounded-lg border border-[var(--surface-border)] text-xs"
-              >
-                +
-              </button>
-            </span>
-          </label>
-
-          <label className="flex items-center justify-between text-[11px] font-bold">
-            Durata
-            <span className="flex items-center gap-1">
-              <button
-                type="button"
-                aria-label="Riduci durata"
-                onClick={() => setAnni((v) => Math.max(1, v - 1))}
-                className="h-6 w-6 rounded-lg border border-[var(--surface-border)] text-xs"
-              >
-                −
-              </button>
-              <span className="w-16 text-right tabular-nums">
-                {anni} {anni === 1 ? "anno" : "anni"}
-              </span>
-              <button
-                type="button"
-                aria-label="Aumenta durata"
-                onClick={() => setAnni((v) => Math.min(5, v + 1))}
-                className="h-6 w-6 rounded-lg border border-[var(--surface-border)] text-xs"
-              >
-                +
-              </button>
-            </span>
-          </label>
-
-          <button
-            type="button"
-            onClick={() => setTitolare((v) => !v)}
-            className={`flex items-center justify-between rounded-xl px-2.5 py-2 text-[11px] font-bold transition-colors ${
-              titolare ? "bg-emerald-500/20 text-emerald-300" : "bg-[var(--surface)] text-[var(--text-secondary)]"
-            }`}
-          >
-            <span className="flex items-center gap-1.5">
-              <Star size={11} /> Titolarità garantita
-            </span>
-            <span className="text-[9px]">{titolare ? "impegno verificato" : "no"}</span>
-          </button>
-
-          {/* Le finanze si vedono e si riequilibrano **qui**: il vecchio avviso diceva "sposta
-              le finanze", ma per farlo bisognava chiudere questa scheda e andare altrove. */}
-          <WageImpactPanel
-            state={state}
-            world={world}
-            proposedWage={ingaggio}
-            onShift={onShiftFinances}
-          />
-
-          {fuoriBudget && (
-            <p className="text-[10px] font-bold text-[#ff4d4d]">
-              Oltre il margine ingaggi ({formatEuro(margine)}): sposta la ripartizione qui sopra,
-              oppure libera un ingaggio in rosa.
-            </p>
-          )}
-
-          <div className="flex gap-2">
-            <button
-              type="button"
-              disabled={fuoriBudget}
-              onClick={() => onFirma({ wage: ingaggio, seasons: anni, guaranteedStarter: titolare })}
-              className="flex-1 rounded-xl bg-[var(--brand)] py-2 text-[11px] font-extrabold text-[var(--brand-contrast)] disabled:opacity-40"
-            >
-              Presenta l'offerta
-            </button>
-            <button
-              type="button"
-              onClick={() => setAperto(false)}
-              className="rounded-xl border border-[var(--surface-border)] px-3 text-[11px] font-bold text-[var(--text-secondary)]"
-            >
-              Annulla
-            </button>
-          </div>
-        </div>
-      )}
+      <button
+        type="button"
+        onClick={onApri}
+        className="flex min-h-10 items-center justify-center gap-1.5 rounded-xl bg-[var(--brand)] text-[11px] font-extrabold text-[var(--brand-contrast)] active:scale-98"
+      >
+        <UserPlus size={12} /> Tratta il contratto
+      </button>
     </motion.div>
   );
 }
@@ -208,18 +94,33 @@ export function FreeAgentsPanel({
 }: {
   state: CareerState;
   world: CareerWorld;
-  onSign: (agentId: string, offer: { wage: number; seasons: number; guaranteedStarter: boolean }) => void;
+  onSign: (
+    agentId: string,
+    offer: { wage: number; seasons: number; guaranteedStarter: boolean },
+  ) => { ok: boolean; message: string } | void;
   /** Riequilibra il bilancio senza uscire dalla scheda. */
   onShiftFinances?: (share: number) => void;
 }) {
   const [reparto, setReparto] = useState<Department | "tutti">("tutti");
+  const [query, setQuery] = useState("");
+  const [filtriAperti, setFiltriAperti] = useState(false);
+  const [etaMax, setEtaMax] = useState("");
+  const [overallMin, setOverallMin] = useState("");
+  /** Lo svincolato al tavolo, se aperto. */
+  const [trattativa, setTrattativa] = useState<FreeAgent | null>(null);
+
   const pool = useMemo(() => freeAgentMarket(state, world), [state, world]);
   const margine = useMemo(() => financesOf(state, world).wageRoom, [state, world]);
 
-  const visibili = useMemo(
-    () => (reparto === "tutti" ? pool : pool.filter((a) => a.department === reparto)).slice(0, 40),
-    [pool, reparto],
-  );
+  const visibili = useMemo(() => {
+    const criteri: SearchCriteria = {
+      query,
+      department: reparto === "tutti" ? undefined : reparto,
+      maxAge: etaMax ? Number(etaMax) : undefined,
+      minOverall: overallMin ? Number(overallMin) : undefined,
+    };
+    return pool.filter((a) => matchesCriteria(a, criteri)).slice(0, 40);
+  }, [pool, reparto, query, etaMax, overallMin]);
 
   return (
     <div className="flex flex-col gap-3">
@@ -230,13 +131,38 @@ export function FreeAgentsPanel({
         </span>
       </header>
 
+      <label className="relative block">
+        <Search
+          size={16}
+          className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-[var(--text-secondary)]"
+        />
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Cerca per nome..."
+          className="w-full rounded-full border border-[var(--surface-border)] bg-[var(--surface-raised)] py-2.5 pr-11 pl-9 text-sm outline-none focus:border-[var(--brand)]"
+        />
+        <button
+          type="button"
+          onClick={() => setFiltriAperti((v) => !v)}
+          aria-label="Filtri"
+          className={`absolute top-1/2 right-1.5 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full ${
+            filtriAperti
+              ? "bg-[var(--brand)] text-[var(--brand-contrast)]"
+              : "text-[var(--text-secondary)]"
+          }`}
+        >
+          <SlidersHorizontal size={15} />
+        </button>
+      </label>
+
       <div className="flex gap-1.5">
         {REPARTI.map((r) => (
           <button
             key={r.id}
             type="button"
             onClick={() => setReparto(r.id)}
-            className={`flex-1 rounded-lg py-1.5 text-[11px] font-bold transition-colors ${
+            className={`min-h-9 flex-1 rounded-lg text-[11px] font-bold transition-colors ${
               reparto === r.id
                 ? "bg-[var(--brand)] text-[var(--brand-contrast)]"
                 : "bg-[var(--surface-raised)] text-[var(--text-secondary)]"
@@ -247,25 +173,116 @@ export function FreeAgentsPanel({
         ))}
       </div>
 
+      <AnimatePresence initial={false}>
+        {filtriAperti && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            className="overflow-hidden"
+          >
+            <div className="flex gap-2 rounded-2xl border border-[var(--surface-border)] bg-[var(--surface-raised)] p-3">
+              <label className="flex-1 text-[10px] font-bold text-[var(--text-secondary)]">
+                Età massima
+                <input
+                  value={etaMax}
+                  onChange={(e) => setEtaMax(e.target.value.replace(/\D/g, ""))}
+                  inputMode="numeric"
+                  placeholder="—"
+                  className="mt-1 w-full rounded-lg border border-[var(--surface-border)] bg-[var(--surface)] px-2 py-1.5 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--brand)]"
+                />
+              </label>
+              <label className="flex-1 text-[10px] font-bold text-[var(--text-secondary)]">
+                Overall minimo
+                <input
+                  value={overallMin}
+                  onChange={(e) => setOverallMin(e.target.value.replace(/\D/g, ""))}
+                  inputMode="numeric"
+                  placeholder="—"
+                  className="mt-1 w-full rounded-lg border border-[var(--surface-border)] bg-[var(--surface)] px-2 py-1.5 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--brand)]"
+                />
+              </label>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {visibili.length === 0 ? (
         <p className="rounded-2xl border border-dashed border-[var(--surface-border)] p-5 text-center text-xs text-[var(--text-secondary)]">
-          Nessuno svincolato interessante in questo reparto.
+          Nessuno svincolato con questi criteri.
         </p>
       ) : (
         <div className="grid gap-2 sm:grid-cols-2">
           {visibili.map((a) => (
-            <Card
-              key={a.id}
-              agente={a}
-              margine={margine}
-              state={state}
-              world={world}
-              onShiftFinances={onShiftFinances}
-              onFirma={(o) => onSign(a.id, o)}
-            />
+            <Card key={a.id} agente={a} onApri={() => setTrattativa(a)} />
           ))}
         </div>
       )}
+
+      <AnimatePresence>
+        {trattativa && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[55] flex items-end justify-center bg-black/70 backdrop-blur-md sm:items-center"
+          >
+            <motion.div
+              initial={{ y: "100%" }}
+              animate={{ y: 0 }}
+              exit={{ y: "100%" }}
+              transition={{ type: "spring", stiffness: 330, damping: 32 }}
+              className="flex max-h-[92svh] w-full max-w-md flex-col overflow-hidden rounded-t-3xl border border-[var(--surface-border)] bg-[var(--surface)] sm:rounded-3xl"
+            >
+              <header className="flex items-start justify-between gap-3 border-b border-[var(--surface-border)] p-4">
+                <div className="min-w-0">
+                  <p className="truncate text-base font-extrabold">{trattativa.name}</p>
+                  <p className="flex items-center gap-2 text-[11px] text-[var(--text-secondary)]">
+                    Parametro zero · {trattativa.age} anni · {ROLE_LABELS[trattativa.role]}
+                    {trattativa.suitors > 0 && (
+                      <span className="flex items-center gap-1 font-bold text-[#ff8a3d]">
+                        <Users size={11} /> {trattativa.suitors}
+                      </span>
+                    )}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setTrattativa(null)}
+                  aria-label="Chiudi"
+                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[var(--surface-border)] text-[var(--text-secondary)]"
+                >
+                  <X size={15} />
+                </button>
+              </header>
+
+              <ContractOfferForm
+                state={state}
+                world={world}
+                demand={{
+                  wage: trattativa.askingWage,
+                  seasons: trattativa.askingSeasons,
+                  clause: 0,
+                  wantsStarter: trattativa.wantsStarter,
+                  wantsCaptaincy: false,
+                }}
+                /* Non guadagna nulla da noi: l'intero ingaggio è nuovo sul monte. */
+                currentWage={0}
+                submitLabel="Presenta l'offerta"
+                onSubmit={(offer: ContractOffer) =>
+                  onSign(trattativa.id, {
+                    wage: offer.wage,
+                    seasons: offer.seasons,
+                    guaranteedStarter: offer.guaranteedStarter ?? false,
+                  }) ?? { ok: true, message: "Offerta presentata." }
+                }
+                onShiftFinances={onShiftFinances}
+                onCancel={() => setTrattativa(null)}
+              />
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

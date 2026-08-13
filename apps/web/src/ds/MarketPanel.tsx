@@ -47,6 +47,8 @@ import {
   type MarketAction,
   type MarketSnapshot,
   type RoleCandidate,
+  matchesCriteria,
+  sortResults,
   type SearchCriteria,
   type SearchResult,
   type StandingRow,
@@ -151,7 +153,10 @@ interface MarketPanelProps {
   /** Propone al mister un nuovo capitano. */
   onProposeCaptain: (playerId: string) => { ok: boolean; message: string };
   /** Tessera uno svincolato alle condizioni proposte. */
-  onSignFreeAgent: (agentId: string, offer: { wage: number; seasons: number; guaranteedStarter: boolean }) => void;
+  onSignFreeAgent: (
+    agentId: string,
+    offer: { wage: number; seasons: number; guaranteedStarter: boolean },
+  ) => { ok: boolean; message: string } | void;
   /** Chi ha già chiuso la sua chat in questa finestra: non deve restare nel badge/nell'elenco. */
   standoffChiuse: ReadonlySet<string>;
   /**
@@ -792,7 +797,45 @@ function SchedaRicerca({
     [onSearch, query, department, roles, sort, soloAllaPortata, soloPrestiti, budget, etaMin, etaMax, overallMin, overallMax],
   );
 
-  const risultati = soloCedibili ? cedibiliIA : risultatiRicerca;
+  /**
+   * **I cedibili si filtrano come tutto il resto.**
+   *
+   * Prima questa lista arrivava così com'era: nessuna ricerca, nessun filtro per età, ruolo o
+   * Overall, e con qualche decina di nomi l'unico modo di trovare quel che serviva era
+   * scorrere. Il predicato è lo stesso della ricerca globale (`matchesCriteria`, nel motore),
+   * non una seconda copia che prima o poi ne diverge.
+   */
+  const risultati = useMemo(() => {
+    if (!soloCedibili) return risultatiRicerca;
+    const criteri: SearchCriteria = {
+      query,
+      department,
+      roles: roles.size > 0 ? [...roles] : undefined,
+      minAge: etaMin ? Number(etaMin) : undefined,
+      maxAge: etaMax ? Number(etaMax) : undefined,
+      minOverall: overallMin ? Number(overallMin) : undefined,
+      maxOverall: overallMax ? Number(overallMax) : undefined,
+    };
+    const filtrati = cedibiliIA.filter(
+      (r) =>
+        matchesCriteria(r, criteri) && (!soloAllaPortata || r.price <= budget),
+    );
+    return sortResults(filtrati, sort);
+  }, [
+    soloCedibili,
+    risultatiRicerca,
+    cedibiliIA,
+    query,
+    department,
+    roles,
+    etaMin,
+    etaMax,
+    overallMin,
+    overallMax,
+    soloAllaPortata,
+    budget,
+    sort,
+  ]);
 
   /** I ruoli del reparto scelto: filtrare per ruolo senza reparto sarebbe un elenco di 14 voci. */
   const ruoliDelReparto = useMemo(() => {
@@ -816,8 +859,7 @@ function SchedaRicerca({
         </p>
       )}
 
-      {!soloCedibili && (
-        <label className="relative block">
+      <label className="relative block">
           <Search
             size={16}
             className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-[var(--text-secondary)]"
@@ -838,11 +880,10 @@ function SchedaRicerca({
           >
             <SlidersHorizontal size={15} />
           </button>
-        </label>
-      )}
+      </label>
 
       <AnimatePresence initial={false}>
-        {filtriAperti && !soloCedibili && (
+        {filtriAperti && (
           <motion.div
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: "auto", opacity: 1 }}

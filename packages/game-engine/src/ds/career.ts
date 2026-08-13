@@ -71,6 +71,7 @@ import {
   type CoachContract,
 } from "./coaches";
 import {
+  baseWageOf,
   contractOf,
   renewalOfferScore,
   renewalTerms,
@@ -2825,49 +2826,18 @@ export function playNegotiation(
     };
   }
 
-  const anagrafica = careerPlayers(state, world);
-  const info = anagrafica[dopo.playerId];
-  const eta = ageInSeason(info?.birthDate, state.season) ?? 25;
-  const overall =
-    world.market?.transferPool.find((p) => p.playerId === dopo.playerId)?.overall ?? 70;
-
-  const nuovo: RosterEntry = createRosterEntry({
-    playerId: dopo.playerId,
-    overall,
-    potential: overall + Math.max(0, 24 - eta),
-    // Arriva adesso: l'affiatamento se lo deve guadagnare.
-    sinceSeason: state.season,
-  });
-
-  // L'allenatore si accorge se gli hai preso quello che chiedeva, anche via trattativa.
-  let coachRequest = state.coachRequest ?? null;
-  if (coachRequest && !coachRequest.fulfilled && info) {
-    if (
-      requestSatisfiedBy(coachRequest.request, {
-        overall,
-        age: eta,
-        role: info.role,
-        secondaryRoles: info.secondaryRoles,
-      })
-    ) {
-      coachRequest = { ...coachRequest, fulfilled: true };
-    }
-  }
-
+  /**
+   * **L'accordo col club non è l'acquisto: adesso si tratta col giocatore.**
+   *
+   * Qui prima il giocatore entrava in rosa e il cartellino si pagava, con un ingaggio derivato
+   * dal seme che nessuno aveva mai accettato. Era l'asimmetria più vistosa del sistema: un
+   * parametro zero si negozia su cinque assi, un rinnovo pure, un acquisto no. Il cartellino
+   * resta quindi **non pagato** e la rosa invariata finché `signIncomingPlayer` non chiude anche
+   * la seconda trattativa; se il contratto salta, salta tutta l'operazione (piano DS, D3/D4).
+   */
   return {
-    state: {
-      ...state,
-      negotiation: dopo,
-      roster: [...state.roster, nuovo],
-      budget: state.budget - dopo.amount,
-      coachRequest,
-      sessionDeals: [
-        ...(state.sessionDeals ?? []),
-        { playerId: dopo.playerId, playerName: dopo.playerName, kind: "acquisto", amount: dopo.amount },
-      ],
-    },
-    message: `${dopo.playerName} acquistato per ${formatEuro(dopo.amount)} (${dopo.clubName}).`,
-    closed: true,
+    state: { ...state, negotiation: { ...dopo, awaitingContract: true } },
+    message: `Accordo col ${dopo.clubName} per ${formatEuro(dopo.amount)}. Ora tocca convincere ${dopo.playerName}.`,
   };
 }
 
@@ -4495,6 +4465,206 @@ export function renewContract(
     state: next,
     ok: true,
     message: `${facts.name} ha rinnovato: ${formatWage(offer.wage)} fino al ${state.season + offer.seasons - 1}.`,
+  };
+}
+
+/* -------------------------------------------------------------------------- */
+/* Il contratto di chi stiamo comprando                                        */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Che cosa chiede per firmare uno che **non è ancora nostro**.
+ *
+ * Riusa `renewalTerms`, cioè lo stesso motore del rinnovo e dei parametri zero: tre superfici,
+ * una scala sola. I fatti che qui non esistono si dichiarano neutri invece di essere inventati —
+ * non l'abbiamo mai visto giocare per noi, quindi rendimento e scarto dagli ingaggi dei compagni
+ * valgono zero.
+ *
+ * Le due letture non ovvie:
+ *  - **quanto guadagna adesso** si stima dal prestigio del club che lascia, non dal nostro: chi
+ *    arriva da una grande ha già uno stipendio da grande, ed è la ragione per cui prenderlo da
+ *    una big costa più di prenderlo da una neopromossa a parità di Overall;
+ *  - **pretende il posto** se arriva più forte della media della rosa. È la traduzione onesta di
+ *    `playedShare`, che per un giocatore che non abbiamo mai schierato non esiste.
+ */
+export function signingDemandOf(
+  state: CareerState,
+  world: CareerWorld,
+  playerId: string,
+  fee: number,
+  fromClubId?: string,
+) {
+  const pool = world.market?.transferPool.find((p) => p.playerId === playerId);
+  // L'anagrafica da consultare è quella **del mercato**: il bersaglio per definizione non è
+  // nostro, e `careerPlayers` copre la nostra rosa più i regen, non gli acquistabili.
+  const info = world.market?.players[playerId] ?? careerPlayers(state, world)[playerId];
+  if (!pool || !info) return null;
+
+  const eta = world.market?.ageOf(playerId) ?? 25;
+  const prestigioNostro = world.market?.valuation.clubPrestige[state.clubId] ?? 3;
+  const prestigioSuo = world.market?.valuation.clubPrestige[fromClubId ?? pool.clubId] ?? 3;
+  const mediaRosa = averageOverall(state.roster);
+
+  return renewalTerms({
+    age: eta,
+    overall: pool.overall,
+    marketValue: fee,
+    currentWage: baseWageOf(pool.overall, eta, prestigioSuo),
+    wageVsPeers: 1,
+    overUnderPerformance: 0,
+    clubPrestige: prestigioNostro,
+    personality: derivePlayerPersonality(playerId, eta, pool.overall, state.season, state.season),
+    playedShare: pool.overall >= mediaRosa ? 1 : 0.4,
+  });
+}
+
+/**
+ * Firma il contratto e **chiude l'acquisto**: qui, e solo qui, si paga il cartellino.
+ *
+ * Se il pacchetto non regge il confronto con quello che si aspetta, l'operazione **salta
+ * tutta** — cartellino compreso — e il giocatore resta bloccato per il resto della finestra
+ * (piano DS, D4). Senza quel blocco basterebbe riaprire finché non esce il risultato voluto, e
+ * il rifiuto non costerebbe nulla.
+ */
+export function signIncomingPlayer(
+  state: CareerState,
+  world: CareerWorld,
+  offer: RenewalOffer,
+): { state: CareerState; ok: boolean; message: string } {
+  const tratt = state.negotiation;
+  if (!tratt?.awaitingContract || tratt.kind !== "acquisto") {
+    return { state, ok: false, message: "Nessun accordo col club da perfezionare." };
+  }
+
+  const terms = signingDemandOf(state, world, tratt.playerId, tratt.amount, tratt.clubId);
+  const pool = world.market?.transferPool.find((p) => p.playerId === tratt.playerId);
+  const info = world.market?.players[tratt.playerId] ?? careerPlayers(state, world)[tratt.playerId];
+  if (!terms || !pool || !info) {
+    return { state, ok: false, message: "Il giocatore non è più disponibile." };
+  }
+
+  const finanze = financesOf(state, world);
+  if (offer.wage > finanze.wageRoom) {
+    return {
+      state,
+      ok: false,
+      message: `Margine ingaggi insufficiente: ${formatWage(offer.wage)} contro ${formatEuro(finanze.wageRoom)} disponibili.`,
+    };
+  }
+  if (tratt.amount > state.budget) {
+    return { state, ok: false, message: "La cassa mercato non basta più per il cartellino." };
+  }
+
+  const eta = world.market?.ageOf(tratt.playerId) ?? 25;
+  const punteggio = renewalOfferScore(
+    {
+      wage: offer.wage,
+      seasons: offer.seasons,
+      clause: offer.clause ?? 0,
+      starter: offer.guaranteedStarter ?? false,
+      captain: offer.captain ?? false,
+    },
+    terms,
+    derivePlayerPersonality(tratt.playerId, eta, pool.overall, state.season, state.season),
+  );
+
+  if (punteggio < RENEWAL_ACCEPT_SCORE) {
+    return {
+      state: abandonSigning(state, "rifiuto_giocatore"),
+      ok: false,
+      message: `${tratt.playerName} rifiuta le condizioni: l'operazione salta, il cartellino non si paga.`,
+    };
+  }
+
+  const nuovo: RosterEntry = createRosterEntry({
+    playerId: tratt.playerId,
+    overall: pool.overall,
+    potential: pool.potential ?? pool.overall + Math.max(0, 24 - eta),
+    // Arriva adesso: l'affiatamento se lo deve guadagnare.
+    sinceSeason: state.season,
+  });
+
+  // L'allenatore si accorge se gli hai preso quello che chiedeva, anche via trattativa.
+  let coachRequest = state.coachRequest ?? null;
+  if (
+    coachRequest &&
+    !coachRequest.fulfilled &&
+    requestSatisfiedBy(coachRequest.request, {
+      overall: pool.overall,
+      age: eta,
+      role: info.role,
+      secondaryRoles: info.secondaryRoles,
+    })
+  ) {
+    coachRequest = { ...coachRequest, fulfilled: true };
+  }
+
+  let next: CareerState = {
+    ...state,
+    negotiation: { ...tratt, awaitingContract: false, ending: "accordo" },
+    roster: [...state.roster, nuovo],
+    budget: state.budget - tratt.amount,
+    coachRequest,
+    sessionDeals: [
+      ...(state.sessionDeals ?? []),
+      {
+        playerId: tratt.playerId,
+        playerName: tratt.playerName,
+        kind: "acquisto" as const,
+        amount: tratt.amount,
+      },
+    ],
+  };
+  next = withContractOverride(next, tratt.playerId, {
+    until: state.season + offer.seasons - 1,
+    wage: offer.wage,
+    signedSeason: state.season,
+    releaseClause: offer.clause,
+  });
+  if (offer.captain) next = { ...next, captainId: tratt.playerId };
+  if (offer.guaranteedStarter) {
+    next = setGuaranteedStarter(next, info.role, tratt.playerId);
+    next = {
+      ...next,
+      commitments: [
+        ...(next.commitments ?? []),
+        makeCommitment("clausola_titolarita", {
+          playerId: tratt.playerId,
+          verifyAt: "matchday",
+          deadline: state.league.round + 6,
+          payload: { minStarts: 3 },
+          madeSeason: state.season,
+          madeWeek: state.league.round,
+          description: `Titolarità sottoscritta alla firma di ${tratt.playerName}`,
+        }),
+      ],
+    };
+  }
+
+  return {
+    state: next,
+    ok: true,
+    message: `${tratt.playerName} firma: ${formatEuro(tratt.amount)} al ${tratt.clubName}, ${formatWage(offer.wage)} per ${offer.seasons} ${offer.seasons === 1 ? "anno" : "anni"}.`,
+  };
+}
+
+/**
+ * Si lascia il tavolo del contratto: l'accordo col club decade con esso.
+ *
+ * Il blocco per il resto della finestra vale sia per il rifiuto del giocatore sia per la
+ * rinuncia del DS: distinguere i due casi permetterebbe di uscire e rientrare per riprovare, e
+ * la pazienza — la risorsa su cui si regge tutta la meccanica — non costerebbe nulla.
+ */
+export function abandonSigning(
+  state: CareerState,
+  ending: "rifiuto_giocatore" | "rottura" = "rottura",
+): CareerState {
+  const tratt = state.negotiation;
+  if (!tratt) return state;
+  return {
+    ...state,
+    negotiation: { ...tratt, status: "arenata", awaitingContract: false, ending },
+    negotiationBlocked: [...(state.negotiationBlocked ?? []), tratt.playerId],
   };
 }
 

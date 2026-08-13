@@ -1,30 +1,23 @@
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { motion } from "framer-motion";
-import { Check, Minus, Plus, Star, X } from "lucide-react";
+import { X } from "lucide-react";
 import {
   contractFor,
-  financesOf,
-  formatContractTotal,
   formatWage,
   playerFactsOf,
   renewalDemandOf,
   type CareerState,
   type CareerWorld,
 } from "@app/game-engine";
-import { WageImpactPanel } from "./WageImpactPanel";
+import { ContractOfferForm, type ContractOffer } from "./ContractOfferForm";
 
 /**
  * **Il tavolo del rinnovo.**
  *
- * Non si negozia una cifra ma un **pacchetto**: ingaggio annuo, durata, titolarità, fascia. Il
- * giocatore lo giudica con la *sua* scala (la personalità), quindi la stessa proposta convince un
- * mercenario e offende un giovane che voleva giocare — ed è la ragione per cui qui si vede sempre
- * *cosa chiede*, non solo quanto costa.
- *
- * Le **finanze si vedono mentre si tratta** (`WageImpactPanel`), e si possono riequilibrare da
- * qui: senza, l'utente scopriva di non potersi permettere il rinnovo solo dopo aver premuto, e
- * per fare spazio doveva uscire dalla trattativa, spostare il bilancio nel pannello Finanze e
- * ricominciare da capo.
+ * Il contenuto è quello condiviso da tutte e tre le trattative contrattuali
+ * (`ContractOfferForm`): rinnovo, acquisto e parametro zero negoziano lo stesso pacchetto e lo
+ * fanno valutare dalla stessa funzione del motore. Qui resta solo il guscio — chi è, che
+ * contratto ha oggi, come si chiude.
  */
 export function RenewalModal({
   state,
@@ -37,12 +30,7 @@ export function RenewalModal({
   state: CareerState;
   world: CareerWorld;
   playerId: string;
-  onRenew: (offer: {
-    wage: number;
-    seasons: number;
-    guaranteedStarter?: boolean;
-    captain?: boolean;
-  }) => { ok: boolean; message: string };
+  onRenew: (offer: ContractOffer) => { ok: boolean; message: string };
   /** Riequilibra il bilancio senza uscire dalla trattativa. */
   onShiftFinances?: (share: number) => void;
   onClose: () => void;
@@ -50,20 +38,8 @@ export function RenewalModal({
   const facts = useMemo(() => playerFactsOf(state, world, playerId), [state, world, playerId]);
   const terms = useMemo(() => renewalDemandOf(state, world, playerId), [state, world, playerId]);
   const contratto = useMemo(() => contractFor(state, world, playerId), [state, world, playerId]);
-  const margine = useMemo(() => financesOf(state, world).wageRoom, [state, world]);
-
-  const [ingaggio, setIngaggio] = useState(terms?.wage ?? contratto?.wage ?? 500_000);
-  const [anni, setAnni] = useState(terms?.seasons ?? 2);
-  const [titolare, setTitolare] = useState(terms?.wantsStarter ?? false);
-  const [capitano, setCapitano] = useState(terms?.wantsCaptaincy ?? false);
-  const [esito, setEsito] = useState<{ ok: boolean; message: string } | null>(null);
 
   if (!facts || !terms) return null;
-
-  const aumento = ingaggio - facts.wage;
-  const fuoriMargine = aumento > margine;
-
-  const passo = ingaggio >= 2_000_000 ? 250_000 : 50_000;
 
   return (
     <motion.div
@@ -92,143 +68,21 @@ export function RenewalModal({
             type="button"
             onClick={onClose}
             aria-label="Chiudi"
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[var(--surface-border)] text-[var(--text-secondary)]"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[var(--surface-border)] text-[var(--text-secondary)]"
           >
             <X size={15} />
           </button>
         </header>
 
-        <div className="border-b border-amber-500/20 bg-amber-500/10 px-4 py-2.5">
-          <p className="text-[10px] font-extrabold tracking-wider text-amber-300 uppercase">Chiede</p>
-          <p className="mt-0.5 text-xs leading-snug font-medium text-amber-100/90">
-            {formatWage(terms.wage)} · {terms.seasons} {terms.seasons === 1 ? "anno" : "anni"}
-            {terms.wantsStarter && " · un posto da titolare"}
-            {terms.wantsCaptaincy && " · la fascia"}
-          </p>
-        </div>
-
-        <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4">
-          <label className="flex items-center justify-between rounded-xl bg-[var(--surface-raised)] px-3 py-2.5 text-xs font-bold">
-            Ingaggio annuo
-            <span className="flex items-center gap-1.5">
-              <button
-                type="button"
-                aria-label="Riduci ingaggio"
-                onClick={() => setIngaggio((v) => Math.max(60_000, v - passo))}
-                className="flex h-7 w-7 items-center justify-center rounded-lg border border-[var(--surface-border)]"
-              >
-                <Minus size={12} />
-              </button>
-              <span className={`w-24 text-right tabular-nums ${fuoriMargine ? "text-[#ff4d4d]" : ""}`}>
-                {formatWage(ingaggio)}
-              </span>
-              <button
-                type="button"
-                aria-label="Aumenta ingaggio"
-                onClick={() => setIngaggio((v) => v + passo)}
-                className="flex h-7 w-7 items-center justify-center rounded-lg border border-[var(--surface-border)]"
-              >
-                <Plus size={12} />
-              </button>
-            </span>
-          </label>
-
-          <label className="flex items-center justify-between rounded-xl bg-[var(--surface-raised)] px-3 py-2.5 text-xs font-bold">
-            Durata
-            <span className="flex items-center gap-1.5">
-              <button
-                type="button"
-                aria-label="Riduci durata"
-                onClick={() => setAnni((v) => Math.max(1, v - 1))}
-                className="flex h-7 w-7 items-center justify-center rounded-lg border border-[var(--surface-border)]"
-              >
-                <Minus size={12} />
-              </button>
-              <span className="w-24 text-right tabular-nums">
-                {anni} {anni === 1 ? "anno" : "anni"}
-              </span>
-              <button
-                type="button"
-                aria-label="Aumenta durata"
-                onClick={() => setAnni((v) => Math.min(5, v + 1))}
-                className="flex h-7 w-7 items-center justify-center rounded-lg border border-[var(--surface-border)]"
-              >
-                <Plus size={12} />
-              </button>
-            </span>
-          </label>
-
-          <p className="px-1 text-[11px] font-bold text-[var(--brand)]">
-            {formatContractTotal(ingaggio, anni)}
-          </p>
-
-          <div className="grid grid-cols-2 gap-2">
-            <button
-              type="button"
-              onClick={() => setTitolare((v) => !v)}
-              className={`flex items-center justify-center gap-1.5 rounded-xl px-3 py-2.5 text-[11px] font-bold transition-colors ${
-                titolare
-                  ? "bg-emerald-500/20 text-emerald-300"
-                  : "bg-[var(--surface-raised)] text-[var(--text-secondary)]"
-              }`}
-            >
-              <Check size={12} /> Titolarità
-            </button>
-            <button
-              type="button"
-              onClick={() => setCapitano((v) => !v)}
-              className={`flex items-center justify-center gap-1.5 rounded-xl px-3 py-2.5 text-[11px] font-bold transition-colors ${
-                capitano
-                  ? "bg-amber-500/20 text-amber-300"
-                  : "bg-[var(--surface-raised)] text-[var(--text-secondary)]"
-              }`}
-            >
-              <Star size={12} /> Fascia
-            </button>
-          </div>
-
-          {/* **Le finanze si vedono mentre si tratta**, e si possono riequilibrare qui: prima
-              lo slider viveva solo nel pannello Finanze, quindi per fare spazio a un rinnovo
-              bisognava uscire dalla trattativa e ricominciarla. */}
-          <WageImpactPanel
-            state={state}
-            world={world}
-            proposedWage={ingaggio}
-            currentWage={facts.wage}
-            onShift={onShiftFinances}
-          />
-
-          {esito && (
-            <p
-              className="rounded-xl px-3 py-2.5 text-[11px] font-bold"
-              style={{
-                backgroundColor: esito.ok ? "#3ddc6b22" : "#ff4d4d22",
-                color: esito.ok ? "#2a9b4d" : "#ff4d4d",
-              }}
-            >
-              {esito.message}
-            </p>
-          )}
-        </div>
-
-        <footer className="border-t border-[var(--surface-border)] p-3">
-          <button
-            type="button"
-            disabled={fuoriMargine || esito?.ok === true}
-            onClick={() => {
-              const r = onRenew({
-                wage: ingaggio,
-                seasons: anni,
-                guaranteedStarter: titolare,
-                captain: capitano,
-              });
-              setEsito(r);
-            }}
-            className="w-full rounded-2xl bg-[var(--brand)] py-3 text-sm font-extrabold text-[var(--brand-contrast)] transition-transform active:scale-98 disabled:opacity-40"
-          >
-            {esito?.ok ? "Rinnovo firmato" : "Presenta la proposta"}
-          </button>
-        </footer>
+        <ContractOfferForm
+          state={state}
+          world={world}
+          demand={terms}
+          currentWage={facts.wage}
+          submitLabel="Presenta la proposta"
+          onSubmit={onRenew}
+          onShiftFinances={onShiftFinances}
+        />
       </motion.div>
     </motion.div>
   );

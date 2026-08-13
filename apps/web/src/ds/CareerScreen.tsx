@@ -35,6 +35,9 @@ import {
   negotiateLoanOffer,
   negotiateOffer,
   negotiatePurchase,
+  signIncomingPlayer,
+  signingDemandOf,
+  abandonSigning,
   openForcedStandoff,
   playNegotiation,
   proposePromiseAlternative,
@@ -81,6 +84,7 @@ import { CoachNegotiationChat } from "./CoachNegotiationChat";
 import { PlayerStandoffChat } from "./PlayerStandoffChat";
 import { PlayerDialogueChat } from "./PlayerDialogueChat";
 import { RenewalModal } from "./RenewalModal";
+import { ContractOfferForm } from "./ContractOfferForm";
 import { SeasonObjectiveScreen } from "./SeasonObjectiveScreen";
 import { BoardDemandDialog } from "./BoardDemandDialog";
 import { StandingsTable } from "../classic/StandingsTable";
@@ -457,7 +461,15 @@ export function CareerScreen({
   /** Il tavolo del rinnovo di un giocatore: aperto dalla pastiglia contratto nella Rosa. */
   const [rinnovoPer, setRinnovoPer] = useState<string | null>(null);
   const proponiRinnovo = useCallback(
-    (offer: { wage: number; seasons: number; guaranteedStarter?: boolean; captain?: boolean }) => {
+    (offer: {
+      wage: number;
+      seasons: number;
+      // La clausola fa parte del pacchetto che il giocatore valuta (`renewalOfferScore`):
+      // lasciarla fuori dalla firma significherebbe farla comparire al tavolo e poi ignorarla.
+      clause?: number;
+      guaranteedStarter?: boolean;
+      captain?: boolean;
+    }) => {
       if (!rinnovoPer) return { ok: false, message: "Nessun giocatore selezionato." };
       const esito = renewContract(state, world, rinnovoPer, offer);
       if (esito.ok) onChange(esito.state);
@@ -491,6 +503,8 @@ export function CareerScreen({
     (agentId: string, offer: { wage: number; seasons: number; guaranteedStarter: boolean }) => {
       const esito = signFreeAgent(state, world, agentId, offer);
       if (esito.ok) onChange(esito.state);
+      // Il tavolo mostra l'esito lì dove si è deciso: un rifiuto silenzioso sembrerebbe un bug.
+      return { ok: esito.ok, message: esito.message };
     },
     [state, world, onChange],
   );
@@ -647,6 +661,40 @@ export function CareerScreen({
     () => onChange(closeNegotiation(state)),
     [state, onChange],
   );
+
+  /**
+   * **La seconda fase dell'acquisto**: trovato l'accordo col club, si tratta il contratto.
+   *
+   * Finché non si firma il cartellino non è pagato e la rosa è invariata — se il giocatore
+   * dice di no, salta tutta l'operazione. La richiesta si calcola solo quando serve, perché
+   * dipende dalla cifra concordata poco fa.
+   */
+  const richiestaContrattuale = useMemo(() => {
+    const tratt = state.negotiation;
+    if (!tratt?.awaitingContract) return null;
+    return signingDemandOf(state, world, tratt.playerId, tratt.amount, tratt.clubId);
+  }, [state, world]);
+
+  const firmaAcquisto = useCallback(
+    (offer: { wage: number; seasons: number; clause?: number; guaranteedStarter?: boolean; captain?: boolean }) => {
+      const esito = signIncomingPlayer(state, world, offer);
+      onChange(esito.state);
+      if (esito.ok || esito.state.negotiation?.status === "arenata") {
+        setDeal({
+          id: Date.now(),
+          kind: esito.ok ? "acquisto" : "errore",
+          message: esito.message,
+          delta: esito.state.budget - state.budget,
+        });
+      }
+      return { ok: esito.ok, message: esito.message };
+    },
+    [state, world, onChange],
+  );
+
+  const rinunciaAllaFirma = useCallback(() => {
+    onChange(abandonSigning(state));
+  }, [state, onChange]);
 
   const scelteMister = useMemo(() => coachChoices(state, world), [state, world]);
 
@@ -1216,6 +1264,24 @@ export function CareerScreen({
             budget={state.budget}
             onMove={mossaTrattativa}
             onClose={chiudiTrattativa}
+            contractPhase={
+              richiestaContrattuale && (
+                <ContractOfferForm
+                  state={state}
+                  world={world}
+                  demand={richiestaContrattuale}
+                  /* Chi arriva da fuori non ha un ingaggio da noi: l'intera cifra è nuova, e
+                     usare il suo stipendio attuale proietterebbe un impatto sul monte che il
+                     motore poi non verifica. */
+                  currentWage={0}
+                  submitLabel="Fagli firmare"
+                  onSubmit={firmaAcquisto}
+                  onShiftFinances={spostaFinanze}
+                  onCancel={rinunciaAllaFirma}
+                  cancelLabel="Rinuncia"
+                />
+              )
+            }
           />
         )}
 

@@ -54,6 +54,17 @@ export interface Negotiation {
    * sapere che **non** deve eseguire l'operazione.
    */
   ending?: "accordo" | "rifiuto_giocatore" | "visite_mediche" | "soffiato" | "rottura";
+  /**
+   * **L'accordo col club c'è, il giocatore non ha ancora firmato.**
+   *
+   * Comprare era l'unica operazione del gioco che non passava da un tavolo contrattuale: un
+   * parametro zero si negozia su cinque assi, un rinnovo pure, un acquisto da trenta milioni no
+   * — il giocatore entrava in rosa con un ingaggio derivato che nessuno aveva accettato. Con
+   * questo flag la trattativa col club si chiude e ne comincia una seconda, **con l'agente**,
+   * nella stessa finestra (piano DS, D3). Finché è alzato il cartellino non è pagato e il
+   * giocatore non è in rosa: se il contratto salta, salta tutta l'operazione.
+   */
+  awaitingContract?: boolean;
 }
 
 /**
