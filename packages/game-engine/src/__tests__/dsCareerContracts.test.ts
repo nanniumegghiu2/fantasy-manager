@@ -8,7 +8,12 @@
 import { describe, expect, it } from "vitest";
 import {
   advanceWeek,
+  answerFormationChange,
   coachContractSeasonsLeft,
+  currentLineup,
+  maybeAskFormationChange,
+  FORMATION_RESIGN_HARMONY,
+  FORMATION_REFUSAL_HARMONY_COST,
   contractFor,
   createCareer,
   dressingRoom,
@@ -385,5 +390,78 @@ describe("lo Spogliatoio dentro la carriera", () => {
     }
     const ordinari = dressingRoom(state, world).filter((e) => !e.blocking);
     expect(ordinari.length).toBeLessThanOrEqual(4);
+  });
+});
+
+/**
+ * **Il mister chiede di cambiare sistema, e si può dire di no.**
+ *
+ * Decisione dell'utente: la richiesta è rifiutabile — il direttore sportivo resta al centro — ma
+ * il no costa sintonia e, se il rapporto era già logoro, porta alle dimissioni *"per mancanza di
+ * visione comune"*. È la varietà che mancava alle richieste del mister, che erano sempre le
+ * stesse quattro о cinque di mercato.
+ */
+describe("cambio di modulo", () => {
+  it("accettare cambia davvero il sistema in uso, non solo il testo", () => {
+    const { state, world } = mondo();
+    const conRichiesta: CareerState = {
+      ...state,
+      coachFormationRequest: { formationId: "3-5-2", message: "Cambiamo", askedSeason: state.season },
+    };
+
+    const esito = answerFormationChange(conRichiesta, true);
+    expect(esito.state.coachFormationId).toBe("3-5-2");
+    expect(esito.state.coachFormationRequest).toBeNull();
+    expect(esito.coachResigned).toBe(false);
+    // Le titolarità garantite si azzerano: erano promesse su caselle che qui possono non esistere.
+    expect(Object.keys(esito.state.guaranteedStarters ?? {})).toHaveLength(0);
+    /**
+     * E l'undici si costruisce **davvero** col modulo nuovo. Si verifica sulle caselle e non su
+     * un'etichetta: `Lineup` non porta l'id del modulo, e il punto è proprio che il cambio non
+     * resti una scritta — un 3-5-2 ha tre difensori centrali e due quinti, un 4-3-3 no.
+     */
+    const caselle = Object.keys(currentLineup(esito.state, world).starters);
+    expect(caselle).toHaveLength(11);
+    expect(caselle.filter((id) => id.startsWith("dc")).length).toBe(3);
+  });
+
+  it("rifiutare costa sintonia, ma con un buon rapporto il mister resta", () => {
+    const { state } = mondo();
+    const conRichiesta: CareerState = {
+      ...state,
+      coachHarmony: 80,
+      coachFormationRequest: { formationId: "3-5-2", message: "Cambiamo", askedSeason: state.season },
+    };
+
+    const esito = answerFormationChange(conRichiesta, false);
+    expect(esito.coachResigned).toBe(false);
+    expect(esito.state.coachId).toBe(state.coachId);
+    expect(esito.state.coachHarmony!).toBeLessThan(80);
+    expect(esito.state.coachFormationId).toBeUndefined();
+  });
+
+  it("...ma se la sintonia era già bassa, il no lo porta alle dimissioni", () => {
+    const { state } = mondo();
+    const conRichiesta: CareerState = {
+      ...state,
+      coachHarmony: FORMATION_RESIGN_HARMONY + FORMATION_REFUSAL_HARMONY_COST - 1,
+      coachFormationRequest: { formationId: "3-5-2", message: "Cambiamo", askedSeason: state.season },
+    };
+
+    const esito = answerFormationChange(conRichiesta, false);
+    expect(esito.coachResigned).toBe(true);
+    expect(esito.state.coachId).toBeNull();
+    expect(esito.message).toMatch(/visione comune/i);
+    // La panchina libera riapre il meeting di inizio stagione.
+    expect(esito.state.seasonNegotiationDone).toBe(false);
+  });
+
+  it("un mister appena arrivato non chiede di cambiare: il modulo l'ha scelto firmando", () => {
+    const { state } = mondo();
+    const appenaFirmato: CareerState = {
+      ...state,
+      coachContract: { ...state.coachContract!, signedSeason: state.season },
+    };
+    expect(maybeAskFormationChange(appenaFirmato).coachFormationRequest).toBeUndefined();
   });
 });

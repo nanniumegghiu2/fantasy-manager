@@ -43,7 +43,7 @@ import {
   leagueRoundOf,
   type SeasonWeek,
 } from "../season/calendar";
-import { getFormation } from "../formations";
+import { FORMATIONS, getFormation } from "../formations";
 import { advanceSeasonOveralls, ageInSeason, shouldRetire } from "./aging";
 import { computeCohesion } from "./cohesion";
 import { findCoach } from "./coaches";
@@ -423,6 +423,23 @@ export interface CareerState {
   lastSeasonStandings?: Record<string, number>;
   /** Il nostro mister è stato appena portato via da un altro club: la UI lo annuncia e poi lo azzera. */
   coachDeparture?: { coachName: string; clubName: string } | null;
+  /**
+   * **Il modulo davvero in uso**, quando il mister ne ha cambiato uno rispetto al suo di default.
+   *
+   * Assente = si gioca col `formationId` del catalogo, cioè il comportamento di sempre. Serve
+   * perché un tecnico che cambia sistema a metà carriera non può essere rappresentato da una
+   * costante del catalogo: quella dice chi è, non cosa sta facendo adesso.
+   */
+  coachFormationId?: string;
+  /**
+   * Il mister chiede di cambiare sistema di gioco, e aspetta una risposta.
+   *
+   * È una richiesta **rifiutabile** (decisione dell'utente): accettarla rifà la squadra attorno
+   * a un modulo nuovo, rifiutarla costa sintonia e, se il rapporto era già logoro, può portarlo
+   * alle dimissioni per "mancanza di visione comune". Il DS resta al centro — ma dire di no non
+   * è gratis.
+   */
+  coachFormationRequest?: { formationId: string; message: string; askedSeason: number } | null;
   /** L'obiettivo dichiarato per la stagione in corso, scelto dal DS nel dossier iniziale. */
   seasonObjective?: { targetPosition: number; label: ObjectiveLabel; setSeason: number };
   /**
@@ -757,7 +774,7 @@ export function setGuaranteedStarter(
 /** L'undici che l'allenatore schiererebbe oggi, dati infortuni, fatica e morale. */
 export function currentLineup(state: CareerState, world: CareerWorld): Lineup {
   const coach = state.coachId ? findCoach(state.coachId) : undefined;
-  const formation = getFormation(coach?.formationId ?? "4-3-3")!;
+  const formation = getFormation(state.coachFormationId ?? coach?.formationId ?? "4-3-3")!;
   // Chi il mister ha smesso di schierare (bivio giocatore-mister ignorato) non è disponibile
   // per lui, esattamente come un infortunato o uno in prestito altrove — stesso hard filter di
   // `availableEntries`, non un semplice malus di punteggio.
@@ -781,7 +798,7 @@ export function currentLineup(state: CareerState, world: CareerWorld): Lineup {
 /** Forza offensiva e difensiva della squadra, con affiatamento e stile dell'allenatore. */
 export function squadStrengthOf(state: CareerState, world: CareerWorld) {
   const coach = state.coachId ? findCoach(state.coachId) : undefined;
-  const formation = getFormation(coach?.formationId ?? "4-3-3")!;
+  const formation = getFormation(state.coachFormationId ?? coach?.formationId ?? "4-3-3")!;
   const lineup = currentLineup(state, world);
   // `world.players` non copre i nostri regen: senza l'anagrafica fusa, un regen titolare
   // veniva scartato in silenzio dal calcolo di forza — una casella coperta che il motore
@@ -1182,6 +1199,10 @@ export function advanceWeek(
           }
         }
       }
+
+      // Il mister puo chiedere di cambiare sistema: si domanda all apertura del mercato estivo,
+      // quando c e ancora il tempo di rifare la squadra attorno al modulo nuovo.
+      next = maybeAskFormationChange(next);
 
       next = {
         ...next,
@@ -1639,7 +1660,7 @@ function apriRichiestaAllenatore(
 ): { request: CoachRequest; fulfilled: boolean } | null {
   const coach = state.coachId ? findCoach(state.coachId) : undefined;
   if (!coach) return null;
-  const formation = getFormation(coach.formationId) ?? getFormation("4-3-3")!;
+  const formation = getFormation(state.coachFormationId ?? coach.formationId) ?? getFormation("4-3-3")!;
   const players = careerPlayers(state, world);
   const request = buildCoachRequest({
     coach,
@@ -2936,6 +2957,107 @@ function applyRequestResponse(state: CareerState, response: RequestResponse): Ca
  *   sistema a parte: un giocatore recidivo o già sull'orlo del morale minimo non perdona un
  *   secondo giro di ramanzine.
  */
+/**
+ * Quanta sintonia costa dire di no al cambio di modulo, e sotto quale soglia se ne va.
+ *
+ * Il costo è alto di proposito — più di una promessa di mercato ignorata — perché qui non si
+ * discute un acquisto ma **come si gioca**: è la materia su cui un allenatore non transige.
+ */
+export const FORMATION_REFUSAL_HARMONY_COST = 22;
+export const FORMATION_RESIGN_HARMONY = 30;
+
+/**
+ * Il mister propone un cambio di sistema.
+ *
+ * Deterministico dal seme: due carriere sullo stesso club non ricevono le stesse proposte, e
+ * ricaricare un salvataggio non ne fa comparire una nuova. Chiede solo chi è al club **da almeno
+ * una stagione** — un tecnico appena arrivato ha già scelto il suo modulo firmando — e mai due
+ * volte di fila nella stessa stagione.
+ */
+export function maybeAskFormationChange(state: CareerState): CareerState {
+  if (state.coachFormationRequest || !state.coachId) return state;
+  const coach = findCoach(state.coachId);
+  if (!coach) return state;
+
+  const anniAlClub = state.season - (state.coachContract?.signedSeason ?? state.season);
+  if (anniAlClub < 1) return state;
+
+  const random = derivedRandom(state.seed, "cambioModulo", state.season, state.coachId);
+  if (random() > 0.22) return state;
+
+  const attuale = state.coachFormationId ?? coach.formationId;
+  const alternative = FORMATIONS.filter((f) => f.id !== attuale);
+  if (alternative.length === 0) return state;
+  const scelta = alternative[Math.floor(random() * alternative.length)]!;
+
+  return {
+    ...state,
+    coachFormationRequest: {
+      formationId: scelta.id,
+      askedSeason: state.season,
+      message: `Direttore, ho studiato la rosa e credo che con il ${scelta.id} tireremmo fuori molto di più. Voglio cambiare sistema.`,
+    },
+  };
+}
+
+/**
+ * La risposta al cambio di modulo.
+ *
+ * Accettare rifà la squadra attorno al nuovo sistema — e va detto che la rosa potrebbe non
+ * essere adatta: è quello il prezzo, non un malus nascosto. Rifiutare costa sintonia, e se il
+ * rapporto era già logoro il mister **se ne va**: non per capriccio, ma perché a quel punto non
+ * c'è più una visione comune, che è il motivo per cui un tecnico lascia davvero.
+ */
+export function answerFormationChange(
+  state: CareerState,
+  accept: boolean,
+): { state: CareerState; message: string; coachResigned: boolean } {
+  const richiesta = state.coachFormationRequest;
+  if (!richiesta) return { state, message: "", coachResigned: false };
+  const coach = state.coachId ? findCoach(state.coachId) : undefined;
+
+  if (accept) {
+    return {
+      state: {
+        ...state,
+        coachFormationId: richiesta.formationId,
+        coachFormationRequest: null,
+        coachHarmony: Math.min(100, (state.coachHarmony ?? 75) + 8),
+        // Il nuovo modulo azzera le titolarità garantite: erano promesse su caselle che in
+        // questo sistema potrebbero non esistere più.
+        guaranteedStarters: {},
+      },
+      message: `${coach?.name ?? "Il mister"} passa al ${richiesta.formationId}.`,
+      coachResigned: false,
+    };
+  }
+
+  const sintonia = Math.max(0, (state.coachHarmony ?? 75) - FORMATION_REFUSAL_HARMONY_COST);
+  if (sintonia < FORMATION_RESIGN_HARMONY) {
+    return {
+      state: {
+        ...state,
+        coachFormationRequest: null,
+        coachId: null,
+        coachContract: undefined,
+        coachPromises: [],
+        guaranteedStarters: {},
+        coachBenched: {},
+        coachHarmony: 40,
+        seasonNegotiationDone: false,
+      },
+      message: `${coach?.name ?? "Il mister"} si dimette: senza una visione comune con la società non se la sente di continuare.`,
+      coachResigned: true,
+    };
+  }
+
+  return {
+    state: { ...state, coachFormationRequest: null, coachHarmony: sintonia },
+    message: `${coach?.name ?? "Il mister"} incassa il no, ma non l'ha presa bene.`,
+    coachResigned: false,
+  };
+}
+
 export function resolveIncidentDecision(
   state: CareerState,
   world: CareerWorld,

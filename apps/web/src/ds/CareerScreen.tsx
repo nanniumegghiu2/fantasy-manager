@@ -46,6 +46,9 @@ import {
   proposePromiseAlternative,
   setGuaranteedStarter,
   answerBoardSackDemand,
+  answerFormationChange,
+  FORMATION_RESIGN_HARMONY,
+  FORMATION_REFUSAL_HARMONY_COST,
   defaultBoard,
   seasonObjectiveChoices,
   inSecondDivision,
@@ -80,6 +83,7 @@ import {
 import type { Department } from "@app/shared-types";
 import { ClubViewerModal } from "./ClubViewerModal";
 import { CoachDepartureDialog } from "./CoachDepartureDialog";
+import { FormationChangeDialog } from "./FormationChangeDialog";
 import { CoachMarketMeetingModal } from "./CoachMarketMeetingModal";
 import { CoachNegotiationChat } from "./CoachNegotiationChat";
 import { PlayerDialogueChat } from "./PlayerDialogueChat";
@@ -758,7 +762,12 @@ export function CareerScreen({
   const progresso = settimane > 0 ? Math.min(100, (state.week / settimane) * 100) : 0;
   const riepilogo = seasonEnd !== null ? state.history.find((h) => h.season === seasonEnd) : undefined;
   const bloccato =
-    !!state.market || !!state.pendingRequest || bisognaRinnovare || !!state.coachDeparture || bisognaObiettivo;
+    !!state.market ||
+    !!state.pendingRequest ||
+    bisognaRinnovare ||
+    !!state.coachDeparture ||
+    !!state.coachFormationRequest ||
+    bisognaObiettivo;
 
   const chiudiPartenzaMister = useCallback(() => {
     onChange({ ...state, coachDeparture: null });
@@ -1339,6 +1348,24 @@ export function CareerScreen({
         {/* **La dirigenza parla per prima.** Se ha chiesto un esonero, quella decisione viene
             prima del rinnovo col mister — che potrebbe non esserci più — e prima dell'obiettivo,
             che si dichiara con la panchina già assegnata. */}
+        {/* Il cambio di modulo viene **prima** del mercato: rifare la squadra attorno a un
+            sistema nuovo e la prima decisione della finestra, non un ripensamento a meta. */}
+        {!correndo && !incident && !teatro && !keyMatch && !riepilogo && state.coachFormationRequest && coachAttuale && (
+          <FormationChangeDialog
+            key="cambio-modulo"
+            coach={coachAttuale}
+            currentFormationId={state.coachFormationId ?? coachAttuale.formationId}
+            request={state.coachFormationRequest}
+            harmony={state.coachHarmony ?? 75}
+            resignRisk={(state.coachHarmony ?? 75) - FORMATION_REFUSAL_HARMONY_COST < FORMATION_RESIGN_HARMONY}
+            onAnswer={(accept) => {
+              const esito = answerFormationChange(state, accept);
+              onChange(esito.state);
+              setDeal({ id: Date.now(), kind: esito.coachResigned ? "errore" : "acquisto", message: esito.message, delta: 0 });
+            }}
+          />
+        )}
+
         {!correndo && !incident && !teatro && !keyMatch && !riepilogo && richiestaDirigenza && (
           <BoardDemandDialog
             key="dirigenza"
