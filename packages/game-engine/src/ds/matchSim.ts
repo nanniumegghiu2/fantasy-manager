@@ -340,6 +340,14 @@ export interface PlayPhase {
   outcome: PhaseOutcome;
   /** Il marcatore vero del tabellino, mai uno inventato. */
   scorerId: string | null;
+  /**
+   * L'istante esatto in cui il pallone entra in rete, per le sole fasi da gol.
+   *
+   * Serve a due cose che senza di esso non si possono fare bene: rallentare la riproduzione
+   * **prima** che la palla arrivi (non dopo, quando è già dentro) e far scattare il punteggio
+   * nel fotogramma giusto invece che al cambio di minuto.
+   */
+  goalSecond?: number;
   /** Chi ha concluso/commesso il fallo: per la riga di cronaca. */
   actorId: string | null;
   /** Cartellino estratto in questa fase, se c'è. */
@@ -585,16 +593,14 @@ function costruisciFase(params: {
       kind: "rigore",
       arc: "raso",
     });
-    t += Math.max(1.2, durata * 0.3);
-    touches.push({
-      t,
-      x: versoPorta,
-      y: clamp(50 + (random() - 0.5) * 22, 34, 66),
-      playerId: tiratore,
-      team,
-      kind: "rete",
-      arc: "teso",
-    });
+    const dentroX = team === "for" ? GOAL_MOUTH.insideFor : GOAL_MOUTH.insideAgainst;
+    const dentroY = clamp(50 + (random() - 0.5) * 20, GOAL_MOUTH.yMin, GOAL_MOUTH.yMax);
+    t += 1.6;
+    touches.push({ t, x: dentroX, y: dentroY, playerId: tiratore, team, kind: "rete", arc: "teso" });
+    const secondoDelGol = t;
+    // La palla resta in rete: è il momento che il gioco deve lasciar respirare.
+    t += GOAL_HOLD_SECONDS;
+    touches.push({ t, x: dentroX, y: dentroY, playerId: tiratore, team, kind: "rete", arc: "raso" });
     return {
       index,
       team,
@@ -603,6 +609,7 @@ function costruisciFase(params: {
       touches,
       outcome: "gol",
       scorerId: goalEvent?.scorerId ?? null,
+      goalSecond: secondoDelGol,
       actorId: tiratore,
       card: null,
       commentary: frase("rigore", nameOf(goalEvent?.scorerId ?? null), random),
@@ -667,6 +674,7 @@ function costruisciFase(params: {
   let flash: PhaseFlash = null;
   let card: "giallo" | "rosso" | null = null;
   let notable = false;
+  let goalSecond: number | undefined;
 
   switch (outcome) {
     case "gol": {
@@ -675,15 +683,21 @@ function costruisciFase(params: {
       if (diTesta) {
         chiudi("cross", team === "for" ? 88 : 12, random() < 0.5 ? 12 : 88, "alto", conclusore, 1.1);
       }
+      // Il tiro parte da più lontano di prima (84 invece di 92): il pallone deve avere spazio
+      // per essere *visto* attraversare l'area, superare il portiere ed entrare.
       chiudi(
         diTesta ? "colpo_di_testa" : "tiro",
-        team === "for" ? 92 : 8,
+        team === "for" ? 84 : 16,
         finaleY,
         "raso",
         marcatore,
         1.0,
       );
-      chiudi("rete", versoPorta, clamp(finaleY, 34, 66), "teso", marcatore, 0.7);
+      const dentroX = team === "for" ? GOAL_MOUTH.insideFor : GOAL_MOUTH.insideAgainst;
+      const dentroY = clamp(finaleY, GOAL_MOUTH.yMin, GOAL_MOUTH.yMax);
+      chiudi("rete", dentroX, dentroY, "teso", marcatore, 1.5);
+      goalSecond = t;
+      chiudi("rete", dentroX, dentroY, "raso", marcatore, GOAL_HOLD_SECONDS);
       commentary = frase(diTesta ? "gol_testa" : "gol", nameOf(marcatore), random);
       flash = "GOL";
       notable = true;
@@ -794,6 +808,7 @@ function costruisciFase(params: {
     endSecond: t,
     touches,
     scorerId: outcome === "gol" ? (goalEvent?.scorerId ?? null) : null,
+    goalSecond,
     actorId: conclusore,
     outcome,
     card,

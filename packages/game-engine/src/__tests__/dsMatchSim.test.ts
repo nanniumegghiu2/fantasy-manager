@@ -9,6 +9,7 @@
  */
 import { describe, expect, it } from "vitest";
 import {
+  GOAL_MOUTH,
   MATCH_SECONDS,
   ballAt,
   buildPitchPlayers,
@@ -145,13 +146,42 @@ describe("il flusso copre la partita, non solo sei clip", () => {
     }
   });
 
-  it("le reti finiscono dentro la porta giusta", () => {
+  it("le reti finiscono dentro la porta giusta, oltre la riga di fondo", () => {
     const flow = simulateMatchFlow(partita(3, 3), "porte", nomeDi, context);
     for (const fase of flow.phases.filter((p) => p.outcome === "gol")) {
       const rete = fase.touches[fase.touches.length - 1]!;
       expect(rete.kind).toBe("rete");
-      if (fase.team === "for") expect(rete.x).toBeGreaterThan(90);
-      else expect(rete.x).toBeLessThan(10);
+      // Non basta "verso la porta": deve stare **oltre** la linea (che è a 2 e a 98) e dentro
+      // la bocca della porta, altrimenti a schermo il pallone si ferma sulla riga.
+      if (fase.team === "for") expect(rete.x).toBe(GOAL_MOUTH.insideFor);
+      else expect(rete.x).toBe(GOAL_MOUTH.insideAgainst);
+      expect(rete.y).toBeGreaterThanOrEqual(GOAL_MOUTH.yMin);
+      expect(rete.y).toBeLessThanOrEqual(GOAL_MOUTH.yMax);
+    }
+  });
+
+  it("il gol dichiara l'istante esatto in cui la palla entra, e poi la scena si ferma", () => {
+    const flow = simulateMatchFlow(partita(2, 1), "istante", nomeDi, context);
+    const reti = flow.phases.filter((p) => p.outcome === "gol");
+    expect(reti).toHaveLength(3);
+    for (const fase of reti) {
+      expect(fase.goalSecond).toBeDefined();
+      // La fase non finisce con la rete: resta una sospensione in cui il pallone sta in porta.
+      // Senza, il gol durerebbe meno di un passaggio qualunque.
+      expect(fase.endSecond - fase.goalSecond!).toBeGreaterThan(3);
+      const durante = ballAt(fase, fase.goalSecond! + 1);
+      expect(durante.kind).toBe("rete");
+      const dopo = ballAt(fase, fase.endSecond - 0.2);
+      expect(dopo.x).toBe(durante.x);
+      expect(dopo.y).toBe(durante.y);
+    }
+  });
+
+  it("nessuna fase che non sia un gol dichiara un istante di rete", () => {
+    const flow = simulateMatchFlow(partita(1, 1), "solo-gol", nomeDi, context);
+    for (const fase of flow.phases) {
+      if (fase.outcome === "gol") continue;
+      expect(fase.goalSecond).toBeUndefined();
     }
   });
 

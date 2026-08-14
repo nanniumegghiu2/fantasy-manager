@@ -13,6 +13,7 @@ import {
   X,
 } from "lucide-react";
 import {
+  GOAL_MOUTH,
   MATCH_SECONDS,
   ballAt,
   buildShootout,
@@ -65,6 +66,15 @@ import { CelebrationConfetti } from "./CelebrationConfetti";
 const RATE_LIVE = 4.5;
 /** ...e durante il resto della partita, che scorre via. */
 const RATE_SKIP = 330;
+/**
+ * ...e attorno a un gol, che è l'unica cosa che conta davvero in una partita.
+ *
+ * Rallenta **prima** che la palla arrivi (vedi `GOAL_SLOWDOWN_LEAD`), non dopo: il tiro, il
+ * portiere superato e la palla che entra devono potersi vedere uno per uno.
+ */
+const RATE_GOAL = 1.15;
+/** Quanti secondi di gioco prima della rete si comincia a rallentare. */
+const GOAL_SLOWDOWN_LEAD = 3;
 /** Un fotogramma non può mai far saltare più di così: protegge dalle schede in secondo piano. */
 const MAX_STEP_SECONDS = 0.12;
 
@@ -141,7 +151,9 @@ export function MatchTheatre({
       const fase = flow.phases[indice] ?? null;
       const dentro = !!fase && orologio.current <= fase.endSecond;
       const correndo = !(dentro && fase!.notable);
-      const rate = (correndo ? RATE_SKIP : RATE_LIVE) * velocita;
+      const versoIlGol =
+        dentro && fase!.goalSecond !== undefined && orologio.current >= fase!.goalSecond - GOAL_SLOWDOWN_LEAD;
+      const rate = (versoIlGol ? RATE_GOAL : correndo ? RATE_SKIP : RATE_LIVE) * velocita;
 
       orologio.current += delta * rate;
       if (orologio.current >= MATCH_SECONDS) {
@@ -180,16 +192,26 @@ export function MatchTheatre({
    */
   const secondoIntero = Math.floor(frame.second);
 
+  /**
+   * Il punteggio scatta **nell'istante in cui il pallone entra**, non al cambio di minuto.
+   *
+   * Contarlo dai minuti degli eventi (com'era prima) lo faceva salire fino a un minuto prima o
+   * dopo la rete mostrata a schermo: proprio sul momento in cui l'utente sta guardando il
+   * tabellone. Il quarto di secondo come chiave del memo basta a farlo sembrare istantaneo
+   * senza ricontare a ogni fotogramma.
+   */
+  const tacca = Math.round(frame.second * 4);
   const parziale = useMemo(() => {
     let nostri = 0;
     let loro = 0;
-    for (const e of result.events) {
-      if (e.minute > minuto) continue;
-      if (e.team === "for") nostri++;
+    for (const fase of flow.phases) {
+      if (fase.outcome !== "gol") continue;
+      if ((fase.goalSecond ?? fase.endSecond) > tacca / 4) continue;
+      if (fase.team === "for") nostri++;
       else loro++;
     }
     return { nostri, loro };
-  }, [result.events, minuto]);
+  }, [flow.phases, tacca]);
 
   /** La cronaca: le ultime righe già passate, dalla più recente. */
   const cronaca = useMemo(() => {
@@ -224,6 +246,14 @@ export function MatchTheatre({
 
   const esito = outcomeOf(parziale.nostri, parziale.loro);
   const vittoria = penalties ? penalties.weWon : result.goalsFor > result.goalsAgainst;
+
+  /** Il pallone è appena entrato: da qui parte il lampeggio del gol, e dura la sospensione. */
+  const golAdesso =
+    !!frame.phase &&
+    frame.phase.outcome === "gol" &&
+    frame.phase.goalSecond !== undefined &&
+    frame.second >= frame.phase.goalSecond &&
+    frame.second <= frame.phase.endSecond;
 
   return (
     <motion.div
@@ -261,18 +291,31 @@ export function MatchTheatre({
 
           <Orologio minuto={minuto} correndo={frame.correndo} />
 
-          <PannelloStatistiche stats={stats} />
-
           <AnimatePresence>
-            {frame.phase?.flash && !frame.correndo && frame.second >= frame.phase.endSecond - 1.2 && (
-              <Lampo key={`${frame.phase.index}-${frame.phase.flash}`} flash={frame.phase.flash} />
+            {golAdesso && (
+              <BannerGol
+                key={`gol-${frame.phase!.index}`}
+                marcatore={cognome(nameOf(frame.phase!.scorerId))}
+                squadra={frame.phase!.team === "for" ? clubName : opponent}
+                nostro={frame.phase!.team === "for"}
+              />
             )}
+            {!golAdesso &&
+              frame.phase?.flash &&
+              !frame.correndo &&
+              frame.second >= frame.phase.endSecond - 1.2 && (
+                <Lampo key={`${frame.phase.index}-${frame.phase.flash}`} flash={frame.phase.flash} />
+              )}
           </AnimatePresence>
 
           {finita && rigori.length > 0 && (
             <Rigori kicks={rigori} visti={rigoreIndex} weWon={!!penalties?.weWon} />
           )}
         </div>
+
+        {/* Le statistiche stanno **sotto** il campo e non sopra: da riquadro in sovrimpressione
+            coprivano l'angolo in cui si sviluppa metà delle azioni. */}
+        <StrisciaStatistiche stats={stats} />
 
         <Cronaca righe={cronaca} clubName={clubName} opponent={opponent} />
 
@@ -346,6 +389,10 @@ function primoFrame(flow: MatchFlow): Frame {
  *  - **chi la sta per ricevere le va incontro**, con peso crescente man mano che il passaggio
  *    arriva. Senza, il pallone raggiungerebbe un punto vuoto e il ricevente comparirebbe dopo.
  */
+function clamp(v: number, min: number, max: number): number {
+  return v < min ? min : v > max ? max : v;
+}
+
 function costruisciFrame(flow: MatchFlow, second: number): Frame {
   const indice = phaseIndexAt(flow.phases, second);
   const phase = flow.phases[indice] ?? null;
@@ -360,9 +407,23 @@ function costruisciFrame(flow: MatchFlow, second: number): Frame {
     intensity: phase?.notable ? 1 : 0.45,
   };
 
+  // Il portiere che sta per essere battuto si tuffa **dalla parte sbagliata**: è ciò che rende
+  // leggibile un gol dall'alto. Senza, il pallone entra mentre il portiere lo segue educatamente,
+  // e la rete sembra un passaggio come un altro.
+  const golInCorso = phase?.outcome === "gol" && ball.kind === "rete";
+  const portiereBattuto = golInCorso
+    ? (flow.players.find((p) => p.department === "POR" && p.side !== phase!.team)?.id ?? null)
+    : null;
+
   for (const p of flow.players) {
     const base = tacticalPosition(p, ctx, second);
     let { x, y } = base;
+
+    if (p.id === portiereBattuto) {
+      const tuffo = ball.y > 50 ? -20 : 20;
+      y = clamp(y + tuffo * Math.min(1, ball.progress * 2.5), 20, 80);
+      x += (ball.x - x) * 0.25;
+    }
 
     if (p.id === ball.carrierId && ball.progress < 0.35) {
       const peso = 1 - ball.progress / 0.35;
@@ -468,20 +529,22 @@ function Campo({
         <motion.div
           aria-hidden
           initial={{ opacity: 0 }}
-          animate={{ opacity: [0, 0.55, 0] }}
-          transition={{ duration: 0.5 }}
+          animate={{ opacity: [0, 0.5, 0, 0.28, 0] }}
+          transition={{ duration: 0.9 }}
           className="pointer-events-none absolute inset-0 bg-white"
         />
       )}
 
       <svg
-        viewBox="0 0 100 64"
+        viewBox="-1 0 102 64"
         preserveAspectRatio="none"
         className="absolute inset-0 h-full w-full"
         role="img"
         aria-label={`Campo di gioco, ${clubName} contro ${opponent}`}
       >
         <Segnatura />
+        <Porta lato="sinistra" gonfia={golOra && ball.x < 50} />
+        <Porta lato="destra" gonfia={golOra && ball.x > 50} />
 
         {/* La scia del pallone: pochi punti che sbiadiscono, non un effetto luminoso. */}
         {scia.map((p, i) => (
@@ -520,26 +583,41 @@ function Campo({
           ry={0.5 + alzato * 0.3}
           fill="rgba(0,0,0,0.45)"
         />
+        {/* Sul gol il pallone si accende: è l'unico momento in cui va cercato con l'occhio. */}
+        {golOra && (
+          <motion.circle
+            cx={ball.x}
+            cy={ball.y * 0.64 - alzato * 3.2}
+            fill="none"
+            stroke="#fbbf24"
+            strokeWidth="0.5"
+            animate={{ r: [1.4, 5.5], opacity: [0.9, 0] }}
+            transition={{ duration: 0.75, repeat: Infinity }}
+          />
+        )}
         <circle
           cx={ball.x}
           cy={ball.y * 0.64 - alzato * 3.2}
-          r={0.95 + alzato * 0.5}
+          r={(golOra ? 1.35 : 0.95) + alzato * 0.5}
           fill="#ffffff"
-          stroke="rgba(15,23,42,0.85)"
-          strokeWidth="0.28"
+          stroke={golOra ? "#fbbf24" : "rgba(15,23,42,0.85)"}
+          strokeWidth={golOra ? 0.4 : 0.28}
         />
       </svg>
 
-      {/* Il nome di chi ha il pallone: una sola etichetta, quella che serve. */}
+      {/* Il nome di chi ha il pallone: una sola etichetta, quella che serve. Sparisce sul gol,
+          dove c'è già il banner col nome del marcatore e due etichette si sovrapporrebbero. */}
       <AnimatePresence>
-        {!correndo && nomePortatore && (
+        {!correndo && !golOra && nomePortatore && (
           <motion.span
             key={portatore}
             initial={{ opacity: 0, y: 6 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0 }}
             className="pointer-events-none absolute z-20 -translate-x-1/2 -translate-y-full rounded-md border border-white/20 bg-slate-950/90 px-1.5 py-0.5 text-[9px] font-black whitespace-nowrap text-white shadow-lg"
-            style={{ left: `${ball.x}%`, top: `${Math.max(7, ball.y - 5)}%` }}
+            // Il viewBox è allargato a −1..101 per contenere le porte: un overlay in HTML deve
+            // riportare la coordinata su quella scala, altrimenti scivola di un punto.
+            style={{ left: `${((ball.x + 1) / 102) * 100}%`, top: `${Math.max(7, ball.y - 5)}%` }}
           >
             {nomePortatore}
           </motion.span>
@@ -585,18 +663,62 @@ function Segnatura() {
       <rect x="2" y="24" width="5" height="16" />
       <circle cx="11.5" cy="32" r="0.5" fill="rgba(255,255,255,0.8)" stroke="none" />
       <path d="M 16 25.5 A 8 8 0 0 1 16 38.5" />
-      <rect x="0.4" y="27.5" width="1.6" height="9" fill="rgba(255,255,255,0.22)" />
       {/* Area destra */}
       <rect x="84" y="14" width="14" height="36" />
       <rect x="93" y="24" width="5" height="16" />
       <circle cx="88.5" cy="32" r="0.5" fill="rgba(255,255,255,0.8)" stroke="none" />
       <path d="M 84 25.5 A 8 8 0 0 0 84 38.5" />
-      <rect x="98" y="27.5" width="1.6" height="9" fill="rgba(255,255,255,0.22)" />
       {/* Bandierine d'angolo */}
       <path d="M 2 3.2 A 1.2 1.2 0 0 0 3.2 2" />
       <path d="M 96.8 2 A 1.2 1.2 0 0 0 98 3.2" />
       <path d="M 2 60.8 A 1.2 1.2 0 0 1 3.2 62" />
       <path d="M 96.8 62 A 1.2 1.2 0 0 1 98 60.8" />
+    </g>
+  );
+}
+
+/**
+ * La porta, con la rete disegnata e la retina che si gonfia quando la palla entra.
+ *
+ * Sta **fuori** dalla riga di fondo (il campo va da 2 a 98, la porta da −1 a 2 e da 98 a 101):
+ * è ciò che permette al pallone di essere visto *superare* la linea invece di fermarcisi sopra,
+ * che era il difetto segnalato. Il viewBox del campo è allargato apposta per contenerle.
+ *
+ * La bocca della porta corrisponde a `GOAL_MOUTH` del motore, riportata sulla scala verticale
+ * del disegno (0-64): se i due numeri divergessero, la palla entrerebbe accanto al palo.
+ */
+function Porta({ lato, gonfia }: { lato: "sinistra" | "destra"; gonfia: boolean }) {
+  const yTop = (GOAL_MOUTH.yMin / 100) * 64 - 2;
+  const alt = ((GOAL_MOUTH.yMax - GOAL_MOUTH.yMin) / 100) * 64 + 4;
+  const x = lato === "sinistra" ? -0.9 : 98;
+  const larg = 2.9;
+  const maglie = 5;
+  return (
+    <g>
+      <motion.rect
+        x={x}
+        y={yTop}
+        width={larg}
+        height={alt}
+        fill={gonfia ? "rgba(255,255,255,0.5)" : "rgba(255,255,255,0.1)"}
+        stroke="#ffffff"
+        strokeWidth="0.45"
+        animate={gonfia ? { opacity: [1, 0.45, 1] } : { opacity: 1 }}
+        transition={gonfia ? { duration: 0.42, repeat: Infinity } : { duration: 0.2 }}
+      />
+      {/* La rete: poche maglie, quel tanto che basta perché si legga come rete. */}
+      <g stroke="rgba(255,255,255,0.42)" strokeWidth="0.14">
+        {Array.from({ length: maglie }, (_, i) => (
+          <line
+            key={`h${i}`}
+            x1={x}
+            y1={yTop + ((i + 1) * alt) / (maglie + 1)}
+            x2={x + larg}
+            y2={yTop + ((i + 1) * alt) / (maglie + 1)}
+          />
+        ))}
+        <line x1={x + larg / 2} y1={yTop} x2={x + larg / 2} y2={yTop + alt} />
+      </g>
     </g>
   );
 }
@@ -741,25 +863,86 @@ function Orologio({ minuto, correndo }: { minuto: number; correndo: boolean }) {
   );
 }
 
-function PannelloStatistiche({ stats }: { stats: ReturnType<typeof vistoFinora> }) {
+/**
+ * Le statistiche, su una riga sola sotto il campo.
+ *
+ * Erano un riquadro in alto a destra **sopra** il campo, e coprivano l'angolo dell'area in cui
+ * si sviluppa buona parte delle azioni offensive: proprio dove si guarda. Su una striscia
+ * orizzontale ci stanno tutte e non nascondono niente; su schermo stretto scorre lateralmente.
+ */
+function StrisciaStatistiche({ stats }: { stats: ReturnType<typeof vistoFinora> }) {
+  const voci: [string, string | number, string | number][] = [
+    ["Tiri", stats.for.tiri, stats.against.tiri],
+    ["In porta", stats.for.porta, stats.against.porta],
+    ["Angoli", stats.for.angoli, stats.against.angoli],
+    ["Falli", stats.for.falli, stats.against.falli],
+    ["Possesso", `${stats.possesso}%`, `${100 - stats.possesso}%`],
+  ];
   return (
-    <div className="absolute top-3 right-3 z-20 w-36 rounded-xl border border-white/15 bg-slate-950/80 p-2 shadow-lg backdrop-blur">
-      <Riga label="Tiri" a={stats.for.tiri} b={stats.against.tiri} />
-      <Riga label="In porta" a={stats.for.porta} b={stats.against.porta} />
-      <Riga label="Angoli" a={stats.for.angoli} b={stats.against.angoli} />
-      <Riga label="Falli" a={stats.for.falli} b={stats.against.falli} />
-      <Riga label="Possesso" a={`${stats.possesso}%`} b={`${100 - stats.possesso}%`} />
+    <div className="flex gap-4 overflow-x-auto border-b border-white/10 bg-slate-950/70 px-3 py-1.5">
+      {voci.map(([label, a, b]) => (
+        <div key={label} className="flex shrink-0 items-center gap-1.5 text-[10px] font-extrabold">
+          <span className="text-emerald-400 tabular-nums">{a}</span>
+          <span className="text-[9px] font-semibold tracking-wide text-slate-500 uppercase">
+            {label}
+          </span>
+          <span className="text-rose-400 tabular-nums">{b}</span>
+        </div>
+      ))}
     </div>
   );
 }
 
-function Riga({ label, a, b }: { label: string; a: string | number; b: string | number }) {
+/**
+ * Il gol a schermo: grande, lampeggiante, con chi l'ha fatto.
+ *
+ * Il lampeggio non è decorativo — è il segnale che distingue l'unico evento che cambia la
+ * partita da tutti gli altri, che usano il badge sobrio di `Lampo`.
+ */
+function BannerGol({
+  marcatore,
+  squadra,
+  nostro,
+}: {
+  marcatore: string;
+  squadra: string;
+  nostro: boolean;
+}) {
+  const colore = nostro ? "#34d399" : "#fb7185";
   return (
-    <div className="flex items-center justify-between text-[10px] font-extrabold">
-      <span className="w-7 text-left text-emerald-400 tabular-nums">{a}</span>
-      <span className="truncate text-[9px] font-semibold text-slate-500">{label}</span>
-      <span className="w-7 text-right text-rose-400 tabular-nums">{b}</span>
-    </div>
+    <motion.div
+      initial={{ scale: 0.5, opacity: 0 }}
+      animate={{ scale: 1, opacity: 1 }}
+      exit={{ scale: 1.15, opacity: 0 }}
+      transition={{ type: "spring", stiffness: 420, damping: 18 }}
+      className="pointer-events-none absolute inset-0 z-30 flex flex-col items-center justify-center gap-1"
+    >
+      <motion.span
+        animate={{ opacity: [1, 0.25, 1], scale: [1, 1.06, 1] }}
+        transition={{ duration: 0.62, repeat: Infinity, ease: "easeInOut" }}
+        className="text-5xl font-black tracking-[0.2em] drop-shadow-[0_4px_18px_rgba(0,0,0,0.9)] sm:text-6xl"
+        style={{ color: colore, WebkitTextStroke: "1.5px rgba(0,0,0,0.55)" }}
+      >
+        GOL
+      </motion.span>
+      <motion.span
+        initial={{ y: 10, opacity: 0 }}
+        animate={{ y: 0, opacity: 1 }}
+        transition={{ delay: 0.18 }}
+        className="rounded-full border px-4 py-1 text-sm font-black tracking-wide text-white uppercase shadow-2xl backdrop-blur"
+        style={{ borderColor: colore, backgroundColor: "rgba(2,6,23,0.75)" }}
+      >
+        {marcatore}
+      </motion.span>
+      <motion.span
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ delay: 0.3 }}
+        className="text-[10px] font-bold tracking-widest text-slate-300 uppercase"
+      >
+        {squadra}
+      </motion.span>
+    </motion.div>
   );
 }
 
