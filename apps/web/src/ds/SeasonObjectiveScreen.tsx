@@ -1,6 +1,12 @@
+import { useState } from "react";
 import { motion } from "framer-motion";
 import { ArrowUpCircle, Crown, Shield, ShieldHalf, Star, Swords, Target, Users, Wallet } from "lucide-react";
-import { formatEuro, objectiveBudgetMultiplier, type ObjectiveTier } from "@app/game-engine";
+import {
+  formatEuro,
+  objectiveBudgetMultiplier,
+  type CupObjectiveTier,
+  type ObjectiveTier,
+} from "@app/game-engine";
 
 /**
  * **L'obiettivo stagionale, dichiarato dal DS.**
@@ -32,6 +38,7 @@ export function SeasonObjectiveScreen({
   choices,
   finances,
   secondDivision = false,
+  cups,
   onChoose,
 }: {
   season: number;
@@ -47,8 +54,17 @@ export function SeasonObjectiveScreen({
   finances?: { revenue: number; wageBudget: number; transferBudget: number };
   /** La scala degli obiettivi cambia fra le due divisioni, e con essa i moltiplicatori. */
   secondDivision?: boolean;
-  onChoose: (tier: ObjectiveTier) => void;
+  /**
+   * Gli obiettivi di **coppa**, quando si partecipa: si dichiarano accanto a quello di
+   * campionato e la dirigenza li giudica tutti, con pesi diversi (Corona > campionato >
+   * Tricolore). Assenti = non si gioca quella competizione, e non se ne parla.
+   */
+  cups?: { key: "continental" | "national"; label: string; tiers: CupObjectiveTier[] }[];
+  onChoose: (tier: ObjectiveTier, cupTiers: Record<string, CupObjectiveTier>) => void;
 }) {
+  /** Le scelte di coppa gia fatte: si dichiarano tutte insieme, poi si conferma. */
+  const [sceltoCoppa, setSceltoCoppa] = useState<Record<string, CupObjectiveTier>>({});
+
   const budgetMoltiplicatore = (tier: ObjectiveTier) => objectiveBudgetMultiplier(tier, secondDivision);
   // Verde se l ambizione porta mezzi in piu, rame se ne toglie: il colore dice il verso prima
   // ancora che si legga la cifra.
@@ -103,6 +119,52 @@ export function SeasonObjectiveScreen({
           </div>
         )}
 
+        {/**
+         * **Le coppe si dichiarano prima del campionato**, e non è un dettaglio d'ordine: sono
+         * scelte che si fanno *insieme* — puntare al titolo e alla Corona nello stesso anno è
+         * un'ambizione diversa da puntare al solo titolo — quindi devono stare sotto gli occhi
+         * mentre si decide, non in una schermata successiva.
+         *
+         * Compaiono solo per le competizioni a cui si partecipa davvero: chiedere un traguardo
+         * in una coppa che non si gioca sarebbe una domanda senza risposta.
+         */}
+        {cups && cups.length > 0 && (
+          <div className="flex flex-col gap-3 border-b border-[var(--surface-border)] px-4 py-3">
+            {cups.map((coppa) => (
+              <div key={coppa.key}>
+                <p className="text-[10px] font-bold tracking-widest text-[var(--text-secondary)] uppercase">
+                  {coppa.label}
+                </p>
+                <div className="mt-1.5 flex gap-1.5">
+                  {coppa.tiers.map((tier) => {
+                    const attivo = sceltoCoppa[coppa.key]?.label === tier.label;
+                    return (
+                      <button
+                        key={tier.label}
+                        type="button"
+                        onClick={() =>
+                          setSceltoCoppa((prev) => ({ ...prev, [coppa.key]: tier }))
+                        }
+                        className={`min-h-10 flex-1 rounded-xl px-2 text-[11px] font-bold transition-colors ${
+                          attivo
+                            ? "bg-[var(--accent)] text-[var(--brand-contrast)]"
+                            : "bg-[var(--surface-raised)] text-[var(--text-secondary)]"
+                        }`}
+                      >
+                        {tier.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+            <p className="text-[10px] leading-snug text-[var(--text-secondary)]">
+              La dirigenza giudica tutti gli obiettivi dichiarati, ma non allo stesso modo: la
+              Corona pesa più del campionato, il campionato più della Coppa Tricolore.
+            </p>
+          </div>
+        )}
+
         <div className="flex flex-col gap-2 p-4">
           {choices.map((tier) => {
             const Icona = ICONA[tier.label];
@@ -110,7 +172,7 @@ export function SeasonObjectiveScreen({
               <button
                 key={tier.targetPosition}
                 type="button"
-                onClick={() => onChoose(tier)}
+                onClick={() => onChoose(tier, sceltoCoppa)}
                 className="flex items-center gap-3 rounded-2xl border border-[var(--surface-border)] bg-[var(--surface-raised)] p-3.5 text-left transition-transform active:scale-[0.98] hover:border-[var(--brand)]"
               >
                 <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--brand)]/15 text-[var(--brand)]">

@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  cupObjectiveMet,
   objectiveBudgetMultiplier,
+  OBJECTIVE_WEIGHTS,
+  seasonVerdictScore,
+  suggestCupObjectiveTiers,
   objectiveMet,
   OBJECTIVE_THRESHOLDS,
   SECOND_DIVISION_THRESHOLDS,
@@ -201,5 +205,56 @@ describe("positionsBelowTarget / objectiveMet", () => {
     expect(objectiveMet(5, 5)).toBe(true);
     expect(objectiveMet(4, 5)).toBe(true);
     expect(objectiveMet(6, 5)).toBe(false);
+  });
+});
+
+/**
+ * **Le coppe sono obiettivi a sé** (soluzione scelta dall'utente), con i pesi dichiarati:
+ * Corona › campionato › Coppa Tricolore.
+ *
+ * La conseguenza che conta non è avere tre traguardi invece di uno, ma che il giudizio smetta di
+ * essere binario: un'annata in cui si vince la Corona e si manca il quarto posto **non è un
+ * fallimento**, e una in cui si salva solo la Tricolore **non è un successo**.
+ */
+describe("obiettivi di coppa e giudizio pesato", () => {
+  it("la Corona pesa più del campionato, e il campionato più della Tricolore", () => {
+    expect(OBJECTIVE_WEIGHTS.continental).toBeGreaterThan(OBJECTIVE_WEIGHTS.league);
+    expect(OBJECTIVE_WEIGHTS.league).toBeGreaterThan(OBJECTIVE_WEIGHTS.national);
+  });
+
+  it("vincere la Corona compensa un campionato mancato", () => {
+    const soloCorona = seasonVerdictScore({ league: false, continental: true });
+    const soloCampionato = seasonVerdictScore({ league: true, continental: false });
+    expect(soloCorona).toBeGreaterThan(0.5);
+    expect(soloCorona).toBeGreaterThan(soloCampionato);
+  });
+
+  it("...ma la sola Coppa Tricolore non riscatta l'annata", () => {
+    const soloTricolore = seasonVerdictScore({ league: false, continental: false, national: true });
+    expect(soloTricolore).toBeLessThan(0.5);
+  });
+
+  it("i fronti a cui non si era iscritti non contano come mancati", () => {
+    // Chi non gioca le coppe viene giudicato sul solo campionato: giudicarlo per una
+    // competizione a cui non partecipava sarebbe una penalità inventata.
+    expect(seasonVerdictScore({ league: true })).toBe(1);
+    expect(seasonVerdictScore({ league: false })).toBe(0);
+  });
+
+  it("alla favorita della coppa si chiede il trofeo, all'outsider no", () => {
+    expect(suggestCupObjectiveTiers(1, 16)).toHaveLength(1);
+    expect(suggestCupObjectiveTiers(1, 16)[0]!.label).toBe("Vincerla");
+
+    const outsider = suggestCupObjectiveTiers(14, 16);
+    expect(outsider.some((t) => t.label === "Vincerla")).toBe(false);
+  });
+
+  it("l'obiettivo di coppa si giudica sui turni dal trofeo, non sul nome della fase", () => {
+    // I due tabelloni hanno forma diversa: "semifinale" non è la stessa distanza dal trofeo in
+    // Corona e in Tricolore, quindi il confronto per nome darebbe verdetti incoerenti.
+    const semifinale = { label: "Semifinale" as const, roundsFromWin: 2 };
+    expect(cupObjectiveMet(0, semifinale)).toBe(true);
+    expect(cupObjectiveMet(2, semifinale)).toBe(true);
+    expect(cupObjectiveMet(3, semifinale)).toBe(false);
   });
 });

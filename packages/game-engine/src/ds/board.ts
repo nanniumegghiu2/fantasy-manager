@@ -36,6 +36,11 @@ export interface BoardSackDemand {
   /** L'obiettivo dichiarato che è stato mancato. */
   objectiveLabel: string;
   targetPosition: number;
+  /**
+   * Giudizio pesato su **tutti** gli obiettivi dichiarati (0-1), quando ce n e piu di uno.
+   * Assente = si giudica il solo campionato, com era prima.
+   */
+  seasonScore?: number;
   finalPosition: number;
   /** Il nome del mister di cui si chiede la testa, per il dialogo. */
   coachName: string;
@@ -61,6 +66,14 @@ export interface BoardSeasonInput {
   season: number;
   /** L'obiettivo dichiarato a inizio anno; assente = nessun impegno preso. */
   objective?: { label: string; targetPosition: number };
+  /**
+   * Giudizio pesato su **tutti** gli obiettivi dichiarati (0-1), campionato e coppe.
+   *
+   * Assente = si giudica il solo campionato, com'era prima. Presente = corregge quel verdetto,
+   * senza sostituirlo: è così che la Corona vinta compensa un quarto posto mancato e la sola
+   * Coppa Tricolore non riscatta l'annata (`OBJECTIVE_WEIGHTS`).
+   */
+  seasonScore?: number;
   finalPosition: number;
   teamsInLeague: number;
   /** Trofei vinti nella stagione: perdonano molto. */
@@ -115,6 +128,22 @@ export function boardSeasonVerdict(input: BoardSeasonInput): BoardVerdict {
       // club piccolo (dove le posizioni sotto possono essere molte) chiuda la carriera da sola.
       delta = -Math.min(34, 8 + scarto * 3);
       motivo = `Obiettivo "${obiettivo.label}" mancato di ${scarto} ${scarto === 1 ? "posizione" : "posizioni"}: la dirigenza chiede conto.`;
+    }
+
+    /**
+     * **Il campionato non e piu l unico fronte.**
+     *
+     * Con gli obiettivi di coppa dichiarati (richiesta dell utente) il giudizio si pesa su tutti
+     * quelli su cui ci si era impegnati — Corona, campionato, Tricolore, in quest ordine di
+     * importanza. Il punteggio 0-1 sposta il verdetto del campionato verso l alto o verso il
+     * basso invece di sostituirlo: chi vince la Corona e manca il quarto posto non ha fallito la
+     * stagione, e chi salva solo la Tricolore non l ha riscattata.
+     */
+    if (input.seasonScore !== undefined) {
+      const correzione = Math.round((input.seasonScore - 0.5) * 24);
+      delta += correzione;
+      if (correzione > 4) motivo += " Le coppe raddrizzano il bilancio dell annata.";
+      else if (correzione < -4) motivo += " E nemmeno le coppe hanno portato qualcosa.";
     }
   }
 

@@ -25,6 +25,7 @@ import {
   signCoachContract,
   coachContractSeasonsLeft,
   coachSeveranceNow,
+  bestElevenRating,
   buildStandings,
   financesOf,
   openPlayerDialogue,
@@ -53,6 +54,8 @@ import {
   seasonObjectiveChoices,
   inSecondDivision,
   setSeasonObjective,
+  setSeasonCupObjectives,
+  suggestCupObjectiveTiers,
   coachChoices,
   currentLineup,
   findCoach,
@@ -64,6 +67,7 @@ import {
   searchMarket,
   seasonCalendar,
   type CareerState,
+  type CupObjectiveTier,
   type CareerWorld,
   type Coach,
   type CoachPromise,
@@ -256,6 +260,38 @@ export function CareerScreen({
     return out;
   }, [state.cup, state.nationalCup, world.cupTeams, world.divisions]);
   const coppaAttiva = coppeDisponibili.includes(coppa) ? coppa : coppeDisponibili[0];
+
+  /**
+   * Le coppe su cui **dichiarare un obiettivo** a inizio stagione.
+   *
+   * Il rango stimato è quello che serve a `suggestCupObjectiveTiers` per non chiedere il trofeo a
+   * un outsider né concedere "partecipare" alla favorita: si ricava dalla nostra posizione fra le
+   * iscritte per forza, la stessa grandezza con cui si stima il campionato.
+   */
+  const coppeDaDichiarare = useMemo(() => {
+    const out: { key: "continental" | "national"; label: string; tiers: CupObjectiveTier[] }[] = [];
+    const nostra = bestElevenRating(state, world);
+
+    if (state.cup && world.cupTeams) {
+      const iscritte = Object.values(world.cupTeams);
+      const piuForti = iscritte.filter((t) => t.rating > nostra).length;
+      out.push({
+        key: "continental",
+        label: "Corona Continentale",
+        tiers: suggestCupObjectiveTiers(piuForti + 1, iscritte.length),
+      });
+    }
+    if (state.nationalCup && world.divisions) {
+      const iscritte = Object.values(world.divisions.teams);
+      const piuForti = iscritte.filter((t) => t.rating > nostra).length;
+      out.push({
+        key: "national",
+        label: "Coppa Tricolore",
+        tiers: suggestCupObjectiveTiers(piuForti + 1, iscritte.length),
+      });
+    }
+    return out;
+  }, [state, world]);
 
   /**
    * Scorre la coda dei referti a ritmo costante.
@@ -1427,7 +1463,17 @@ export function CareerScreen({
             choices={seasonObjectiveChoices(state, world)}
             finances={finanze}
             secondDivision={inSecondDivision(state, world)}
-            onChoose={(tier) => onChange(setSeasonObjective(state, tier, world))}
+            cups={coppeDaDichiarare}
+            onChoose={(tier, cupTiers) => {
+              let next = setSeasonObjective(state, tier, world);
+              if (Object.keys(cupTiers).length > 0) {
+                next = setSeasonCupObjectives(next, {
+                  continental: cupTiers.continental,
+                  national: cupTiers.national,
+                });
+              }
+              onChange(next);
+            }}
           />
         )}
         {/**

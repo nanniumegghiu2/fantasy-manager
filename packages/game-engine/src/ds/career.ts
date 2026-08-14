@@ -171,7 +171,10 @@ import {
   objectiveMet,
   positionsBelowTarget,
   objectiveBudgetMultiplier,
+  seasonVerdictScore,
   suggestObjectiveTiers,
+  type CupObjectiveLabel,
+  type CupObjectiveTier,
   type ObjectiveLabel,
   type ObjectiveTier,
 } from "./seasonObjectives";
@@ -442,6 +445,15 @@ export interface CareerState {
   coachFormationRequest?: { formationId: string; message: string; askedSeason: number } | null;
   /** L'obiettivo dichiarato per la stagione in corso, scelto dal DS nel dossier iniziale. */
   seasonObjective?: { targetPosition: number; label: ObjectiveLabel; setSeason: number };
+  /**
+   * Gli obiettivi di **coppa**, dichiarati accanto a quello di campionato (richiesta
+   * dell utente): non un modificatore del traguardo di campionato ma traguardi a se, che la
+   * dirigenza giudica tutti con pesi diversi (`OBJECTIVE_WEIGHTS`).
+   */
+  seasonCupObjectives?: {
+    continental?: { label: CupObjectiveLabel; roundsFromWin: number };
+    national?: { label: CupObjectiveLabel; roundsFromWin: number };
+  };
   /**
    * **La dirigenza** (`board.ts`): fiducia nel DS e richiesta di esonero del mister pendente.
    *
@@ -2401,6 +2413,47 @@ export function answerBoardSackDemand(
  * significa avere più mezzi per costruire *e* per pagare gli stipendi, che è come funziona un
  * bilancio vero. La ripartizione fra le due casse resta quella decisa dal DS.
  */
+/**
+ * Quanti turni prima della vittoria si è fermato il nostro cammino, per ciascuna coppa.
+ *
+ * `0` = vinta. Serve a giudicare l'obiettivo di coppa senza dover confrontare **nomi di fase**
+ * fra due tabelloni di forma diversa: la Corona ha un girone più tre turni, la Tricolore sei
+ * turni secchi, quindi "semifinale" non è la stessa distanza dal trofeo nelle due.
+ */
+export function cupRoundsFromWin(
+  esito: string | undefined,
+  competizione: "continental" | "national",
+): number | undefined {
+  if (!esito || esito === "assente") return undefined;
+  if (esito === "vittoria") return 0;
+  const scala: Record<string, number> =
+    competizione === "continental"
+      ? { finale: 1, semifinali: 2, quarti: 3, girone: 4 }
+      : { finale: 1, semifinale: 2, quarti: 3, ottavi: 4, sedicesimi: 5, preliminare: 6 };
+  return scala[esito] ?? 4;
+}
+
+/** Dichiara gli obiettivi di coppa: la dirigenza li giudicherà accanto a quello di campionato. */
+export function setSeasonCupObjectives(
+  state: CareerState,
+  objectives: {
+    continental?: CupObjectiveTier;
+    national?: CupObjectiveTier;
+  },
+): CareerState {
+  return {
+    ...state,
+    seasonCupObjectives: {
+      continental: objectives.continental
+        ? { label: objectives.continental.label, roundsFromWin: objectives.continental.roundsFromWin }
+        : undefined,
+      national: objectives.national
+        ? { label: objectives.national.label, roundsFromWin: objectives.national.roundsFromWin }
+        : undefined,
+    },
+  };
+}
+
 export function setSeasonObjective(
   state: CareerState,
   tier: ObjectiveTier,
@@ -3649,12 +3702,42 @@ function closeSeason(
    * presidente che tiene il conto, e che se la stagione è andata male chiede la testa
    * dell'allenatore — una richiesta che il DS dovrà accogliere o respingere prima di ripartire.
    */
+  /**
+   * **Il giudizio guarda tutti i fronti dichiarati**, non solo il campionato.
+   *
+   * Con gli obiettivi di coppa (richiesta dell'utente) "raggiunto sì/no" non basta più:
+   * un'annata in cui si vince la Corona e si manca il quarto posto non è un fallimento, e una in
+   * cui si salva solo la Coppa Tricolore non è un successo. `seasonVerdictScore` pesa i tre
+   * fronti nell'ordine dichiarato — Corona, campionato, Tricolore — e i fronti a cui non si era
+   * iscritti non entrano nel conto invece di contare come mancati.
+   */
+  const turniCorona = cupRoundsFromWin(cupOutcome, "continental");
+  const turniTricolore = cupRoundsFromWin(nationalOutcome, "national");
+  const esitiObiettivi = {
+    league: state.seasonObjective ? row.position <= state.seasonObjective.targetPosition : undefined,
+    continental:
+      state.seasonCupObjectives?.continental && turniCorona !== undefined
+        ? turniCorona <= state.seasonCupObjectives.continental.roundsFromWin
+        : undefined,
+    national:
+      state.seasonCupObjectives?.national && turniTricolore !== undefined
+        ? turniTricolore <= state.seasonCupObjectives.national.roundsFromWin
+        : undefined,
+  };
+  const punteggioAnnata = seasonVerdictScore(esitiObiettivi);
+
   const verdetto = boardSeasonVerdict({
     board: state.board,
     season: state.season,
     objective: state.seasonObjective
       ? { label: state.seasonObjective.label, targetPosition: state.seasonObjective.targetPosition }
       : undefined,
+    /**
+     * Il punteggio pesato **scavalca** il solo piazzamento quando ci sono obiettivi di coppa: è
+     * il modo in cui la Corona vinta compensa un campionato mancato, e in cui la sola Tricolore
+     * non basta a riscattare l'annata.
+     */
+    seasonScore: punteggioAnnata,
     finalPosition: row.position,
     teamsInLeague,
     trophies: Number(trophies.league) + Number(trophies.continental) + Number(trophies.national),

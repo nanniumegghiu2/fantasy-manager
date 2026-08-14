@@ -172,3 +172,101 @@ export function positionsBelowTarget(currentPosition: number, targetPosition: nu
 export function objectiveMet(finalPosition: number, targetPosition: number): boolean {
   return finalPosition <= targetPosition;
 }
+
+/* -------------------------------------------------------------------------- */
+/* Gli obiettivi di coppa                                                      */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * **Le coppe entrano fra gli obiettivi dichiarati** (richiesta dell'utente).
+ *
+ * Non come modificatore del traguardo di campionato ma come **obiettivo a sé**: si dichiara
+ * dove si vuole arrivare in Europa e dove in Coppa Tricolore, e la dirigenza li giudica tutti.
+ * È la lettura più ricca — mancarne uno solo pesa meno che mancarli tutti — ed è quella scelta
+ * esplicitamente.
+ *
+ * Le fasce sono le stesse per le due competizioni, ma il **peso** no: vedi `OBJECTIVE_WEIGHTS`.
+ */
+export type CupObjectiveLabel = "Vincerla" | "Finale" | "Semifinale" | "Quarti" | "Partecipare";
+
+export interface CupObjectiveTier {
+  label: CupObjectiveLabel;
+  /**
+   * Quanti turni prima della vittoria ci si accontenta: 0 = alzare il trofeo, 1 = arrivare in
+   * finale, e così via. È un numero e non un'etichetta di fase perché i due tabelloni non hanno
+   * la stessa forma — la Corona ha un girone, la Tricolore sei turni secchi — e confrontare le
+   * fasi per nome richiederebbe una tabella per competizione.
+   */
+  roundsFromWin: number;
+}
+
+export const CUP_OBJECTIVE_TIERS: readonly CupObjectiveTier[] = [
+  { label: "Vincerla", roundsFromWin: 0 },
+  { label: "Finale", roundsFromWin: 1 },
+  { label: "Semifinale", roundsFromWin: 2 },
+  { label: "Quarti", roundsFromWin: 3 },
+  { label: "Partecipare", roundsFromWin: 4 },
+];
+
+/**
+ * **Quanto pesa ciascun trofeo nel giudizio di fine anno**, nell'ordine dichiarato dall'utente:
+ * Corona, campionato, Coppa Tricolore.
+ *
+ * I pesi contano solo l'uno rispetto all'altro. La Corona vale più del campionato perché è la
+ * competizione più difficile del gioco — sedici squadre, tutte fra le migliori di cinque
+ * campionati — mentre la Tricolore, con quaranta iscritte e sorteggio libero, è la più
+ * accessibile: centrarla non riscatta un'annata, mancarla non la rovina.
+ */
+export const OBJECTIVE_WEIGHTS = {
+  continental: 1.3,
+  league: 1,
+  national: 0.6,
+} as const;
+
+/**
+ * Le fasce proponibili in coppa, tarate su quanto si è forti rispetto alle altre iscritte.
+ *
+ * Stessa regola del campionato (`suggestObjectiveTiers`): chi è la squadra da battere non può
+ * dichiarare "partecipare" e incassare il giudizio benevolo. Chi entra da outsider, invece, non
+ * si vede chiedere il trofeo.
+ */
+export function suggestCupObjectiveTiers(rank: number, entrants: number): CupObjectiveTier[] {
+  const quota = entrants > 0 ? rank / entrants : 0.5;
+  const indiceRealistico = quota <= 0.12 ? 0 : quota <= 0.3 ? 1 : quota <= 0.55 ? 2 : 3;
+
+  // La favorita ha una sola strada, come in campionato; le altre scelgono fra due fasce vicine.
+  if (indiceRealistico === 0) return [CUP_OBJECTIVE_TIERS[0]!];
+  return [CUP_OBJECTIVE_TIERS[indiceRealistico - 1]!, CUP_OBJECTIVE_TIERS[indiceRealistico]!];
+}
+
+/** L'obiettivo di coppa è stato raggiunto? `roundsFromWin` più basso = risultato migliore. */
+export function cupObjectiveMet(reachedRoundsFromWin: number, tier: CupObjectiveTier): boolean {
+  return reachedRoundsFromWin <= tier.roundsFromWin;
+}
+
+/**
+ * Il giudizio complessivo sull'annata, 0-1, pesato sui tre fronti.
+ *
+ * Serve alla dirigenza (`board.ts`): con obiettivi multipli "raggiunto sì/no" non basta più —
+ * un'annata in cui si vince la Corona e si manca il quarto posto non è un fallimento, e una in
+ * cui si perde tutto tranne la Coppa Tricolore non è un successo. Il peso di ciascun fronte è
+ * quello dichiarato dall'utente.
+ *
+ * I fronti non dichiarati (nessuna coppa giocata) semplicemente non entrano nel conto, invece di
+ * contare come mancati: non si giudica qualcuno per una competizione a cui non era iscritto.
+ */
+export function seasonVerdictScore(esiti: {
+  league?: boolean;
+  continental?: boolean;
+  national?: boolean;
+}): number {
+  let peso = 0;
+  let punti = 0;
+  for (const chiave of ["continental", "league", "national"] as const) {
+    const esito = esiti[chiave];
+    if (esito === undefined) continue;
+    peso += OBJECTIVE_WEIGHTS[chiave];
+    if (esito) punti += OBJECTIVE_WEIGHTS[chiave];
+  }
+  return peso > 0 ? punti / peso : 1;
+}
