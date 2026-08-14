@@ -12,7 +12,6 @@ import {
 import { NationFlag } from "../classic/NationFlag";
 import { CoachNegotiationChat } from "./CoachNegotiationChat";
 import { CoachSearchScreen } from "./CoachSearchScreen";
-import { ContractLengthPicker } from "./ContractLengthPicker";
 import { euro } from "./format";
 
 function StyleBar({
@@ -168,14 +167,15 @@ export function CoachPickerScreen({
    */
   const [vista, setVista] = useState<"scelta" | "ricerca">("scelta");
   const [chatCoach, setChatCoach] = useState<Coach | null>(null);
-  const [durata, setDurata] = useState(3);
   const [penale, setPenale] = useState(0);
   const [candidato, setCandidato] = useState<Coach | null>(null);
 
+  // Dal candidato si va **dritti al tavolo**: la durata si sceglie li dentro, nella scheda
+  // Contratto, che e anche il posto in cui la si rinegozia ogni anno.
   const apri = (coach: Coach, buyout: number) => {
     setCandidato(coach);
     setPenale(buyout);
-    setDurata(coach.reputation >= 4 ? 3 : 2);
+    setChatCoach(coach);
   };
 
   if (vista === "ricerca" && !candidato && !chatCoach) {
@@ -191,45 +191,14 @@ export function CoachPickerScreen({
     );
   }
 
-  if (candidato && !chatCoach) {
-    const isDef = defaultCoach?.id === candidato.id;
-    return (
-      <div className="flex min-h-svh flex-col items-center justify-center gap-4 bg-[var(--surface)] p-4 text-[var(--text-primary)]">
-        <div className="w-full max-w-sm space-y-3">
-          <div className="rounded-2xl border border-[var(--surface-border)] bg-[var(--surface-raised)] p-4">
-            <p className="text-lg font-extrabold">{candidato.name}</p>
-            <p className="text-xs text-[var(--text-secondary)]">
-              {candidato.formationId} · {candidato.tacticalPhilosophy ?? candidato.nation}
-            </p>
-          </div>
-
-          <ContractLengthPicker coach={candidato} seasons={durata} onChange={setDurata} />
-
-          {penale > 0 && (
-            <p className="rounded-xl bg-[#ff8a3d]/15 px-3 py-2 text-[11px] font-bold text-[#ff8a3d]">
-              È sotto contratto: per liberarlo servono {euro(penale)} al suo club, oltre all'ingaggio.
-            </p>
-          )}
-
-          <button
-            type="button"
-            onClick={() => setChatCoach(candidato)}
-            className="w-full rounded-2xl bg-[var(--brand)] py-3 text-sm font-extrabold text-[var(--brand-contrast)]"
-          >
-            {isDef ? "Parla col tuo mister" : "Siediti al tavolo"}
-          </button>
-          <button
-            type="button"
-            onClick={() => setCandidato(null)}
-            className="w-full rounded-2xl border border-[var(--surface-border)] py-2.5 text-xs font-bold text-[var(--text-secondary)]"
-          >
-            Scegli un altro tecnico
-          </button>
-        </div>
-      </div>
-    );
-  }
-
+  /**
+   * ⚠️ **La schermata intermedia del contratto e stata rimossa** (segnalazione dell utente).
+   *
+   * Mostrava importo, durata e totale, e subito dopo si apriva il meeting in cui si discute il
+   * contratto vero: due tavoli per la stessa firma, e il primo senza alcun potere. La durata si
+   * sceglie ora dentro il meeting, nella scheda *Contratto*, che e anche il posto in cui la si
+   * rinegozia ogni anno — una decisione, un posto solo.
+   */
   if (chatCoach) {
     const isDefault = defaultCoach?.id === chatCoach.id;
     const buyoutFee = isDefault || chatCoach.isFreeAgent ? 0 : penale || computeCoachBuyoutFee(chatCoach, 2);
@@ -245,8 +214,10 @@ export function CoachPickerScreen({
         players={players}
         isDefaultCoach={isDefault}
         buyoutFee={buyoutFee}
-        onAgree={(c, promises, cost) => {
-          onPick(c.id, promises, cost, durata);
+        contract={{ seasonsLeft: 0, wage: chatCoach.hireCost ?? 0, severance: buyoutFee, wageRoom: budget }}
+        requiresRenewal
+        onAgree={(c, promises, cost, seasons) => {
+          onPick(c.id, promises, cost, seasons ?? 3);
         }}
         onCancel={() => {
           setChatCoach(null);
