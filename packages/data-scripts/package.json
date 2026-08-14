@@ -17,7 +17,8 @@
     "calibrate-difficolta": "tsx src/calibrateDifficulty.ts",
     "import-birthdates": "tsx src/importBirthDates.ts",
     "calibrate-piccola": "tsx src/calibrateSmallClub.ts",
-    "probe-coppa": "tsx src/probeCup.ts"
+    "probe-coppa": "tsx src/probeCup.ts",
+    "import-showcase": "tsx src/importShowcase.ts"
   },
   "dependencies": {
     "@app/game-engine": "workspace:*",
