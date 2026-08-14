@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Clock, Search, SlidersHorizontal, TrendingDown, UserPlus, Users, X } from "lucide-react";
-import { ROLE_LABELS, type Department } from "@app/shared-types";
+import { ROLES, ROLE_DEPARTMENT, ROLE_LABELS, type Department, type Role } from "@app/shared-types";
 import {
   financesOf,
   formatEuro,
@@ -11,6 +11,7 @@ import {
   type CareerState,
   type CareerWorld,
   type FreeAgent,
+  type FreeAgentCounter,
   type SearchCriteria,
 } from "@app/game-engine";
 import { ContractOfferForm, type ContractOffer } from "./ContractOfferForm";
@@ -40,6 +41,47 @@ const REPARTI: { id: Department | "tutti"; label: string }[] = [
   { id: "CC", label: "CC" },
   { id: "ATT", label: "ATT" },
 ];
+
+/** Un filtro a intervallo (min-max): due caselle affiancate, come nella ricerca globale. */
+function Intervallo({
+  label,
+  min,
+  max,
+  onMin,
+  onMax,
+}: {
+  label: string;
+  min: string;
+  max: string;
+  onMin: (v: string) => void;
+  onMax: (v: string) => void;
+}) {
+  const campo =
+    "w-full rounded-lg border border-[var(--surface-border)] bg-[var(--surface)] px-2 py-1.5 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--brand)]";
+  return (
+    <div className="text-[10px] font-bold text-[var(--text-secondary)]">
+      {label}
+      <div className="mt-1 flex items-center gap-1">
+        <input
+          value={min}
+          onChange={(e) => onMin(e.target.value.replace(/\D/g, ""))}
+          inputMode="numeric"
+          placeholder="min"
+          aria-label={`${label} minimo`}
+          className={campo}
+        />
+        <input
+          value={max}
+          onChange={(e) => onMax(e.target.value.replace(/\D/g, ""))}
+          inputMode="numeric"
+          placeholder="max"
+          aria-label={`${label} massimo`}
+          className={campo}
+        />
+      </div>
+    </div>
+  );
+}
 
 function Card({ agente, onApri }: { agente: FreeAgent; onApri: () => void }) {
   return (
@@ -97,30 +139,56 @@ export function FreeAgentsPanel({
   onSign: (
     agentId: string,
     offer: { wage: number; seasons: number; guaranteedStarter: boolean },
-  ) => { ok: boolean; message: string } | void;
+  ) => { ok: boolean; message: string; counter?: FreeAgentCounter } | void;
   /** Riequilibra il bilancio senza uscire dalla scheda. */
   onShiftFinances?: (share: number) => void;
 }) {
   const [reparto, setReparto] = useState<Department | "tutti">("tutti");
   const [query, setQuery] = useState("");
   const [filtriAperti, setFiltriAperti] = useState(false);
+  /** Filtri alla pari della ricerca globale: intervalli su entrambi gli assi, ruoli multipli. */
+  const [ruoli, setRuoli] = useState<Set<Role>>(new Set());
+  const [etaMin, setEtaMin] = useState("");
   const [etaMax, setEtaMax] = useState("");
   const [overallMin, setOverallMin] = useState("");
+  const [overallMax, setOverallMax] = useState("");
+  const [ordine, setOrdine] = useState<"overall" | "eta" | "ingaggio">("overall");
   /** Lo svincolato al tavolo, se aperto. */
   const [trattativa, setTrattativa] = useState<FreeAgent | null>(null);
+  /** L'esito dell'ultima offerta: se c'è una controproposta, si vede al tavolo. */
+  const [contro, setContro] = useState<{ id: string; messaggio: string; counter?: FreeAgentCounter } | null>(null);
 
   const pool = useMemo(() => freeAgentMarket(state, world), [state, world]);
   const margine = useMemo(() => financesOf(state, world).wageRoom, [state, world]);
+
+  /**
+   * Chi è già nostro non è più uno svincolato.
+   *
+   * Il motore lo sa (`freeAgentMarket` filtra su `freeAgentsSigned` e sulla rosa), ma il filtro
+   * qui è la rete di sicurezza contro il difetto segnalato dall'utente — un giocatore appena
+   * firmato che resta in lista e si può ritrattare. Costa un confronto e chiude la porta a
+   * qualunque disallineamento futuro fra le due letture.
+   */
+  const inRosa = useMemo(() => new Set(state.roster.map((e) => e.playerId)), [state.roster]);
 
   const visibili = useMemo(() => {
     const criteri: SearchCriteria = {
       query,
       department: reparto === "tutti" ? undefined : reparto,
+      roles: ruoli.size > 0 ? [...ruoli] : undefined,
+      minAge: etaMin ? Number(etaMin) : undefined,
       maxAge: etaMax ? Number(etaMax) : undefined,
       minOverall: overallMin ? Number(overallMin) : undefined,
+      maxOverall: overallMax ? Number(overallMax) : undefined,
     };
-    return pool.filter((a) => matchesCriteria(a, criteri)).slice(0, 40);
-  }, [pool, reparto, query, etaMax, overallMin]);
+    const filtrati = pool.filter((a) => !inRosa.has(a.id) && matchesCriteria(a, criteri));
+    const ordinati = [...filtrati].sort((a, b) => {
+      if (ordine === "eta") return a.age - b.age;
+      if (ordine === "ingaggio") return a.askingWage - b.askingWage;
+      return b.overall - a.overall;
+    });
+    return ordinati.slice(0, 40);
+  }, [pool, inRosa, reparto, ruoli, query, etaMin, etaMax, overallMin, overallMax, ordine]);
 
   return (
     <div className="flex flex-col gap-3">
@@ -181,27 +249,70 @@ export function FreeAgentsPanel({
             exit={{ height: 0, opacity: 0 }}
             className="overflow-hidden"
           >
-            <div className="flex gap-2 rounded-2xl border border-[var(--surface-border)] bg-[var(--surface-raised)] p-3">
-              <label className="flex-1 text-[10px] font-bold text-[var(--text-secondary)]">
-                Età massima
-                <input
-                  value={etaMax}
-                  onChange={(e) => setEtaMax(e.target.value.replace(/\D/g, ""))}
-                  inputMode="numeric"
-                  placeholder="—"
-                  className="mt-1 w-full rounded-lg border border-[var(--surface-border)] bg-[var(--surface)] px-2 py-1.5 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--brand)]"
+            <div className="flex flex-col gap-2.5 rounded-2xl border border-[var(--surface-border)] bg-[var(--surface-raised)] p-3">
+              {/* Ruoli puntuali del reparto scelto: senza reparto sarebbe un elenco di 14 voci. */}
+              {reparto !== "tutti" && (
+                <div className="flex flex-wrap gap-1">
+                  {ROLES.filter((r) => ROLE_DEPARTMENT[r] === reparto).map((r) => {
+                    const attivo = ruoli.has(r);
+                    return (
+                      <button
+                        key={r}
+                        type="button"
+                        onClick={() =>
+                          setRuoli((prev) => {
+                            const next = new Set(prev);
+                            if (next.has(r)) next.delete(r);
+                            else next.add(r);
+                            return next;
+                          })
+                        }
+                        className={`min-h-8 rounded-lg px-2.5 text-[11px] font-bold transition-colors ${
+                          attivo
+                            ? "bg-[var(--brand)] text-[var(--brand-contrast)]"
+                            : "bg-[var(--surface)] text-[var(--text-secondary)]"
+                        }`}
+                      >
+                        {r}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-2">
+                <Intervallo label="Età" min={etaMin} max={etaMax} onMin={setEtaMin} onMax={setEtaMax} />
+                <Intervallo
+                  label="Overall"
+                  min={overallMin}
+                  max={overallMax}
+                  onMin={setOverallMin}
+                  onMax={setOverallMax}
                 />
-              </label>
-              <label className="flex-1 text-[10px] font-bold text-[var(--text-secondary)]">
-                Overall minimo
-                <input
-                  value={overallMin}
-                  onChange={(e) => setOverallMin(e.target.value.replace(/\D/g, ""))}
-                  inputMode="numeric"
-                  placeholder="—"
-                  className="mt-1 w-full rounded-lg border border-[var(--surface-border)] bg-[var(--surface)] px-2 py-1.5 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--brand)]"
-                />
-              </label>
+              </div>
+
+              <div className="flex gap-1.5">
+                {(
+                  [
+                    ["overall", "Overall"],
+                    ["eta", "Età"],
+                    ["ingaggio", "Ingaggio"],
+                  ] as const
+                ).map(([key, label]) => (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => setOrdine(key)}
+                    className={`min-h-9 flex-1 rounded-lg text-[11px] font-bold transition-colors ${
+                      ordine === key
+                        ? "bg-[var(--accent)] text-[var(--brand-contrast)]"
+                        : "bg-[var(--surface)] text-[var(--text-secondary)]"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
             </div>
           </motion.div>
         )}
@@ -256,28 +367,69 @@ export function FreeAgentsPanel({
                 </button>
               </header>
 
+              {/**
+               * **La controproposta dell'agente.**
+               *
+               * Prima un no era definitivo e muto ("ho accettato la proposta del…"): si scopriva
+               * di aver perso senza sapere di quanto, quindi rilanciare era tirare a indovinare e
+               * la vetrina diventava un vicolo cieco. Qui si legge **cosa serve** per superare la
+               * concorrenza, e il tasto la applica al tavolo senza doverla ricomporre a mano.
+               */}
+              {contro?.id === trattativa.id && (
+                <div className="border-b border-[var(--surface-border)] bg-[#ff8a3d]/10 px-4 py-2.5">
+                  <p className="text-[12px] leading-snug font-medium">{contro.messaggio}</p>
+                  {contro.counter && (
+                    <p className="mt-1.5 text-[11px] font-bold text-[#ff8a3d]">
+                      Serve {formatWage(contro.counter.wage)}
+                      {contro.counter.needsStarter && " + un posto da titolare garantito"}
+                      {contro.counter.seasons && ` · ${contro.counter.seasons} anni`}
+                    </p>
+                  )}
+                </div>
+              )}
+
               <ContractOfferForm
+                key={`${trattativa.id}-${contro?.counter?.wage ?? 0}`}
                 state={state}
                 world={world}
                 demand={{
-                  wage: trattativa.askingWage,
-                  seasons: trattativa.askingSeasons,
+                  /* La controproposta diventa la nuova richiesta sul tavolo: applicarla è un
+                     gesto solo, non una ricostruzione a mano dei tre campi. */
+                  wage: contro?.counter?.wage ?? trattativa.askingWage,
+                  seasons: contro?.counter?.seasons ?? trattativa.askingSeasons,
                   clause: 0,
-                  wantsStarter: trattativa.wantsStarter,
+                  wantsStarter: contro?.counter?.needsStarter ?? trattativa.wantsStarter,
                   wantsCaptaincy: false,
                 }}
                 /* Non guadagna nulla da noi: l'intero ingaggio è nuovo sul monte. */
                 currentWage={0}
                 submitLabel="Presenta l'offerta"
-                onSubmit={(offer: ContractOffer) =>
-                  onSign(trattativa.id, {
+                onSubmit={(offer: ContractOffer) => {
+                  const esito = onSign(trattativa.id, {
                     wage: offer.wage,
                     seasons: offer.seasons,
                     guaranteedStarter: offer.guaranteedStarter ?? false,
-                  }) ?? { ok: true, message: "Offerta presentata." }
-                }
+                  });
+                  if (!esito) return { ok: true, message: "Offerta presentata." };
+                  if (esito.ok) {
+                    // Firmato: il tavolo si chiude da solo. Lasciarlo aperto permetteva di
+                    // ripresentare un'offerta per un giocatore ormai nostro.
+                    setContro(null);
+                    setTrattativa(null);
+                  } else {
+                    setContro({
+                      id: trattativa.id,
+                      messaggio: esito.message,
+                      counter: esito.counter,
+                    });
+                  }
+                  return esito;
+                }}
                 onShiftFinances={onShiftFinances}
-                onCancel={() => setTrattativa(null)}
+                onCancel={() => {
+                  setContro(null);
+                  setTrattativa(null);
+                }}
               />
             </motion.div>
           </motion.div>

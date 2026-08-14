@@ -12,6 +12,8 @@ import {
   FREE_AGENT_MIN_OVERALL,
   MAX_DECAY,
   buildFreeAgentPool,
+  aiClaimsFreeAgent,
+  clubWouldRenew,
   freeAgentBidScore,
   resolveFreeAgentBids,
   rivalBidsFor,
@@ -54,6 +56,171 @@ describe("il pool degli svincolati", () => {
 
     const comuni = [...a].filter((id) => b.has(id)).length;
     expect(comuni / Math.max(a.size, b.size)).toBeLessThan(0.8);
+  });
+
+  /**
+   * **Gli svincoli non sono fissi: cambiano da carriera a carriera** (richiesta dell'utente).
+   *
+   * La proprietà nasce da **due** derivazioni indipendenti, entrambe legate al seme di carriera:
+   * *quando* scade un contratto (`contractExpiryOf`) e *se il club rinnova* (`clubWouldRenew`).
+   * La seconda è quella nuova, e va verificata a parte: se un giorno qualcuno la rendesse
+   * deterministica sul solo giocatore — sembra innocuo — il mercato tornerebbe a proporre gli
+   * stessi nomi in ogni partita, e il primo test qui sopra continuerebbe a passare grazie alle
+   * sole scadenze.
+   */
+  it("il rinnovo dei club è deciso dal seme: due carriere lasciano liberi giocatori diversi", () => {
+    const giovani = mondoGiovane(200);
+    const liberi = (seed: string) =>
+      new Set(giovani.filter((p) => !clubWouldRenew(p, seed, 5)).map((p) => p.id));
+
+    const alfa = liberi("carriera-alfa");
+    const beta = liberi("carriera-beta");
+    expect(alfa.size).toBeGreaterThan(10);
+
+    const comuni = [...alfa].filter((id) => beta.has(id)).length;
+    expect(comuni / Math.max(alfa.size, beta.size)).toBeLessThan(0.6);
+  });
+
+  it("e cambiano anche di stagione in stagione, dentro la stessa carriera", () => {
+    // Un club che non rinnova quest'anno può rinnovare l'anno prossimo: la vetrina si rinnova
+    // invece di essere la stessa lista che invecchia.
+    const giovani = mondoGiovane(200);
+    const liberi = (season: number) =>
+      new Set(giovani.filter((p) => !clubWouldRenew(p, "stessa-carriera", season)).map((p) => p.id));
+
+    const quinta = liberi(5);
+    const sesta = liberi(6);
+    const comuni = [...quinta].filter((id) => sesta.has(id)).length;
+    expect(comuni / Math.max(quinta.size, sesta.size)).toBeLessThan(0.7);
+  });
+
+  /**
+   * ⚠️ **La segnalazione principale dell'utente**: *"col passare delle stagioni si trovano nella
+   * lista svincolati tutti i più forti giocatori del gioco"*.
+   *
+   * La causa non era una soglia ma un'assenza: le scadenze si derivano dal seme per tutti i
+   * giocatori del mondo, e **nessun club IA rinnovava mai**. Ogni contratto scaduto finiva sul
+   * mercato e non ne usciva più, quindi il pool cresceva monotonicamente fino a contenere mezzo
+   * database. `clubWouldRenew` è la regola che mancava.
+   *
+   * I due casi qui sotto misurano le due proprietà che rendono la vetrina plausibile: **non
+   * esplode** col passare delle stagioni, e **non è fatta di fuoriclasse**.
+   */
+  /**
+   * ⚠️ **Fixture apposita, e la ragione va detta**: il mondo di prova sopra ha giocatori di 20-34
+   * anni, che alla decima stagione sono in gran parte **ritirati** — il pool resta piccolo da
+   * solo, e un test scritto su quel mondo passa anche togliendo la regola. Verificato
+   * disattivando `clubWouldRenew`: 766 verdi lo stesso, cioè non misurava nulla.
+   *
+   * Qui i giocatori sono giovani abbastanza da essere ancora in attività alla stagione 8, così
+   * l'unica cosa che può tenere piccola la vetrina è il rinnovo dei club.
+   */
+  function mondoGiovane(n = 300): WorldPlayer[] {
+    return Array.from({ length: n }, (_, i) => {
+      const role = RUOLI[i % RUOLI.length]!;
+      const eta = 20 + (i % 6); // 20-25: alla stagione 8 hanno 27-32, nessuno ritirato
+      return {
+        id: `g-${i}`,
+        name: `Giovane ${i}`,
+        nation: "Italia",
+        role,
+        secondaryRoles: [],
+        department: ROLE_DEPARTMENT[role],
+        birthDate: `${2025 - eta}-05-10`,
+        overall: 70 + (i % 20),
+        clubId: `club-${i % 20}`,
+      } satisfies WorldPlayer;
+    });
+  }
+
+  it("la vetrina non esplode col passare delle stagioni", () => {
+    const giovani = mondoGiovane();
+    const pool = buildFreeAgentPool({
+      worldPlayers: giovani,
+      seed: "accumulo",
+      season: 8,
+      regenCount: 0,
+    });
+
+    // Senza rinnovi il pool conterrebbe **quasi tutti** i contratti scaduti almeno una volta,
+    // cioè la stragrande maggioranza del mondo.
+    expect(pool.length).toBeLessThan(giovani.length * 0.35);
+  });
+
+  it("i fuoriclasse restano un'eccezione, non l'ordinaria amministrazione", () => {
+    const giovani = mondoGiovane();
+    const pool = buildFreeAgentPool({
+      worldPlayers: giovani,
+      seed: "fuoriclasse",
+      season: 8,
+      regenCount: 0,
+    });
+    expect(pool.length).toBeGreaterThan(5);
+
+    const top = pool.filter((a) => a.overall >= 84).length;
+    expect(top / pool.length).toBeLessThan(0.15);
+  });
+
+  /**
+   * **Il mondo si muove anche senza di noi** (richiesta dell'utente).
+   *
+   * Prima `freeAgentsSigned` registrava soltanto le *nostre* firme: nessuno usciva mai dalla
+   * vetrina se non per mano nostra, e un ottimo parametro zero poteva restare lì per stagioni.
+   * Le offerte rivali esistevano solo *mentre* trattavamo, cioè erano una resistenza al momento
+   * della firma e non un mercato che si muove da sé.
+   */
+  it("i club IA firmano anche loro: la vetrina si consuma fra una finestra e l'altra", () => {
+    const giovani = mondoGiovane(300);
+    const estate = buildFreeAgentPool({
+      worldPlayers: giovani,
+      seed: "mondo-vivo",
+      season: 6,
+      regenCount: 0,
+    });
+    const inverno = buildFreeAgentPool({
+      worldPlayers: giovani,
+      seed: "mondo-vivo",
+      season: 6,
+      winter: true,
+      regenCount: 0,
+    });
+
+    expect(estate.length).toBeGreaterThan(5);
+    const rimasti = new Set(inverno.map((a) => a.id));
+    const spariti = estate.filter((a) => !rimasti.has(a.id)).length;
+    expect(spariti, "nessuno è stato firmato dall'IA: la vetrina è un negozio sempre aperto").toBeGreaterThan(0);
+  });
+
+  it("e chi è forte sparisce più in fretta di chi è mediocre", () => {
+    // È la regola che rende sensato arrivare presto: se sparissero tutti allo stesso ritmo,
+    // aspettare non costerebbe nulla.
+    const libero = (id: string, overall: number): FreeAgent => ({
+      id,
+      name: id,
+      nation: "Italia",
+      role: "CC",
+      secondaryRoles: [],
+      department: "CC",
+      birthDate: "1998-01-01",
+      age: 27,
+      overall,
+      baseOverall: overall,
+      origin: "scaduto",
+      windowsFree: 1,
+      nextDecay: 1,
+      personality: "professionista",
+      askingWage: 1_000_000,
+      askingSeasons: 3,
+      wantsStarter: false,
+      suitors: 0,
+    });
+
+    const quanti = (a: FreeAgent) => {
+      let n = 0;
+      for (let s = 1; s <= 60; s++) if (aiClaimsFreeAgent(a, `seme-${s}`, s, false)) n++;
+      return n;
+    };
+    expect(quanti(libero("top", 85))).toBeGreaterThan(quanti(libero("mid", 68)));
   });
 
   it("è stabile a parità di seme: ricaricare una carriera non cambia la vetrina", () => {
@@ -171,11 +338,58 @@ describe("la trattativa a cinque assi", () => {
   });
 
   it("se una rivale offre di più sulla sua scala, la firma sfuma e lo si viene a sapere", () => {
-    const a = agente({ personality: "mercenario" });
+    // Ventiquattrenne: a quest'età l'ambizione pesa piena, quindi il Real vince senza ambiguità.
+    // Con l'agente a 33 anni del fixture la piccola è ormai competitiva — comportamento voluto
+    // (vedi il test sull'età più sotto), non un caso da usare qui.
+    const a = agente({ personality: "mercenario", age: 24 });
     const esito = resolveFreeAgentBids(a, piccola, [grande], "seme", 3);
     expect(esito.accepted).toBe(false);
     expect(esito.rivalClubName).toBe("Real Madrid");
     expect(esito.message).toContain("Real Madrid");
+  });
+
+  /**
+   * **La segnalazione: "nove volte su dieci ha già accettato un'altra offerta".**
+   *
+   * Non era la frequenza a essere sbagliata — la concorrenza deve esistere — ma il fatto che il
+   * no fosse definitivo e muto: si scopriva di aver perso senza sapere di quanto, quindi
+   * rilanciare era tirare a indovinare e la vetrina diventava inutile.
+   */
+  it("perdere la corsa non chiude la porta: dice cosa serve per vincerla", () => {
+    const a = agente({ personality: "mercenario", age: 24 });
+    const esito = resolveFreeAgentBids(a, piccola, [grande], "seme", 3);
+
+    expect(esito.accepted).toBe(false);
+    expect(esito.counter, "senza controproposta la lista svincolati resta un vicolo cieco").toBeDefined();
+    expect(esito.counter!.wage).toBeGreaterThan(piccola.wage);
+  });
+
+  it("e la controproposta è davvero sufficiente: offrendo quella cifra, firma", () => {
+    // È la proprietà che conta: un consiglio che non porta alla firma sarebbe peggio del
+    // silenzio, perché costa soldi e non risolve.
+    const a = agente({ personality: "mercenario", age: 24 });
+    const esito = resolveFreeAgentBids(a, piccola, [grande], "seme", 3);
+    if (!esito.counter) return;
+
+    const rilancio: FreeAgentBid = {
+      ...piccola,
+      wage: esito.counter.wage,
+      guaranteedStarter: esito.counter.needsStarter,
+      seasons: esito.counter.seasons ?? piccola.seasons,
+    };
+    expect(resolveFreeAgentBids(a, rilancio, [grande], "seme", 3).accepted).toBe(true);
+  });
+
+  it("chi è avanti con l'età accetta più facilmente un club di livello inferiore", () => {
+    // Richiesta esplicita dell'utente. A parità di offerta, il blasone della piccola pesa meno
+    // per un trentaquattrenne che per un ventiduenne: è la differenza fra "dove posso arrivare"
+    // e "dove posso giocare".
+    const giovane = agente({ personality: "professionista", age: 22 });
+    const veterano = agente({ personality: "professionista", age: 34 });
+
+    const scartoGiovane = freeAgentBidScore(giovane, grande) - freeAgentBidScore(giovane, piccola);
+    const scartoVeterano = freeAgentBidScore(veterano, grande) - freeAgentBidScore(veterano, piccola);
+    expect(scartoVeterano).toBeLessThan(scartoGiovane);
   });
 
   it("un'offerta troppo bassa non la accetta nessuno, anche senza concorrenza", () => {

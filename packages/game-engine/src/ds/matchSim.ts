@@ -38,6 +38,25 @@ import type { Department } from "@app/shared-types";
 /** Durata della partita in secondi di gioco. Il campo è 0-100 in entrambe le dimensioni. */
 export const MATCH_SECONDS = 5400;
 
+/**
+ * La porta, in coordinate di campo.
+ *
+ * Il pallone di un gol deve finire **dentro la rete**, non sulla linea: `x` oltre la riga di
+ * fondo (che sta a 2 e a 98) e `y` dentro la bocca della porta. Prima la rete arrivava a 100 o
+ * a 0, cioè sul bordo esatto del riquadro, e a schermo si vedeva il pallone *fermarsi* sulla
+ * linea invece di superare il portiere ed entrare.
+ */
+export const GOAL_MOUTH = { yMin: 41, yMax: 59, insideFor: 99, insideAgainst: 1 } as const;
+
+/**
+ * Quanto la palla resta in rete prima che il gioco riprenda.
+ *
+ * Non è un dettaglio di presentazione: senza questa sospensione la fase finisce nell'istante in
+ * cui il pallone entra e il possesso successivo comincia subito, quindi il gol — l'unica cosa
+ * che davvero conta in una partita — durerebbe meno di un passaggio qualunque.
+ */
+const GOAL_HOLD_SECONDS = 4.5;
+
 /** Un titolare, per posizionarlo sul campo condiviso: basta sapere dove gioca. */
 export interface TheatrePlayer {
   playerId: string;

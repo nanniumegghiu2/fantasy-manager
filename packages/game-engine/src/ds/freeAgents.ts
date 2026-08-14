@@ -122,6 +122,9 @@ export function buildFreeAgentPool(input: FreeAgentPoolInput): FreeAgent[] {
     const svincolato = rilasciati.has(player.id);
     // Libero da: la stagione dopo la scadenza, oppure subito se rescisso.
     if (!svincolato && scadenza >= season) continue;
+    // ⚠️ **I club rinnovano.** Senza questo filtro il pool cresce di stagione in stagione fino a
+    // contenere i migliori giocatori del mondo (sez. `clubWouldRenew`).
+    if (!svincolato && clubWouldRenew(player, seed, season)) continue;
 
     const primaStagioneLibero = svincolato ? season : scadenza + 1;
     const finestreLibero = Math.max(0, (season - primaStagioneLibero) * 2 + (winter ? 1 : 0));
@@ -134,12 +137,109 @@ export function buildFreeAgentPool(input: FreeAgentPoolInput): FreeAgent[] {
       prestige: clubPrestige[player.clubId] ?? 3,
     });
     if (!agente || agente.overall < FREE_AGENT_MIN_OVERALL) continue;
+    // I club IA firmano anche loro: chi è stato preso non è più in vetrina.
+    if (aiClaimsFreeAgent(agente, seed, season, winter)) continue;
     pool.push(agente);
   }
 
   pool.push(...generateUnattachedYouth(seed, season, regenCount, pool));
 
   return pool.sort((a, b) => b.overall - a.overall);
+}
+
+/**
+ * **Il club rinnova, e questa è la regola che mancava del tutto.**
+ *
+ * ⚠️ Il difetto, segnalato dall'utente: *"col passare delle stagioni si trovano nella lista
+ * svincolati tutti i più forti giocatori del gioco"*. La causa non era una soglia sbagliata ma
+ * un'assenza — le scadenze si derivano dal seme per **tutti** i 3.000 giocatori del mondo, e
+ * nessun codice faceva rinnovare i club IA. Quindi ogni contratto che scadeva finiva sul mercato
+ * e non ne usciva mai più: alla quinta o sesta stagione la vetrina conteneva mezzo database,
+ * fuoriclasse compresi. Non era uno squilibrio, era un accumulo.
+ *
+ * Un club vero rinnova quasi tutti e lascia andare pochi. Chi lascia andare, e chi trattiene,
+ * dipende da due fatti soli — e sono quelli che rendono la lista **plausibile** invece che
+ * ricchissima:
+ *  - **il livello**: un fuoriclasse non lo perdi a zero se non per un caso raro (e quando
+ *    capita è la notizia della finestra, non l'ordinaria amministrazione);
+ *  - **l'età**: a trentadue anni il rinnovo è tutt'altro che scontato, ed è infatti da lì che
+ *    arriva il grosso dei parametri zero veri.
+ *
+ * Deterministico per `(seme, giocatore, stagione)`: nessun byte di salvataggio, e ricaricare una
+ * carriera non cambia chi è sul mercato.
+ */
+export function clubWouldRenew(
+  player: { id: string; overall: number; birthDate?: string | null },
+  seed: string,
+  season: number,
+): boolean {
+  const age = ageInSeason(player.birthDate, season) ?? 26;
+  const overall = aiOverallInSeason(player.overall, player.birthDate, season);
+
+  /**
+   * Probabilità che il club **rinnovi**. I numeri sono placeholder di bilanciamento dichiarati,
+   * tarati su una sola proprietà misurabile: la vetrina deve restare fatta soprattutto di
+   * veterani e comprimari, con il colpo grosso raro (`dsFreeAgents.test.ts`).
+   */
+  let probabilita = 0.82;
+  if (overall >= 84) probabilita = 0.97; // i fuoriclasse quasi non sfuggono
+  else if (overall >= 78) probabilita = 0.93;
+  else if (overall >= 72) probabilita = 0.86;
+  else probabilita = 0.7; // il fondo rosa si lascia andare volentieri
+
+  // L'età morde più del livello: è il vero motivo per cui un buon giocatore finisce libero.
+  if (age >= 34) probabilita -= 0.5;
+  else if (age >= 32) probabilita -= 0.32;
+  else if (age >= 30) probabilita -= 0.16;
+  else if (age <= 23) probabilita += 0.06; // i giovani si blindano
+
+  return derivedRandom(seed, "renewAI", player.id, season)() < Math.max(0.05, Math.min(0.99, probabilita));
+}
+
+/**
+ * **Anche le squadre del computer firmano a parametro zero.**
+ *
+ * ⚠️ Richiesta esplicita dell'utente — *"il mondo deve essere vivo, non esisto solo io a
+ * muovermi"* — e il difetto era completo: `freeAgentsSigned` registrava **soltanto le nostre**
+ * firme, quindi nessuno usciva mai dalla vetrina se non per mano nostra. Le offerte rivali
+ * (`rivalBidsFor`) esistevano solo *mentre* trattavamo un giocatore: erano una resistenza al
+ * momento della firma, non un mercato che si muove da sé. Un buon parametro zero poteva restare
+ * lì per stagioni intere, e la lista non si consumava mai.
+ *
+ * Derivato, non salvato: la firma dipende da `(seme, giocatore, stagione, finestra)`, quindi non
+ * costa un byte e ricaricare una carriera trova la stessa vetrina. Dentro una finestra la lista
+ * è **stabile** — non sparisce nessuno mentre lo stai guardando — e cambia all'apertura della
+ * successiva, che è esattamente dove deve stare l'urgenza.
+ *
+ * Due regole, quelle che rendono la vetrina un posto dove conviene arrivare presto:
+ *  - **chi è forte va via subito**: un ottimo giocatore libero è un'occasione per tutti, non
+ *    solo per noi;
+ *  - **chi resta a lungo interessa sempre meno**: se nessuno l'ha preso in due finestre, un
+ *    motivo c'è, e il gioco lo dice lasciandolo lì.
+ */
+export function aiClaimsFreeAgent(
+  agent: FreeAgent,
+  seed: string,
+  season: number,
+  winter: boolean,
+): boolean {
+  // Appena liberato nessuno ha ancora firmato: la prima finestra è la nostra occasione piena.
+  if (agent.windowsFree === 0 && !winter) return false;
+
+  let probabilita = 0.12;
+  if (agent.overall >= 82) probabilita = 0.62;
+  else if (agent.overall >= 78) probabilita = 0.42;
+  else if (agent.overall >= 74) probabilita = 0.26;
+
+  // Un veterano interessa meno del pari livello nel pieno: è il motivo per cui la vetrina resta
+  // fatta soprattutto di gente avanti con l'età anche dopo che l'IA ha fatto la sua spesa.
+  if (agent.age >= 33) probabilita *= 0.45;
+  else if (agent.age >= 30) probabilita *= 0.7;
+
+  // Chi è già rimasto libero a lungo attira sempre meno, non di più.
+  probabilita *= Math.max(0.3, 1 - agent.windowsFree * 0.18);
+
+  return derivedRandom(seed, "faClaim", agent.id, season, winter ? 1 : 0)() < probabilita;
 }
 
 interface ToFreeAgentCtx {
@@ -280,16 +380,65 @@ export function freeAgentBidScore(agent: FreeAgent, bid: FreeAgentBid): number {
   const soldi = Math.min(1.3, bid.wage / Math.max(1, agent.askingWage));
   const durata = 1 - Math.min(1, Math.abs(bid.seasons - agent.askingSeasons) / 3);
   const campo = agent.wantsStarter ? (bid.guaranteedStarter ? 1 : 0.2) : bid.guaranteedStarter ? 1 : 0.75;
-  const ambizione = Math.min(1, (bid.prestige / 5) * 0.7 + (bid.ambitionTarget ? Math.max(0, (8 - bid.ambitionTarget) / 8) * 0.3 : 0.15));
   const ruolo = bid.captain ? 1 : 0.55;
 
+  /**
+   * **L'ambizione si smorza con l'età** (richiesta esplicita dell'utente).
+   *
+   * Un venticinquenne libero guarda dove può arrivare e il blasone pesa; un trentaquattrenne
+   * guarda dove può giocare, e una piccola che gli offre il campo diventa una destinazione
+   * sensata. Senza questo smorzamento la vetrina premiava sempre i club più blasonati e la
+   * meccanica "la piccola batte la grande offrendo minuti" valeva solo per i giovani — cioè
+   * proprio per la categoria che una piccola fatica di più a trattenere.
+   *
+   * Il peso dell'ambizione non sparisce: si riversa sul campo, perché è lì che si sposta la
+   * testa di chi ha più anni che carriera davanti.
+   */
+  const pesoAmbizione = agent.age >= 33 ? 0.3 : agent.age >= 30 ? 0.6 : agent.age >= 27 ? 0.85 : 1;
+  const ambizioneGrezza = Math.min(
+    1,
+    (bid.prestige / 5) * 0.7 +
+      (bid.ambitionTarget ? Math.max(0, (8 - bid.ambitionTarget) / 8) * 0.3 : 0.15),
+  );
+  // Chi è avanti con l'età legge il prestigio più vicino alla parità: la differenza fra una
+  // grande e una piccola si assottiglia invece di annullarsi.
+  const ambizione = 1 - (1 - ambizioneGrezza) * pesoAmbizione;
+  const campoPesato = p.campo + p.ambizione * (1 - pesoAmbizione);
+
   const grezzo =
-    p.soldi * soldi + p.durata * durata + p.campo * campo + p.ambizione * ambizione + p.ruolo * ruolo;
+    p.soldi * soldi +
+    p.durata * durata +
+    campoPesato * campo +
+    p.ambizione * pesoAmbizione * ambizione +
+    p.ruolo * ruolo;
   return Math.round(Math.max(0, Math.min(1, grezzo)) * 100);
 }
 
 /** Sotto questo punteggio non firma con nessuno: preferisce restare libero e aspettare. */
 export const FREE_AGENT_MIN_SCORE = 46;
+
+/**
+ * **Cosa serve per convincerlo**, quando qualcun altro sta offrendo di più.
+ *
+ * ⚠️ Il difetto che questo tipo corregge, segnalato dall'utente: *"nove volte su dieci mi dice
+ * che ha già accettato un'altra offerta, rendendo praticamente inutile la lista svincolati"*.
+ * Non era la frequenza a essere sbagliata — la concorrenza deve esistere — ma il fatto che il no
+ * fosse **definitivo e muto**: si scopriva di aver perso senza sapere di quanto, quindi rilanciare
+ * era tirare a indovinare e la scheda si chiudeva lì.
+ *
+ * Un agente vero non dice "ho firmato altrove": dice *"per venire da voi mi serve questo"*. Da
+ * qui in poi il verdetto negativo porta con sé la controproposta, e la trattativa continua.
+ */
+export interface FreeAgentCounter {
+  /** L'ingaggio annuo che basterebbe a superare la migliore offerta rivale. */
+  wage: number;
+  /** Serve anche la titolarità garantita per chiudere? */
+  needsStarter: boolean;
+  /** Serve una durata diversa da quella proposta? Assente = quella offerta va bene. */
+  seasons?: number;
+  /** Quanto siamo lontani, in punti della sua scala: alimenta il testo e la barra. */
+  gap: number;
+}
 
 export interface FreeAgentVerdict {
   accepted: boolean;
@@ -298,6 +447,72 @@ export interface FreeAgentVerdict {
   rivalScore: number;
   rivalClubName?: string;
   message: string;
+  /**
+   * Presente quando **è ancora prendibile**: dice cosa offrire per superare la concorrenza.
+   * Assente quando il no è di principio (non verrebbe comunque da noi).
+   */
+  counter?: FreeAgentCounter;
+}
+
+/**
+ * L'ingaggio minimo che porterebbe la nostra offerta al punteggio bersaglio.
+ *
+ * Si risolve per bisezione invece che algebricamente perché `freeAgentBidScore` non è invertibile
+ * a mano (pesi per personalità, tetti, componenti non lineari): venti passi bastano a centrare
+ * l'euro utile, e restano una funzione pura del punteggio: se un giorno i pesi cambiano, questa
+ * continua a dire il vero senza essere riscritta.
+ */
+function wageToReach(agent: FreeAgent, bid: FreeAgentBid, bersaglio: number): number | null {
+  const massimo = agent.askingWage * 3;
+  if (freeAgentBidScore(agent, { ...bid, wage: massimo }) < bersaglio) return null;
+
+  let basso = 0;
+  let alto = massimo;
+  for (let i = 0; i < 20; i++) {
+    const mezzo = (basso + alto) / 2;
+    if (freeAgentBidScore(agent, { ...bid, wage: mezzo }) >= bersaglio) alto = mezzo;
+    else basso = mezzo;
+  }
+  return Math.ceil(alto / 10_000) * 10_000;
+}
+
+/**
+ * Compone la controproposta: prima prova coi soldi, poi aggiunge il campo.
+ *
+ * L'ordine non è arbitrario. I minuti garantiti sono un **impegno verificato**
+ * (`commitments.ts`), quindi concederli è una scelta che si paga dopo: chiederli per primi
+ * significherebbe suggerire all'utente la strada più costosa quando spesso ne basta una più
+ * semplice. Se nemmeno tutto insieme basta, il giocatore non è prendibile e lo si dice.
+ */
+function buildCounter(
+  agent: FreeAgent,
+  ourBid: FreeAgentBid,
+  bersaglio: number,
+  gap: number,
+): FreeAgentCounter | undefined {
+  const soloSoldi = wageToReach(agent, ourBid, bersaglio);
+  if (soloSoldi !== null && soloSoldi <= agent.askingWage * 2.2) {
+    return { wage: soloSoldi, needsStarter: ourBid.guaranteedStarter, gap };
+  }
+
+  if (!ourBid.guaranteedStarter) {
+    const conCampo = { ...ourBid, guaranteedStarter: true };
+    const conStarter = wageToReach(agent, conCampo, bersaglio);
+    if (conStarter !== null && conStarter <= agent.askingWage * 2.2) {
+      return { wage: conStarter, needsStarter: true, gap };
+    }
+  }
+
+  // Ultima leva: la durata che chiede, che vale poco ma può colmare uno scarto minimo.
+  if (ourBid.seasons !== agent.askingSeasons) {
+    const conDurata = { ...ourBid, guaranteedStarter: true, seasons: agent.askingSeasons };
+    const finale = wageToReach(agent, conDurata, bersaglio);
+    if (finale !== null && finale <= agent.askingWage * 2.4) {
+      return { wage: finale, needsStarter: true, seasons: agent.askingSeasons, gap };
+    }
+  }
+
+  return undefined;
 }
 
 /**
@@ -331,23 +546,43 @@ export function resolveFreeAgentBids(
   const rivalScore = Math.round(miglioreRivale);
 
   if (score < FREE_AGENT_MIN_SCORE) {
+    // Non basta nemmeno per sedersi: qui la controproposta è "alza fino alla soglia", che è una
+    // richiesta sua e non una gara con altri.
+    const counter = buildCounter(agent, ourBid, FREE_AGENT_MIN_SCORE, FREE_AGENT_MIN_SCORE - score);
     return {
       accepted: false,
       score,
       rivalScore,
       rivalClubName: nomeRivale,
-      message: "Non è la proposta che aspettavo. Preferisco aspettare ancora.",
+      counter,
+      message: counter
+        ? "Così non ci siamo, Direttore. Ma se trovate i margini, se ne può riparlare."
+        : "Non è la proposta che aspettavo. Preferisco aspettare ancora.",
     };
   }
   if (rivalScore > score) {
+    /**
+     * **Non ha ancora firmato: sta dicendo che c'è di meglio.**
+     *
+     * Il messaggio precedente ("ho accettato la proposta del…") chiudeva la porta e lasciava
+     * l'utente senza appigli. La differenza non è di tono: con la controproposta la corsa a un
+     * parametro zero diventa una trattativa che si può **vincere**, che è tutto il senso di
+     * avere una vetrina.
+     */
+    const counter = buildCounter(agent, ourBid, rivalScore + 1, rivalScore - score);
     return {
       accepted: false,
       score,
       rivalScore,
       rivalClubName: nomeRivale,
-      message: nomeRivale
-        ? `Mi dispiace, Direttore: ho accettato la proposta del ${nomeRivale}.`
-        : "Ho ricevuto una proposta migliore altrove.",
+      counter,
+      message: counter
+        ? nomeRivale
+          ? `Il ${nomeRivale} si è fatto avanti con qualcosa di più. Se coprite quella cifra, io vengo da voi.`
+          : "Ho una proposta migliore sul tavolo. Copritela e chiudiamo."
+        : nomeRivale
+          ? `Mi dispiace, Direttore: la proposta del ${nomeRivale} è fuori dalla vostra portata.`
+          : "Ho ricevuto una proposta migliore altrove.",
     };
   }
   return {

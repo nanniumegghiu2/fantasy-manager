@@ -95,6 +95,7 @@ import {
   rivalBidsFor,
   type FreeAgent,
   type FreeAgentBid,
+  type FreeAgentCounter,
   type RivalClubInfo,
 } from "./freeAgents";
 import {
@@ -4414,6 +4415,22 @@ export function signIncomingPlayer(
     roster: [...state.roster, nuovo],
     budget: state.budget - tratt.amount,
     coachRequest,
+    /**
+     * **Chi è appena arrivato esce dalle liste del mercato.**
+     *
+     * Bug segnalato dall'utente: un giocatore comprato restava fra i *Cedibili IA* e nella lista
+     * della spesa, e lo si poteva ritrattare pur essendo già nostro. La causa è che lo snapshot
+     * della finestra (`state.market`) è **congelato** alla sua apertura: la ricerca libera si
+     * ricostruisce dal mondo e quindi si aggiorna da sola, queste due liste no. Vanno potate qui,
+     * cioè nell'unico punto in cui un acquisto si perfeziona.
+     */
+    market: state.market
+      ? {
+          ...state.market,
+          shortlist: state.market.shortlist.filter((s) => s.playerId !== tratt.playerId),
+          aiSellable: (state.market.aiSellable ?? []).filter((c) => c.playerId !== tratt.playerId),
+        }
+      : state.market,
     sessionDeals: [
       ...(state.sessionDeals ?? []),
       {
@@ -4593,6 +4610,8 @@ export interface FreeAgentSigningResult {
   ok: boolean;
   message: string;
   rivalClubName?: string;
+  /** Cosa serve per superare la concorrenza, quando è ancora prendibile. */
+  counter?: FreeAgentCounter;
 }
 
 /**
@@ -4635,7 +4654,13 @@ export function signFreeAgent(
   const verdetto = resolveFreeAgentBids(agente, nostra, rivali, state.seed, state.season);
 
   if (!verdetto.accepted) {
-    return { state, ok: false, message: verdetto.message, rivalClubName: verdetto.rivalClubName };
+    return {
+      state,
+      ok: false,
+      message: verdetto.message,
+      rivalClubName: verdetto.rivalClubName,
+      counter: verdetto.counter,
+    };
   }
 
   const entry: RosterEntry = {
