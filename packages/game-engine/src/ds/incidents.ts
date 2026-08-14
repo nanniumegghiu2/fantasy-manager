@@ -27,7 +27,9 @@ export type IncidentKind =
   | "sanzione_federale"
   | "premio_presidente"
   | "nottata_brava"
-  | "intervista_contro";
+  | "intervista_contro"
+  | "rottura_tra_giocatori"
+  | "cambio_proprieta";
 
 /**
  * I due imprevisti "con decisione": a differenza di tutti gli altri, non si auto-risolvono —
@@ -36,12 +38,17 @@ export type IncidentKind =
  * vero arriva solo da `resolveIncidentDecision` (`career.ts`), chiamata quando l'utente risponde
  * al popup a due bottoni invece del solito "Ho capito".
  */
-export const DECISION_INCIDENT_KINDS: readonly IncidentKind[] = ["nottata_brava", "intervista_contro"];
+export const DECISION_INCIDENT_KINDS: readonly IncidentKind[] = [
+  "nottata_brava",
+  "intervista_contro",
+  "rottura_tra_giocatori",
+];
 
 /** I due imprevisti economici non toccano un giocatore: colpiscono solo il budget. */
 export const FINANCIAL_INCIDENT_KINDS: readonly IncidentKind[] = [
   "sanzione_federale",
   "premio_presidente",
+  "cambio_proprieta",
 ];
 
 export interface Incident {
@@ -57,6 +64,8 @@ export interface Incident {
   /** Titolo e testo già pronti: la UI non deve comporre frasi. */
   title: string;
   message: string;
+  /** Il secondo protagonista, solo per `rottura_tra_giocatori`: e fra questi due che si sceglie. */
+  secondPlayerId?: string;
   /**
    * Vero solo per `nottata_brava`/`intervista_contro`: il popup mostra due bottoni (ignora /
    * punizione) invece del solito "Ho capito", e il verdetto vero arriva da
@@ -93,6 +102,17 @@ export const INCIDENT_ODDS: Record<IncidentKind, number> = {
   // sorpresa vera (vedi `rollIncident`), quindi la probabilità è alta **condizionata** a
   // quell'evento raro, non sciolta su tutte le 38 giornate.
   premio_presidente: 0.15,
+  /**
+   * **La rottura fra due compagni**: rara, perche costringe a una scelta vera — chi tenere e
+   * chi mandare via — e una decisione del genere ogni mese sarebbe un ufficio reclami.
+   */
+  rottura_tra_giocatori: 0.008,
+  /**
+   * **Il cambio di proprieta**: una volta ogni tre o quattro carriere, non una volta l anno.
+   * E l unico imprevisto che cambia i mezzi in modo strutturale invece che una tantum, quindi
+   * deve restare un evento che si ricorda.
+   */
+  cambio_proprieta: 0.0012,
 };
 
 /** Giornate di tregua dopo un imprevisto: due notizie ravvicinate si annullano a vicenda. */
@@ -152,7 +172,7 @@ export function rollIncident({
 
     if (random() >= INCIDENT_ODDS[kind]) continue;
 
-    if (kind === "sanzione_federale" || kind === "premio_presidente") {
+    if (FINANCIAL_INCIDENT_KINDS.includes(kind)) {
       return costruisci(kind, undefined, "", random);
     }
 
@@ -160,6 +180,23 @@ export function rollIncident({
     const vittima = scegliVittima(kind, disponibili, random, playerRoles);
     if (!vittima) continue;
     const nome = nameOf(vittima.playerId);
+
+    /**
+     * La rottura ha **due** protagonisti: senza il secondo non c'è nulla da arbitrare, e l'unica
+     * risposta onesta è non farla capitare affatto (rosa di un solo uomo disponibile).
+     */
+    if (kind === "rottura_tra_giocatori") {
+      const altri = disponibili.filter((e) => e.playerId !== vittima.playerId);
+      if (altri.length === 0) continue;
+      const secondo = altri[Math.floor(random() * altri.length)]!;
+      const incidente = costruisci(kind, vittima, nome, random);
+      return {
+        ...incidente,
+        secondPlayerId: secondo.playerId,
+        message: `${nome} e ${nameOf(secondo.playerId)} sono arrivati alle mani in allenamento. Lo spogliatoio si è spaccato: uno dei due deve andarsene.`,
+      };
+    }
+
     return costruisci(kind, vittima, nome, random);
   }
 
@@ -226,7 +263,7 @@ function scegliVittima(
     const migliori = [...disponibili].sort((a, b) => b.overall - a.overall).slice(0, 11);
     return migliori[Math.floor(random() * migliori.length)];
   }
-  if (kind === "rissa_spogliatoio") {
+  if (kind === "rissa_spogliatoio" || kind === "rottura_tra_giocatori") {
     // Chi è già scontento è il candidato naturale.
     const nervosi = disponibili.filter((e) => e.morale < 55);
     const pool = nervosi.length > 0 ? nervosi : disponibili;
@@ -267,6 +304,48 @@ function costruisci(
         budgetDelta,
         title: "Premio del presidente",
         message: `Il presidente premia la vittoria a sorpresa: ${budgetDelta.toLocaleString("it-IT")}€ in più sul budget di mercato.`,
+      };
+    }
+    /**
+     * **Il cambio di proprietà**: l'unico imprevisto che cambia i mezzi in modo strutturale
+     * invece che una tantum, e per questo il più raro di tutti.
+     *
+     * Può andare in entrambe le direzioni, e la simmetria è voluta: un fondo che entra porta
+     * soldi veri, una proprietà che si ritira lascia un club da ricostruire. Un evento che
+     * fosse solo positivo sarebbe un regalo, non una notizia.
+     */
+    case "cambio_proprieta": {
+      const inBene = random() < 0.55;
+      const budgetDelta = inBene
+        ? Math.round(8_000_000 + random() * 22_000_000)
+        : -Math.round(4_000_000 + random() * 12_000_000);
+      return {
+        kind,
+        matchdays: 0,
+        moraleDelta: inBene ? 6 : -6,
+        budgetDelta,
+        title: inBene ? "Nuova proprietà ambiziosa" : "La proprietà si ritira",
+        message: inBene
+          ? `Il club è stato rilevato da un gruppo con grandi ambizioni: ${budgetDelta.toLocaleString("it-IT")}€ in più sul mercato, e l'obbligo morale di spenderli bene.`
+          : `La proprietà ha ridotto l'impegno: ${Math.abs(budgetDelta).toLocaleString("it-IT")}€ in meno sul mercato. Servirà fare di più con meno.`,
+      };
+    }
+    /**
+     * **La rottura fra due compagni**, e stavolta tocca al DS arbitrare.
+     *
+     * `rissa_spogliatoio` esisteva già ma si limitava a scalare il morale di uno: una notizia da
+     * leggere, non una decisione. Qui i giocatori sono **due**, il gruppo si è spaccato, e la
+     * scelta è quella vera di uno spogliatoio — chi tenere e chi lasciar andare. Non c'è
+     * un'opzione indolore: tenerli entrambi lascia il veleno in circolo.
+     */
+    case "rottura_tra_giocatori": {
+      return {
+        kind,
+        matchdays: 0,
+        moraleDelta: 0,
+        title: "Rottura nello spogliatoio",
+        message: `${nome} è arrivato alle mani con un compagno. Lo spogliatoio si è spaccato in due: qualcuno deve andarsene.`,
+        requiresDecision: true,
       };
     }
     case "infortunio_gravissimo": {

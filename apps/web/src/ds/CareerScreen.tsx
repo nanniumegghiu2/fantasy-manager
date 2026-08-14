@@ -331,7 +331,7 @@ export function CareerScreen({
    * dopo, quindi la corsa riparte da sola come per ogni altro imprevisto.
    */
   const decidiImprevisto = useCallback(
-    (scelta: "ignora" | "punizione", giorni?: number) => {
+    (scelta: "ignora" | "punizione" | "tieni_primo" | "tieni_secondo", giorni?: number) => {
       if (!incident) return;
       onChange(resolveIncidentDecision(state, world, incident, scelta, giorni));
     },
@@ -1174,7 +1174,14 @@ export function CareerScreen({
         )}
 
         {incident && !teatro && !keyMatch && (
-          <IncidentDialog key="imprevisto" incident={incident} onClose={chiudiImprevisto} onDecide={decidiImprevisto} />
+          <IncidentDialog
+            key="imprevisto"
+            incident={incident}
+            nomePrimo={incident.playerId ? nameById[incident.playerId] : undefined}
+            nomeSecondo={incident.secondPlayerId ? nameById[incident.secondPlayerId] : undefined}
+            onClose={chiudiImprevisto}
+            onDecide={decidiImprevisto}
+          />
         )}
 
         {clubVisto && (

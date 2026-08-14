@@ -2940,9 +2940,40 @@ export function resolveIncidentDecision(
   state: CareerState,
   world: CareerWorld,
   incident: Incident,
-  scelta: "ignora" | "punizione",
+  scelta: "ignora" | "punizione" | "tieni_primo" | "tieni_secondo",
   giorni?: number,
 ): CareerState {
+  /**
+   * **La rottura fra due compagni: si sceglie chi tenere.**
+   *
+   * Non c'è un'opzione indolore, ed è il punto. Chi resta si sente sostenuto (morale su); chi è
+   * scaricato finisce **in lista trasferimenti** col morale a terra — non lo si caccia per
+   * decreto, lo si mette sul mercato, che è quel che fa un club vero. E il gruppo paga comunque
+   * un po' di veleno: una rissa non si chiude senza lasciare traccia.
+   */
+  if (scelta === "tieni_primo" || scelta === "tieni_secondo") {
+    const primo = incident.playerId;
+    const secondo = incident.secondPlayerId;
+    if (!primo || !secondo) return state;
+
+    const resta = scelta === "tieni_primo" ? primo : secondo;
+    const scaricato = scelta === "tieni_primo" ? secondo : primo;
+
+    return {
+      ...state,
+      roster: state.roster.map((e) => {
+        if (e.playerId === resta) return { ...e, morale: clampMorale(e.morale + 10) };
+        if (e.playerId === scaricato) return { ...e, morale: clampMorale(e.morale - 28) };
+        // Gli altri assistono: nessuno esce indenne da una spaccatura.
+        return { ...e, morale: clampMorale(e.morale - 3) };
+      }),
+      lists: {
+        transferList: [...new Set([...(state.lists?.transferList ?? []), scaricato])],
+        loanList: state.lists?.loanList ?? [],
+      },
+    };
+  }
+
   if (scelta === "ignora") {
     return { ...state, coachHarmony: Math.max(0, Math.min(100, (state.coachHarmony ?? 75) - 10)) };
   }

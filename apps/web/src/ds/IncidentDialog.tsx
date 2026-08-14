@@ -40,23 +40,30 @@ const STILE: Record<IncidentKind, { colore: string; icona: typeof Activity }> = 
   premio_presidente: { colore: "#3ddc6b", icona: PiggyBank },
   nottata_brava: { colore: "#ff8a3d", icona: Newspaper },
   intervista_contro: { colore: "#ff8a3d", icona: MessageSquareWarning },
+  rottura_tra_giocatori: { colore: "#c0392b", icona: Users },
+  cambio_proprieta: { colore: "#5aa9e6", icona: Landmark },
 };
 
 const GIORNI_PUNIZIONE = [1, 2, 3, 4];
 
 export function IncidentDialog({
   incident,
+  nomePrimo,
+  nomeSecondo,
   onClose,
   onDecide,
 }: {
   incident: Incident;
+  /** I due protagonisti di una rottura, per nome: senza, la scelta sarebbe fra due anonimi. */
+  nomePrimo?: string;
+  nomeSecondo?: string;
   onClose: () => void;
   /**
    * Solo per `incident.requiresDecision`: chiamato con la scelta del DS ("ignora" o
    * "punizione", con i giorni scelti) — l'effetto vero si applica lì (`resolveIncidentDecision`),
    * non da questo componente.
    */
-  onDecide?: (scelta: "ignora" | "punizione", giorni?: number) => void;
+  onDecide?: (scelta: "ignora" | "punizione" | "tieni_primo" | "tieni_secondo", giorni?: number) => void;
 }) {
   const { colore, icona: Icona } = STILE[incident.kind];
   const [sceltaPunizione, setSceltaPunizione] = useState(false);
@@ -111,7 +118,32 @@ export function IncidentDialog({
         )}
 
         <div className="p-4 pt-0">
-          {!incident.requiresDecision ? (
+          {incident.kind === "rottura_tra_giocatori" && incident.secondPlayerId ? (
+            /**
+             * **Chi tenere.** Non c e un opzione indolore: chi resta si sente sostenuto, chi e
+             * scaricato finisce in lista trasferimenti col morale a terra. E il gruppo paga
+             * comunque un po di veleno — una rissa non si chiude senza lasciare traccia.
+             */
+            <div className="flex flex-col gap-2">
+              <p className="px-1 text-[11px] font-bold text-[var(--text-secondary)]">
+                Chi tieni? L altro finisce sul mercato.
+              </p>
+              <button
+                type="button"
+                onClick={() => { onDecide?.("tieni_primo"); onClose(); }}
+                className="min-h-12 w-full rounded-2xl border border-[var(--brand)]/50 bg-[var(--brand)]/10 text-sm font-extrabold text-[var(--brand)] transition-transform active:scale-[0.98]"
+              >
+                Tengo {nomePrimo ?? "il primo"}
+              </button>
+              <button
+                type="button"
+                onClick={() => { onDecide?.("tieni_secondo"); onClose(); }}
+                className="min-h-12 w-full rounded-2xl border border-[var(--brand)]/50 bg-[var(--brand)]/10 text-sm font-extrabold text-[var(--brand)] transition-transform active:scale-[0.98]"
+              >
+                Tengo {nomeSecondo ?? "il secondo"}
+              </button>
+            </div>
+          ) : !incident.requiresDecision ? (
             <button
               type="button"
               onClick={onClose}

@@ -99,19 +99,38 @@ const percentuale = (v: number) => `${Math.round(v * 100)}%`;
 const MORALE_SERENO = 62;
 
 /**
+ * Quanto può essere più forte il titolare della sua casella, prima che la panchina smetta di
+ * essere una lamentela legittima.
+ *
+ * ⚠️ **La tolleranza si stringe man mano che la squadra è forte** — richiesta esplicita
+ * dell'utente: *"molti giocatori accettano di essere seconde linee nelle grandi squadre, e così
+ * deve essere anche in game"*. In un grande club stare dietro a un fuoriclasse è normale e lo
+ * sa anche l'interessato; in una piccola, dove il titolare è poco più di te, non giocare brucia.
+ */
+const TOLLERANZA_PANCHINA = (squadAverage: number): number =>
+  squadAverage >= 80 ? 0 : squadAverage >= 74 ? 1 : 3;
+
+/**
  * **Ha davvero titolo per lamentarsi della panchina?**
  *
- * La condizione che mancava, ed è la causa delle richieste di massa: `playedShare < 0.3` è vera
- * per *metà rosa* a gennaio — undici giocano, quattordici no. Ma stare in panchina è una
- * lamentela solo per chi può ragionevolmente pretendere il posto: chi vale quanto la squadra, o
- * chi è alla pari del compagno che gli sta davanti nella sua casella. Un rincalzo sei punti
- * sotto la media della rosa la panchina se l'aspetta.
+ * La condizione serve perché `playedShare < 0.3` è vera per *metà rosa* a gennaio — undici
+ * giocano, quattordici no — e senza un filtro ogni riserva aprirebbe una pratica.
+ *
+ * ⚠️ **La prima versione aveva due clausole in `or`, e la prima vanificava la seconda.** Diceva
+ * "vale quanto la media della rosa **oppure** è alla pari del compagno davanti": ma in un grande
+ * club la media è alta, quindi *qualunque* riserva nella norma la superava e reclamava il posto
+ * anche stando otto punti sotto il titolare. Era esattamente il caso che l'utente ha segnalato.
+ *
+ * Resta un criterio solo, ed è quello vero: **lo scarto dal titolare della sua casella**. Chi è
+ * nettamente sotto non ha argomenti — e quanto "nettamente" valga dipende dal livello del club
+ * (`TOLLERANZA_PANCHINA`).
  *
  * `bestRivalOverallInRole` vale `-1` quando **nessun altro** copre quel ruolo: lì il titolo a
  * giocare è ovvio, e la condizione passa da sola.
  */
 function pretendeIlPosto(f: PlayerFacts): boolean {
-  return f.overall >= f.squadAverage - 1 || f.overall >= f.bestRivalOverallInRole - 2;
+  if (f.bestRivalOverallInRole < 0) return true;
+  return f.overall >= f.bestRivalOverallInRole - TOLLERANZA_PANCHINA(f.squadAverage);
 }
 
 export const TOPICS: Topic[] = [

@@ -177,6 +177,61 @@ describe("un tema può aprirsi solo se i fatti lo reggono", () => {
     expect(dopoDieciGiornate.playedShare).toBeLessThan(0.3);
   });
 
+  /**
+   * **Nelle grandi squadre si accetta di essere seconde linee** (richiesta dell'utente).
+   *
+   * ⚠️ La versione precedente aveva due clausole in `or` — "vale quanto la media della rosa
+   * **oppure** è alla pari del compagno davanti" — e la prima vanificava la seconda: in un club
+   * forte la media è alta, quindi qualunque riserva nella norma reclamava il posto anche stando
+   * otto punti sotto il titolare.
+   */
+  it("una riserva nettamente più debole del titolare non reclama il posto", () => {
+    /**
+     * Il caso è scelto **apposta** per distinguere le due regole: un giocatore *nella media
+     * della sua squadra* (82 su 82) ma sei punti sotto il titolare della sua casella. Con la
+     * vecchia condizione la prima clausola — "vale quanto la media" — bastava e reclamava il
+     * posto; con la nuova conta solo lo scarto dal titolare, e sei punti sono troppi in un club
+     * di questo livello. Verificato rimettendo la vecchia regola: questo test fallisce.
+     */
+    const rivale = entry({ playerId: "titolare", overall: 88 });
+    const panchinaro = entry({ playerId: "riserva", overall: 82, morale: 45 });
+
+    const f = facts(
+      {
+        entry: panchinaro,
+        squadAverage: 82,
+        matchday: 20,
+        roster: [panchinaro, rivale],
+        roleOf: () => ({ role: "CC" as Role, secondaryRoles: [] }),
+      },
+      {},
+    );
+
+    expect(f.bestRivalOverallInRole).toBe(88);
+    expect(f.playedShare).toBeLessThan(0.3);
+    expect(pickTopic(f)?.id).not.toBe("poco_impiego");
+  });
+
+  it("...ma in una squadra modesta, alla pari col titolare, la panchina brucia eccome", () => {
+    // Il duale: senza, avremmo semplicemente spento il tema invece di ritararlo.
+    const rivale = entry({ playerId: "titolare", overall: 71 });
+    const panchinaro = entry({ playerId: "riserva", overall: 70, morale: 45 });
+
+    const f = facts(
+      {
+        entry: panchinaro,
+        squadAverage: 70,
+        matchday: 20,
+        roster: [panchinaro, rivale],
+        roleOf: () => ({ role: "CC" as Role, secondaryRoles: [] }),
+      },
+      {},
+    );
+
+    expect(f.playedShare).toBeLessThan(0.3);
+    expect(pickTopic(f)?.id).toBe("poco_impiego");
+  });
+
   it("chi è in prestito altrove non apre conversazioni", () => {
     const inPrestito = facts({}, { loan: { hostClubId: "altro", untilSeason: 3 }, morale: 10 });
     expect(eligibleTopics(inPrestito)).toHaveLength(0);
