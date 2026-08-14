@@ -355,6 +355,33 @@ describe("la trattativa a cinque assi", () => {
    * no fosse definitivo e muto: si scopriva di aver perso senza sapere di quanto, quindi
    * rilanciare era tirare a indovinare e la vetrina diventava inutile.
    */
+  /**
+   * **I tre esiti, distinguibili** (specifica dell'utente).
+   *
+   * Prima erano due — firma o non firma — e il no arrivava sempre nella stessa forma: non si
+   * capiva se valesse la pena rilanciare, quindi si chiudeva la scheda in entrambi i casi.
+   */
+  it("un'offerta fuori scala non produce una controproposta: è un no e basta", () => {
+    // Non basta un offerta bassa: quella si corregge alzando la cifra. Il disinteresse vero e
+    // strutturale — un giovane forte non va in un club senza ambizioni **a nessun prezzo**.
+    const a = agente({ personality: "giovane_ambizioso", age: 24, overall: 84 });
+    const generosissima: FreeAgentBid = { ...piccola, prestige: 1, wage: a.askingWage * 3, guaranteedStarter: true, captain: true };
+    const esito = resolveFreeAgentBids(a, generosissima, [], "seme", 3);
+
+    expect(esito.accepted).toBe(false);
+    expect(esito.outcome).toBe("disinteressato");
+    expect(esito.counter).toBeUndefined();
+  });
+
+  it("i tre esiti sono etichettati, non solo raccontati", () => {
+    // È l'etichetta a permettere alla scheda di mostrare tre risposte diverse: senza, la UI
+    // dovrebbe indovinare l'esito leggendo il testo del messaggio.
+    const a = agente({ personality: "professionista", age: 24 });
+    const generosa: FreeAgentBid = { ...piccola, wage: a.askingWage * 1.4, guaranteedStarter: true };
+    expect(resolveFreeAgentBids(a, generosa, [], "seme", 3).outcome).toBe("accordo");
+    expect(resolveFreeAgentBids(a, piccola, [grande], "seme", 3).outcome).toBeDefined();
+  });
+
   it("perdere la corsa non chiude la porta: dice cosa serve per vincerla", () => {
     const a = agente({ personality: "mercenario", age: 24 });
     const esito = resolveFreeAgentBids(a, piccola, [grande], "seme", 3);

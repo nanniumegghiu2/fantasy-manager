@@ -242,7 +242,7 @@ export function CoachNegotiationChat({
       )}
 
       {contract && scheda === "contratto" && (
-        <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-3 px-4 py-6 pb-36">
+        <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-3 px-4 py-6 pb-44">
           <section className="rounded-2xl border border-[var(--surface-border)] bg-[var(--surface-raised)] p-4">
             <p className="text-[10px] font-extrabold tracking-widest text-[var(--text-secondary)] uppercase">
               Contratto in essere
@@ -321,7 +321,7 @@ export function CoachNegotiationChat({
 
       {/* Chat Area */}
       <main
-        className={`mx-auto w-full max-w-2xl flex-1 flex-col gap-4 px-4 py-6 pb-36 ${
+        className={`mx-auto w-full max-w-2xl flex-1 flex-col gap-4 px-4 py-6 pb-44 ${
           contract && scheda === "contratto" ? "hidden" : "flex"
         }`}
       >
@@ -484,7 +484,16 @@ export function CoachNegotiationChat({
       </main>
 
       {/* Controlli Chat in Basso */}
-      <footer className="fixed inset-x-0 bottom-0 z-30 border-t border-[var(--surface-border)] bg-[var(--surface)]/95 backdrop-blur p-4">
+      {/**
+       * ⚠️ **La barra dei bottoni finiva sotto il bordo dello schermo su mobile.**
+       *
+       * Era ancorata a `bottom-0` con un padding fisso: sui telefoni, dove la barra di sistema
+       * (o l indicatore home) occupa gli ultimi millimetri, il tasto per chiudere il meeting
+       * risultava tagliato e difficile da centrare col pollice. `env(safe-area-inset-bottom)`
+       * e la sola misura che conosce quello spazio; il contenuto sopra ha un margine di pari
+       * misura, altrimenti l ultima riga della trattativa resterebbe nascosta dietro la barra.
+       */}
+      <footer className="fixed inset-x-0 bottom-0 z-30 border-t border-[var(--surface-border)] bg-[var(--surface)]/95 px-4 pt-4 backdrop-blur pb-[calc(1rem+env(safe-area-inset-bottom))]">
         <div className="mx-auto flex w-full max-w-2xl gap-3">
           {step === "greeting" && (
             <>

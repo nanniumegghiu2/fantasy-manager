@@ -19,6 +19,7 @@ import {
   dressingRoom,
   expireContracts,
   financesOf,
+  hireCoach,
   openPlayerDialogue,
   applyPlayerDialogue,
   releasePlayer,
@@ -463,5 +464,40 @@ describe("cambio di modulo", () => {
       coachContract: { ...state.coachContract!, signedSeason: state.season },
     };
     expect(maybeAskFormationChange(appenaFirmato).coachFormationRequest).toBeUndefined();
+  });
+});
+
+/**
+ * ⚠️ **Il blocco totale segnalato dall'utente**: assumendo un mister a mercato aperto comparivano
+ * i bottoni del meeting *sopra* il pannello del mercato, e non c'era via d'uscita.
+ *
+ * La causa: quando il tecnico precedente se ne andava restava `seasonNegotiationDone: false`
+ * ("manca l'incontro di inizio stagione"), e ingaggiare il sostituto non toccava quel flag. Ma
+ * la firma di un allenatore passa **già** da una trattativa completa: l'incontro è appena
+ * avvenuto, e segnarlo come fatto è la verità, non una toppa.
+ */
+describe("ingaggiare un mister chiude anche il suo meeting", () => {
+  it("dopo un ingaggio non resta un incontro in sospeso", () => {
+    const { state, world } = mondo();
+    const senzaMister: CareerState = {
+      ...state,
+      coachId: null,
+      coachContract: undefined,
+      seasonNegotiationDone: false,
+    };
+
+    const esito = hireCoach(senzaMister, world, "coach-gasperini");
+    if (esito.rejected) return;
+
+    expect(esito.state.coachId).toBe("coach-gasperini");
+    expect(esito.state.seasonNegotiationDone).toBe(true);
+  });
+
+  it("il rinnovo con lo stesso mister non passa di qui e non tocca nulla", () => {
+    // `hireCoach` esce subito se l'allenatore è già il nostro: la distinzione conta, perché il
+    // meeting stagionale con lo **stesso** tecnico deve continuare a esserci.
+    const { state, world } = mondo();
+    const esito = hireCoach(state, world, state.coachId!);
+    expect(esito.state).toBe(state);
   });
 });

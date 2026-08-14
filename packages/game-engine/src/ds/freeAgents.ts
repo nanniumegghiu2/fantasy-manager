@@ -440,16 +440,33 @@ export interface FreeAgentCounter {
   gap: number;
 }
 
+/**
+ * **I tre esiti possibili di una trattativa con uno svincolato** (specifica dell'utente).
+ *
+ * Prima erano due — "firma" o "non firma" — e il no arrivava in forme diverse che l'utente non
+ * poteva distinguere: a volte era un rifiuto di principio, a volte una gara persa per poco. Non
+ * sapendo quale dei due fosse, in entrambi i casi si chiudeva la scheda.
+ *
+ *  - `disinteressato` — non verrebbe comunque, e lo dice chiaramente: la trattativa **si chiude**
+ *    e non c'è nulla da rilanciare. È l'esito che mancava del tutto;
+ *  - `accordo` — gli va bene: si firma;
+ *  - `conteso` — c'è chi offre di più, ma è prendibile: arriva la **cifra che serve**, e se non
+ *    la si copre va davvero all'altro club.
+ */
+export type FreeAgentOutcome = "disinteressato" | "accordo" | "conteso";
+
 export interface FreeAgentVerdict {
   accepted: boolean;
+  /** Quale dei tre esiti è: la UI ci costruisce sopra tre schermate diverse, non un messaggio. */
+  outcome: FreeAgentOutcome;
   score: number;
   /** Il punteggio della migliore offerta rivale, per raccontare perché ha scelto. */
   rivalScore: number;
   rivalClubName?: string;
   message: string;
   /**
-   * Presente quando **è ancora prendibile**: dice cosa offrire per superare la concorrenza.
-   * Assente quando il no è di principio (non verrebbe comunque da noi).
+   * Presente **solo** con esito `conteso`: dice cosa offrire per superare la concorrenza. Con
+   * `disinteressato` è assente di proposito — non esiste una cifra che lo convinca.
    */
   counter?: FreeAgentCounter;
 }
@@ -522,6 +539,34 @@ function buildCounter(
  * Un pizzico di rumore seedato impedisce che la scelta sia un calcolo esatto ripetibile a mente,
  * ma resta stabile a parità di offerta — ricaricare un salvataggio non cambia il verdetto.
  */
+/**
+ * **C'è chi non verrebbe comunque**, e non è questione di cifre.
+ *
+ * ⚠️ Questo veto è esplicito e non emergente, ed è una scelta. Affidarlo ai soli punteggi non
+ * funzionava: con un'offerta abbastanza generosa il totale supera sempre la soglia, quindi
+ * *qualunque* giocatore risultava prendibile pagando — e il primo dei tre esiti chiesti
+ * dall'utente ("completamente disinteressato") non si verificava mai. Verificato scrivendo il
+ * test: un'offerta simbolica produceva comunque una controproposta.
+ *
+ * La regola guarda la distanza fra **quanto vale** e **dove lo si sta chiamando**: un giocatore
+ * nettamente sopra il livello di un club senza ambizioni non ci va per soldi, perché a quel
+ * punto della carriera i soldi li trova anche altrove. Non vale per i veterani, che invece
+ * accettano volentieri di scendere di categoria (vedi il peso dell'età in `freeAgentBidScore`).
+ */
+export function wouldConsider(agent: FreeAgent, bid: FreeAgentBid): boolean {
+  if (agent.age >= 31) return true; // chi ha più anni che carriera guarda al campo, non al blasone
+  if (agent.personality === "mercenario") return true; // per lui i soldi bastano sempre
+
+  // Quanto in alto può ambire, letto dal prestigio del club: 1 → ~68, 5 → ~88.
+  const livelloDelClub = 63 + bid.prestige * 5;
+  const scarto = agent.overall - livelloDelClub;
+
+  // Sopra questa distanza il progetto non lo riguarda. Il giovane ambizioso è il più esigente:
+  // ha una carriera davanti e non la spende in un posto senza obiettivi.
+  const tolleranza = agent.personality === "giovane_ambizioso" ? 6 : 10;
+  return scarto <= tolleranza;
+}
+
 export function resolveFreeAgentBids(
   agent: FreeAgent,
   ourBid: FreeAgentBid,
@@ -529,6 +574,19 @@ export function resolveFreeAgentBids(
   seed: string,
   season: number,
 ): FreeAgentVerdict {
+  // Il veto viene **prima** del punteggio: se il progetto non lo riguarda, non c e cifra da
+  // calcolare e non c e trattativa da aprire.
+  if (!wouldConsider(agent, ourBid)) {
+    return {
+      accepted: false,
+      outcome: "disinteressato",
+      score: 0,
+      rivalScore: 0,
+      message:
+        "La ringrazio, Direttore, ma non fa per me: a questo punto della carriera cerco un altro tipo di progetto.",
+    };
+  }
+
   const rumore = derivedRandom(seed, "faBid", agent.id, season);
   const nostro = freeAgentBidScore(agent, ourBid) + (rumore() - 0.5) * 6;
 
@@ -546,18 +604,34 @@ export function resolveFreeAgentBids(
   const rivalScore = Math.round(miglioreRivale);
 
   if (score < FREE_AGENT_MIN_SCORE) {
-    // Non basta nemmeno per sedersi: qui la controproposta è "alza fino alla soglia", che è una
-    // richiesta sua e non una gara con altri.
+    /**
+     * **Non ci siamo, e ci sono due modi diversi di non esserci.**
+     *
+     * Se una cifra ragionevole basterebbe a convincerlo è una trattativa da aprire; se **nessuna
+     * offerta sostenibile** lo porta sopra la soglia, il progetto non gli interessa e va detto
+     * chiaro invece di lasciar rilanciare a vuoto. È il primo dei tre esiti chiesti dall'utente,
+     * e prima non esisteva: si vedeva sempre lo stesso "preferisco aspettare".
+     */
     const counter = buildCounter(agent, ourBid, FREE_AGENT_MIN_SCORE, FREE_AGENT_MIN_SCORE - score);
+    if (!counter) {
+      return {
+        accepted: false,
+        outcome: "disinteressato",
+        score,
+        rivalScore,
+        rivalClubName: nomeRivale,
+        message:
+          "Sarò sincero, Direttore: non è il progetto che cerco. Non è questione di cifre, non se ne fa nulla.",
+      };
+    }
     return {
       accepted: false,
+      outcome: "conteso",
       score,
       rivalScore,
       rivalClubName: nomeRivale,
       counter,
-      message: counter
-        ? "Così non ci siamo, Direttore. Ma se trovate i margini, se ne può riparlare."
-        : "Non è la proposta che aspettavo. Preferisco aspettare ancora.",
+      message: "Così non ci siamo, Direttore. Ma se trovate i margini, se ne può riparlare.",
     };
   }
   if (rivalScore > score) {
@@ -570,23 +644,35 @@ export function resolveFreeAgentBids(
      * avere una vetrina.
      */
     const counter = buildCounter(agent, ourBid, rivalScore + 1, rivalScore - score);
+    if (!counter) {
+      // Fuori portata: non è una gara che si può vincere, ed è più onesto dirlo che far
+      // rilanciare a vuoto.
+      return {
+        accepted: false,
+        outcome: "disinteressato",
+        score,
+        rivalScore,
+        rivalClubName: nomeRivale,
+        message: nomeRivale
+          ? `Mi dispiace, Direttore: la proposta del ${nomeRivale} è fuori dalla vostra portata.`
+          : "Ho ricevuto una proposta che non potete coprire.",
+      };
+    }
     return {
       accepted: false,
+      outcome: "conteso",
       score,
       rivalScore,
       rivalClubName: nomeRivale,
       counter,
-      message: counter
-        ? nomeRivale
-          ? `Il ${nomeRivale} si è fatto avanti con qualcosa di più. Se coprite quella cifra, io vengo da voi.`
-          : "Ho una proposta migliore sul tavolo. Copritela e chiudiamo."
-        : nomeRivale
-          ? `Mi dispiace, Direttore: la proposta del ${nomeRivale} è fuori dalla vostra portata.`
-          : "Ho ricevuto una proposta migliore altrove.",
+      message: nomeRivale
+        ? `Il ${nomeRivale} si è fatto avanti con qualcosa di più. Se coprite quella cifra, io vengo da voi.`
+        : "Ho una proposta migliore sul tavolo. Copritela e chiudiamo.",
     };
   }
   return {
     accepted: true,
+    outcome: "accordo",
     score,
     rivalScore,
     rivalClubName: nomeRivale,

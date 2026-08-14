@@ -534,7 +534,6 @@ export function CareerScreen({
     (playerId: string) => {
       const esito = proposeCaptain(state, world, playerId);
       if (esito.ok) onChange(esito.state);
-      else if (esito.state !== state) onChange(esito.state);
       return { ok: esito.ok, message: esito.message };
     },
     [state, world, onChange],
@@ -543,9 +542,19 @@ export function CareerScreen({
   const firmaSvincolato = useCallback(
     (agentId: string, offer: { wage: number; seasons: number; guaranteedStarter: boolean }) => {
       const esito = signFreeAgent(state, world, agentId, offer);
-      if (esito.ok) onChange(esito.state);
+      // Anche un no puo cambiare lo stato: chi non convinci e stato preso da un altro club, e
+      // il motore lo toglie dalla vetrina. Applicare solo i si lo avrebbe lasciato li.
+      if (esito.state !== state) onChange(esito.state);
       // Il tavolo mostra l'esito lì dove si è deciso: un rifiuto silenzioso sembrerebbe un bug.
-      return { ok: esito.ok, message: esito.message };
+      // I tre esiti (disinteressato / accordo / conteso) arrivano fino alla scheda, che su
+      // ciascuno mostra una risposta diversa invece dello stesso "no" indistinto.
+      return {
+        ok: esito.ok,
+        message: esito.message,
+        counter: esito.counter,
+        outcome: esito.outcome,
+        rivalClubName: esito.rivalClubName,
+      };
     },
     [state, world, onChange],
   );
@@ -1411,7 +1420,12 @@ export function CareerScreen({
           />
         )}
 
-        {!correndo && !incident && !teatro && !keyMatch && !riepilogo && !richiestaDirigenza && bisognaRinnovare && coachAttuale && (
+        {/* **Mai due sovraimpressioni insieme.** Il meeting non si apre sopra il mercato: erano
+            i due pannelli sovrapposti a bloccare la partita quando si assumeva un mister a
+            finestra aperta. La condizione sul mercato e una rete di sicurezza — la causa vera e
+            corretta in `hireCoach` — perche un blocco totale non deve poter tornare da un altro
+            percorso. */}
+        {!correndo && !incident && !teatro && !keyMatch && !riepilogo && !richiestaDirigenza && !state.market && bisognaRinnovare && coachAttuale && (
           <CoachNegotiationChat
             key="rinnovo-mister"
             coach={coachAttuale}
@@ -1490,6 +1504,7 @@ export function CareerScreen({
             state={state}
             summary={riepilogo}
             teamsInLeague={world.opponents.length + 1}
+            secondDivision={inSecondDivision(state, world)}
             shareData={{
               clubName: world.clubName,
               season: riepilogo.season,

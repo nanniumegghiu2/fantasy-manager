@@ -12,6 +12,7 @@ import {
   type CareerWorld,
   type FreeAgent,
   type FreeAgentCounter,
+  type FreeAgentOutcome,
   type SearchCriteria,
 } from "@app/game-engine";
 import { ContractOfferForm, type ContractOffer } from "./ContractOfferForm";
@@ -139,7 +140,13 @@ export function FreeAgentsPanel({
   onSign: (
     agentId: string,
     offer: { wage: number; seasons: number; guaranteedStarter: boolean },
-  ) => { ok: boolean; message: string; counter?: FreeAgentCounter } | void;
+  ) => {
+    ok: boolean;
+    message: string;
+    counter?: FreeAgentCounter;
+    outcome?: FreeAgentOutcome;
+    rivalClubName?: string;
+  } | void;
   /** Riequilibra il bilancio senza uscire dalla scheda. */
   onShiftFinances?: (share: number) => void;
 }) {
@@ -156,7 +163,13 @@ export function FreeAgentsPanel({
   /** Lo svincolato al tavolo, se aperto. */
   const [trattativa, setTrattativa] = useState<FreeAgent | null>(null);
   /** L'esito dell'ultima offerta: se c'è una controproposta, si vede al tavolo. */
-  const [contro, setContro] = useState<{ id: string; messaggio: string; counter?: FreeAgentCounter } | null>(null);
+  const [contro, setContro] = useState<{
+    id: string;
+    messaggio: string;
+    counter?: FreeAgentCounter;
+    outcome?: FreeAgentOutcome;
+    rivalClubName?: string;
+  } | null>(null);
 
   const pool = useMemo(() => freeAgentMarket(state, world), [state, world]);
   const margine = useMemo(() => financesOf(state, world).wageRoom, [state, world]);
@@ -376,7 +389,13 @@ export function FreeAgentsPanel({
                * concorrenza, e il tasto la applica al tavolo senza doverla ricomporre a mano.
                */}
               {contro?.id === trattativa.id && (
-                <div className="border-b border-[var(--surface-border)] bg-[#ff8a3d]/10 px-4 py-2.5">
+                <div
+                  className="border-b px-4 py-2.5"
+                  style={{
+                    borderColor: contro.outcome === "disinteressato" ? "#ff4d4d33" : "#ff8a3d33",
+                    backgroundColor: contro.outcome === "disinteressato" ? "#ff4d4d12" : "#ff8a3d12",
+                  }}
+                >
                   <p className="text-[12px] leading-snug font-medium">{contro.messaggio}</p>
                   {contro.counter && (
                     <p className="mt-1.5 text-[11px] font-bold text-[#ff8a3d]">
@@ -387,6 +406,35 @@ export function FreeAgentsPanel({
                   )}
                 </div>
               )}
+
+              {/**
+               * **Il disinteresse chiude la trattativa** (specifica dell'utente).
+               *
+               * Prima ogni no aveva la stessa forma, e non si capiva se valesse la pena
+               * rilanciare: si chiudeva la scheda in entrambi i casi. Qui il tavolo sparisce
+               * insieme alle sue leve — lasciare i controlli attivi sotto un "non se ne fa nulla"
+               * inviterebbe a insistere contro un muro. Se c'era un club rivale, a quel punto il
+               * giocatore è **davvero** andato lì: il motore lo toglie dalla vetrina.
+               */}
+              {contro?.id === trattativa.id && contro.outcome === "disinteressato" ? (
+                <div className="flex flex-col gap-3 p-4">
+                  <p className="text-[11px] leading-relaxed text-[var(--text-secondary)]">
+                    {contro.rivalClubName
+                      ? `Ha firmato altrove: non è più sul mercato.`
+                      : `Non c'è una cifra che lo convinca: meglio cercare altrove.`}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setContro(null);
+                      setTrattativa(null);
+                    }}
+                    className="min-h-11 w-full rounded-2xl bg-[var(--brand)] text-sm font-extrabold text-[var(--brand-contrast)] active:scale-98"
+                  >
+                    Chiudi la trattativa
+                  </button>
+                </div>
+              ) : (
 
               <ContractOfferForm
                 key={`${trattativa.id}-${contro?.counter?.wage ?? 0}`}
@@ -421,6 +469,8 @@ export function FreeAgentsPanel({
                       id: trattativa.id,
                       messaggio: esito.message,
                       counter: esito.counter,
+                      outcome: esito.outcome,
+                      rivalClubName: esito.rivalClubName,
                     });
                   }
                   return esito;
@@ -431,6 +481,7 @@ export function FreeAgentsPanel({
                   setTrattativa(null);
                 }}
               />
+              )}
             </motion.div>
           </motion.div>
         )}

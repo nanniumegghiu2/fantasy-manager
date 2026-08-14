@@ -96,6 +96,7 @@ import {
   type FreeAgent,
   type FreeAgentBid,
   type FreeAgentCounter,
+  type FreeAgentOutcome,
   type RivalClubInfo,
 } from "./freeAgents";
 import {
@@ -2796,6 +2797,21 @@ export function hireCoach(
       // tocca queste righe.
       guaranteedStarters: {},
       coachBenched: {},
+      /**
+       * ⚠️ **Ingaggiare un mister È il meeting**: non se ne deve un secondo.
+       *
+       * Il difetto segnalato dall'utente, e bloccava la partita: quando il tecnico precedente se
+       * ne andava (dimissioni, esonero, contratto scaduto) restava `seasonNegotiationDone:
+       * false`, cioè "manca l'incontro di inizio stagione". Assumendo il sostituto **dal
+       * mercato** quel flag non veniva toccato, quindi la chat del meeting si apriva *sopra* il
+       * pannello del mercato: due sovraimpressioni insieme, i bottoni dell'una sullo sfondo
+       * dell'altra, e nessuna via d'uscita.
+       *
+       * La firma di un nuovo allenatore passa già da una trattativa completa — richieste,
+       * durata, ingaggio — quindi l'incontro è appena avvenuto: segnarlo come fatto è la verità,
+       * non una toppa.
+       */
+      seasonNegotiationDone: true,
     },
     message: `${coach.name} è il nuovo allenatore: modulo ${coach.formationId}. (Costo totale: €${effectiveCost.toLocaleString("it-IT")})`,
   };
@@ -4896,6 +4912,8 @@ export interface FreeAgentSigningResult {
   ok: boolean;
   message: string;
   rivalClubName?: string;
+  /** Quale dei tre esiti: la UI ci costruisce sopra tre risposte diverse. */
+  outcome?: FreeAgentOutcome;
   /** Cosa serve per superare la concorrenza, quando è ancora prendibile. */
   counter?: FreeAgentCounter;
 }
@@ -4940,9 +4958,25 @@ export function signFreeAgent(
   const verdetto = resolveFreeAgentBids(agente, nostra, rivali, state.seed, state.season);
 
   if (!verdetto.accepted) {
+    /**
+     * **Chi non convinci lo perdi davvero.**
+     *
+     * Richiesta dell utente: se il giocatore e conteso e non si copre la cifra, deve finire
+     * **realmente** nell altro club, non restare in vetrina in attesa di un ripensamento. Lo si
+     * segna fra i gia firmati: la vetrina lo esclude alla prossima lettura, come se l avesse
+     * preso l IA — che e esattamente quel che e successo.
+     *
+     * Vale solo per il `disinteressato` **con rivale**: chi e ancora `conteso` sta aspettando la
+     * nostra risposta, e chiudergli la porta in faccia mentre stiamo trattando sarebbe l opposto
+     * di quel che la controproposta promette.
+     */
+    const perso = verdetto.outcome === "disinteressato" && !!verdetto.rivalClubName;
     return {
-      state,
+      state: perso
+        ? { ...state, freeAgentsSigned: [...(state.freeAgentsSigned ?? []), agente.id] }
+        : state,
       ok: false,
+      outcome: verdetto.outcome,
       message: verdetto.message,
       rivalClubName: verdetto.rivalClubName,
       counter: verdetto.counter,

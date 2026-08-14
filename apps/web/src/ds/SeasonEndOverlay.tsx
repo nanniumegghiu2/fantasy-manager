@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { Check, Crown, Handshake, Home, MessagesSquare, Share2, Smile, Target, TrendingDown, Trophy, Wallet } from "lucide-react";
-import type { CareerState, SeasonSummary } from "@app/game-engine";
+import { ArrowUpCircle, Check, Crown, Handshake, Home, MessagesSquare, Share2, Smile, Swords, Target, TrendingDown, Trophy, Wallet } from "lucide-react";
+import { PROMOTION_SLOTS, type CareerState, type SeasonSummary } from "@app/game-engine";
 import { CUP_STAGE_LABEL, euro, ordinale } from "./format";
 import { CelebrationConfetti } from "./CelebrationConfetti";
 import { shareTriumph, type ShareCardData } from "./shareCard";
@@ -15,12 +15,33 @@ import { shareTriumph, type ShareCardData } from "./shareCard";
  * è la fine della partita.
  */
 
-function verdetto(summary: SeasonSummary, teamsInLeague: number) {
-  if (summary.position === 1) {
-    return { titolo: "Campione", tono: "#f5c518", icona: Trophy };
-  }
+/**
+ * Il verdetto dell annata, **nella lingua del campionato che si gioca**.
+ *
+ * ⚠️ Segnalazione dell utente: arrivando secondi o terzi in Serie B la schermata annunciava
+ * "In Europa", che da quella categoria non vuol dire niente — dalla B non ci si qualifica alle
+ * coppe europee, ci si **promuove**. La scala era scritta per la Serie A e applicata a entrambe.
+ *
+ * Le soglie vere vivono gia nel motore (`tierFor`, che conosce le due divisioni): qui si traduce
+ * il piazzamento nella frase giusta invece di reinventare i numeri.
+ */
+function verdetto(summary: SeasonSummary, teamsInLeague: number, secondDivision: boolean) {
   if (summary.position > teamsInLeague - 3) {
     return { titolo: "Retrocessione", tono: "#ff4d4d", icona: TrendingDown };
+  }
+
+  if (secondDivision) {
+    if (summary.position <= PROMOTION_SLOTS) {
+      return { titolo: summary.position === 1 ? "Promossi da campioni" : "Promossi", tono: "#3ddc6b", icona: ArrowUpCircle };
+    }
+    if (summary.position <= 8) {
+      return { titolo: "Ai playoff", tono: "#8fd4a4", icona: Swords };
+    }
+    return { titolo: "Salvezza tranquilla", tono: "#ffab2e", icona: Trophy };
+  }
+
+  if (summary.position === 1) {
+    return { titolo: "Campione", tono: "#f5c518", icona: Trophy };
   }
   if (summary.position <= 4) {
     return { titolo: "In Europa", tono: "#3ddc6b", icona: Crown };
@@ -35,6 +56,8 @@ interface SeasonEndOverlayProps {
   state: CareerState;
   summary: SeasonSummary;
   teamsInLeague: number;
+  /** In Serie B il verdetto parla di promozione e playoff, non di Europa. */
+  secondDivision?: boolean;
   /** I dati della card condivisibile: il resoconto e il trionfo sono ora una schermata sola. */
   shareData?: ShareCardData;
   onContinue: () => void;
@@ -45,6 +68,7 @@ export function SeasonEndOverlay({
   state,
   summary,
   teamsInLeague,
+  secondDivision = false,
   shareData,
   onContinue,
   onExit,
@@ -53,7 +77,7 @@ export function SeasonEndOverlay({
   const trofei = summary.trophies
     ? Number(summary.trophies.league) + Number(summary.trophies.continental) + Number(summary.trophies.national)
     : 0;
-  const { titolo, tono, icona: Icona } = verdetto(summary, teamsInLeague);
+  const { titolo, tono, icona: Icona } = verdetto(summary, teamsInLeague, secondDivision);
   const finita = state.phase === "conclusa";
   const vintaCoppa = summary.cupOutcome === "vittoria";
   const vintoCampionato = summary.position === 1;
