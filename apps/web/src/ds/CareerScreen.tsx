@@ -101,7 +101,6 @@ import type { DsWorldData } from "./useDsWorld";
 import { MiniStandings } from "./MiniStandings";
 import { SeasonEndOverlay } from "./SeasonEndOverlay";
 import { SeasonSquadReportModal } from "./SeasonSquadReportModal";
-import { TriumphScreen } from "./TriumphScreen";
 import { SquadPanel } from "./SquadPanel";
 import { WeekReportCard } from "./WeekReportCard";
 import {
@@ -205,8 +204,6 @@ export function CareerScreen({
   const [teatro, setTeatro] = useState<PartitaChiave | null>(null);
   const [seasonEnd, setSeasonEnd] = useState<number | null>(null);
   const [squadReportSummary, setSquadReportSummary] = useState<SeasonSummary | null>(null);
-  /** L'ultima stagione per cui la schermata di trionfo è già stata mostrata e chiusa. */
-  const [trionfoVisto, setTrionfoVisto] = useState<number | null>(null);
   const [correndo, setCorrendo] = useState(false);
   /** I referti ancora da mostrare della corsa in atto. */
   const coda = useRef<WeekReport[]>([]);
@@ -760,19 +757,6 @@ export function CareerScreen({
   const settimane = calendar.length;
   const progresso = settimane > 0 ? Math.min(100, (state.week / settimane) * 100) : 0;
   const riepilogo = seasonEnd !== null ? state.history.find((h) => h.season === seasonEnd) : undefined;
-
-  /**
-   * La schermata di trionfo si apre **una volta per stagione**, e solo se c'è un trofeo.
-   *
-   * Il flag tiene la stagione già festeggiata invece di un booleano: un booleano resterebbe
-   * acceso e alla stagione dopo il trionfo non si vedrebbe più.
-   */
-  const trofeiVinti = riepilogo?.trophies
-    ? Number(riepilogo.trophies.league) +
-      Number(riepilogo.trophies.continental) +
-      Number(riepilogo.trophies.national)
-    : 0;
-  const mostraTrionfo = !!riepilogo && trofeiVinti > 0 && trionfoVisto !== riepilogo.season;
   const bloccato =
     !!state.market || !!state.pendingRequest || bisognaRinnovare || !!state.coachDeparture || bisognaObiettivo;
 
@@ -1412,37 +1396,31 @@ export function CareerScreen({
             onChoose={(tier) => onChange(setSeasonObjective(state, tier, world))}
           />
         )}
-
-        {/* Il trionfo viene **prima** del resoconto: è il momento da festeggiare, e leggere i
-            numeri di fine stagione prima toglierebbe la sorpresa. */}
-        {!correndo && !teatro && !keyMatch && mostraTrionfo && riepilogo && (
-          <TriumphScreen
-            key="trionfo"
-            data={{
+        {/**
+         * ⚠️ **Una sola schermata di fine stagione** (segnalazione dell utente).
+         *
+         * Ce n erano due, una condivisibile e una no: erano nate per scopi diversi — la festa
+         * e i numeri — ma per chi gioca sono la stessa cosa vista due volte, e la seconda
+         * arrivava quando la prima aveva gia detto tutto. Il resoconto e ora uno solo, con la
+         * condivisione accanto ai numeri che raccontano il trionfo.
+         */}
+        {!correndo && !teatro && !keyMatch && riepilogo && (
+          <SeasonEndOverlay
+            key="fine-stagione"
+            state={state}
+            summary={riepilogo}
+            teamsInLeague={world.opponents.length + 1}
+            shareData={{
               clubName: world.clubName,
               season: riepilogo.season,
               leagueName: riepilogo.leagueName ?? world.leagueName ?? "Campionato",
-              trophies: riepilogo.trophies ?? {
-                league: false,
-                continental: false,
-                national: false,
-              },
+              trophies: riepilogo.trophies ?? { league: false, continental: false, national: false },
               points: riepilogo.points,
               goalsFor: riepilogo.goalsFor,
               goalsAgainst: riepilogo.goalsAgainst,
               position: riepilogo.position,
               topScorer: capocannoniere(riepilogo),
             }}
-            onClose={() => setTrionfoVisto(riepilogo.season)}
-          />
-        )}
-
-        {!correndo && !teatro && !keyMatch && !mostraTrionfo && riepilogo && (
-          <SeasonEndOverlay
-            key="fine-stagione"
-            state={state}
-            summary={riepilogo}
-            teamsInLeague={world.opponents.length + 1}
             onContinue={() => {
               setSquadReportSummary(riepilogo);
               setSeasonEnd(null);

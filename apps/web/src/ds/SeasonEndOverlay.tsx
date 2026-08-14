@@ -1,8 +1,10 @@
+import { useState } from "react";
 import { motion } from "framer-motion";
-import { Crown, Handshake, Home, MessagesSquare, Smile, Target, TrendingDown, Trophy, Wallet } from "lucide-react";
+import { Check, Crown, Handshake, Home, MessagesSquare, Share2, Smile, Target, TrendingDown, Trophy, Wallet } from "lucide-react";
 import type { CareerState, SeasonSummary } from "@app/game-engine";
 import { CUP_STAGE_LABEL, euro, ordinale } from "./format";
 import { CelebrationConfetti } from "./CelebrationConfetti";
+import { shareTriumph, type ShareCardData } from "./shareCard";
 
 /**
  * Fine stagione (e fine carriera).
@@ -33,6 +35,8 @@ interface SeasonEndOverlayProps {
   state: CareerState;
   summary: SeasonSummary;
   teamsInLeague: number;
+  /** I dati della card condivisibile: il resoconto e il trionfo sono ora una schermata sola. */
+  shareData?: ShareCardData;
   onContinue: () => void;
   onExit: () => void;
 }
@@ -41,9 +45,14 @@ export function SeasonEndOverlay({
   state,
   summary,
   teamsInLeague,
+  shareData,
   onContinue,
   onExit,
 }: SeasonEndOverlayProps) {
+  const [condivisione, setCondivisione] = useState<"idle" | "in-corso" | "fatto" | "errore">("idle");
+  const trofei = summary.trophies
+    ? Number(summary.trophies.league) + Number(summary.trophies.continental) + Number(summary.trophies.national)
+    : 0;
   const { titolo, tono, icona: Icona } = verdetto(summary, teamsInLeague);
   const finita = state.phase === "conclusa";
   const vintaCoppa = summary.cupOutcome === "vittoria";
@@ -217,6 +226,44 @@ export function SeasonEndOverlay({
               Analizza la Rosa (Report DS) ➔
             </button>
           )}
+          {/**
+           * **La condivisione sta qui, non in una seconda schermata.**
+           *
+           * Segnalazione dell'utente: a ogni fine stagione comparivano **due** riepiloghi, uno
+           * condivisibile e uno no. Erano nati per scopi diversi — la festa e i numeri — ma per
+           * chi gioca sono la stessa cosa vista due volte, e la seconda arriva quando la prima ha
+           * già detto tutto. Ora il resoconto è uno solo, e il tasto per portare fuori il trionfo
+           * vive accanto ai numeri che lo raccontano.
+           *
+           * Compare **solo se c'è qualcosa da festeggiare**: una card di una stagione senza
+           * trofei non è un trionfo, è un tabellino.
+           */}
+          {trofei > 0 && shareData && (
+            <button
+              type="button"
+              disabled={condivisione === "in-corso"}
+              onClick={async () => {
+                setCondivisione("in-corso");
+                const esito = await shareTriumph(shareData, "storia");
+                setCondivisione(esito === "errore" || esito === "annullato" ? "errore" : "fatto");
+              }}
+              className="flex w-full items-center justify-center gap-2 rounded-2xl border py-3 text-sm font-extrabold transition-transform active:scale-[0.98]"
+              style={{ borderColor: "#f5c51866", backgroundColor: "#f5c51814", color: "#f5c518" }}
+            >
+              {condivisione === "in-corso" ? (
+                <>Preparo l'immagine…</>
+              ) : condivisione === "fatto" ? (
+                <>
+                  <Check size={15} /> Immagine pronta
+                </>
+              ) : (
+                <>
+                  <Share2 size={15} /> Condividi il trionfo
+                </>
+              )}
+            </button>
+          )}
+
           <button
             type="button"
             onClick={onExit}
