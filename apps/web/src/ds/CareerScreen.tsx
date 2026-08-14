@@ -48,6 +48,7 @@ import {
   answerBoardSackDemand,
   defaultBoard,
   seasonObjectiveChoices,
+  inSecondDivision,
   setSeasonObjective,
   coachChoices,
   currentLineup,
@@ -1404,7 +1405,8 @@ export function CareerScreen({
             season={state.season}
             choices={seasonObjectiveChoices(state, world)}
             finances={finanze}
-            onChoose={(tier) => onChange(setSeasonObjective(state, tier))}
+            secondDivision={inSecondDivision(state, world)}
+            onChoose={(tier) => onChange(setSeasonObjective(state, tier, world))}
           />
         )}
 

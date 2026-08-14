@@ -229,13 +229,14 @@ export const WORLD_TRANSFERS_PER_SEASON = 50;
 const MIN_BUYER_EDGE = 2;
 
 /**
- * Di quanto può essere più scarso il rimpiazzo rispetto a chi è partito.
+ * Quanto deve essere piu forte il compratore perche la sua offerta diventi **irrifiutabile**.
  *
- * Non zero: nel calcio vero chi vende il suo miglior attaccante quasi mai lo sostituisce con
- * uno più forte, ma nemmeno con un ragazzino qualunque — prende qualcuno di livello vicino.
- * Questa soglia è ciò che rende una cessione un **affare** e non un impoverimento gratuito.
+ * Sotto questa distanza un club non si priva di un titolare che gli serve; sopra, la differenza
+ * di mezzi e tale che rifiutare non e realistico — ed e il solo modo in cui un big soffia il
+ * pezzo pregiato a una media senza che il mercato diventi un mercatino dove tutto e in vendita.
  */
-const MAX_REPLACEMENT_GAP = 3;
+const IRRESISTIBLE_OFFER_EDGE = 5;
+
 
 /** Quanto di quello che incassa un club torna disponibile subito per il rimpiazzo. */
 const REINVEST_SHARE = 0.85;
@@ -422,11 +423,33 @@ function cercaAffare({
       if (giaMossi.has(player.id)) continue;
       // Deve migliorare davvero chi lo compra, altrimenti non è un rinforzo ma un movimento.
       if (player.overall < compratore.forza - 2) continue;
+
+      const titolare = rango < TITOLARI_PER_REPARTO[bersaglio];
+
+      /**
+       * **Perché il venditore accetterebbe di privarsene** (decisione dell'utente, 2026-08-14).
+       *
+       * Non basta che qualcuno lo voglia: un club cede un suo uomo per una ragione, e sono
+       * queste due. Senza, ogni titolare era in vendita e il mercato somigliava a un mercatino.
+       *
+       *  - **non è congruo alla sua forza**: un giocatore sotto il livello dei titolari di quel
+       *    club è un peso in rosa, e lasciarlo andare a chi lo farà giocare conviene a entrambi;
+       *  - **offerta irrifiutabile**: chi sta molto più in alto paga cifre che non si rifiutano,
+       *    e a quel punto anche un titolare parte.
+       *
+       * Le riserve restano cedibili sempre: è la fisiologia di ogni finestra.
+       */
+      const nonCongruo = player.overall < venditore.forza - 1;
+      const irrifiutabile = compratore.forza - venditore.forza >= IRRESISTIBLE_OFFER_EDGE;
+      // Ha di che sostituirlo in casa: cederlo non lascia un buco, è gestione della rosa.
+      const eccedenza = nelReparto.length >= FABBISOGNO_PER_REPARTO[bersaglio] + 2;
+      if (titolare && !nonCongruo && !irrifiutabile && !eccedenza) continue;
+
       candidati.push({
         player,
         venditore,
-        // È uno degli undici di quel reparto: cederlo apre un buco vero.
-        titolare: rango < TITOLARI_PER_REPARTO[bersaglio],
+        // È uno degli undici di quel reparto: la cessione è una notizia, non ordinaria gestione.
+        titolare,
       });
     }
   }
@@ -454,103 +477,29 @@ function cercaAffare({
       department: bersaglio,
     };
 
-    if (!scelto.titolare) {
-      // Era di troppo: il venditore non ha nulla da sostituire, l'operazione si chiude qui.
-      esegui(compratore, scelto.venditore, scelto.player, prezzo);
-      return [principale];
-    }
-
     /**
-     * **Chi cede un titolare deve rimpiazzarlo, adesso.** Se non si trova nessuno di livello
-     * vicino, la cessione **non avviene**: è così che l'invariante è garantita per costruzione,
-     * senza dover annullare operazioni già scritte.
+     * ⚠️ **Niente più catene di sostituzione** (decisione dell'utente, 2026-08-14).
+     *
+     * Il modello precedente imponeva che chi cede un titolare lo rimpiazzasse *nella stessa
+     * operazione*, e se il rimpiazzo non si trovava la cessione non avveniva. Sembrava
+     * prudente e invece era il difetto: *"a catena ci sarà la squadra che ha venduto Caio che
+     * necessiterà di acquistare Sempronio"* — un mercato in cui ogni movimento ne impone un
+     * altro dello stesso ruolo, cioè l'opposto di come si comporta un club vero. E costringeva
+     * a comprare per ruolo anche chi in quel ruolo non aveva alcun bisogno.
+     *
+     * L'invariante che conta — **nessuno resta scoperto** — non si regge sulle catene ma sulla
+     * regola di vendita: si cede solo da un reparto che **resta sopra il fabbisogno** anche
+     * dopo l'uscita (controllo più sopra). Chi vende un titolare incassa e interverrà dove
+     * serve *a lui*, magari in un altro reparto e magari alla finestra successiva: è esattamente
+     * ciò che fa un direttore sportivo.
      */
-    const rimpiazzo = cercaRimpiazzo({
-      venditore: scelto.venditore,
-      partente: scelto.player,
-      reparto: bersaglio,
-      mercato,
-      giaMossi,
-      incasso: prezzo,
-      season,
-    });
-    if (!rimpiazzo) continue;
-
     esegui(compratore, scelto.venditore, scelto.player, prezzo);
-    esegui(rimpiazzo.compratore, rimpiazzo.venditore, rimpiazzo.player, rimpiazzo.transfer.fee);
-    return [principale, rimpiazzo.transfer];
+    return [principale];
   }
 
   return null;
 }
 
-/**
- * Il rimpiazzo di chi sta per partire: qualcuno di livello vicino, preso da un club che ne ha
- * un'**eccedenza vera**.
- *
- * L'eccedenza è la condizione che ferma la catena al secondo anello: chi cede qui non apre a
- * sua volta un buco, quindi non serve un terzo rimpiazzo, e il mercato non degenera in una
- * ricorsione che attraversa mezzo database.
- */
-function cercaRimpiazzo({
-  venditore,
-  partente,
-  reparto,
-  mercato,
-  giaMossi,
-  incasso,
-  season,
-}: {
-  venditore: ClubMarket;
-  partente: WorldPlayer;
-  reparto: Department;
-  mercato: Map<string, ClubMarket>;
-  giaMossi: Set<string>;
-  incasso: number;
-  season: number;
-}): { transfer: WorldTransfer; compratore: ClubMarket; venditore: ClubMarket; player: WorldPlayer } | null {
-  const disponibile = venditore.cassa + incasso * REINVEST_SHARE;
-  let migliore: { player: WorldPlayer; da: ClubMarket; prezzo: number } | null = null;
-
-  for (const fonte of mercato.values()) {
-    if (fonte.club.id === venditore.club.id) continue;
-    // Anche il rimpiazzo si prende verso il basso: altrimenti la gerarchia si romperebbe qui.
-    if (venditore.forza - fonte.forza < MIN_BUYER_EDGE) continue;
-    if (eccedenzaReparto(fonte.rosa, reparto) <= 0) continue;
-
-    for (const candidato of ordinatiPerForza(fonte.rosa, reparto)) {
-      if (giaMossi.has(candidato.id)) continue;
-      if (candidato.id === partente.id) continue;
-      // Di livello vicino a chi parte: né un downgrade qualunque, né un fuoriclasse.
-      if (candidato.overall < partente.overall - MAX_REPLACEMENT_GAP) continue;
-      if (candidato.overall > partente.overall + 1) continue;
-      const prezzo = prezzoIndicativo(candidato, venditore.club.prestigeTier);
-      if (prezzo > disponibile) continue;
-      if (!migliore || candidato.overall > migliore.player.overall) {
-        migliore = { player: candidato, da: fonte, prezzo };
-      }
-    }
-  }
-
-  if (!migliore) return null;
-
-  return {
-    transfer: {
-      playerId: migliore.player.id,
-      playerName: migliore.player.name,
-      fromClubId: migliore.da.club.id,
-      toClubId: venditore.club.id,
-      fee: migliore.prezzo,
-      season,
-      kind: "sostituzione",
-      replacesPlayerName: partente.name,
-      department: reparto,
-    },
-    compratore: venditore,
-    venditore: migliore.da,
-    player: migliore.player,
-  };
-}
 
 /** Applica un'operazione allo stato dei due club: rose e casse si muovono davvero. */
 function esegui(

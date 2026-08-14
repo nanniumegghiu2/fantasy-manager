@@ -1,6 +1,6 @@
 import { motion } from "framer-motion";
 import { ArrowUpCircle, Crown, Shield, ShieldHalf, Star, Swords, Target, Users, Wallet } from "lucide-react";
-import { formatEuro, type ObjectiveTier } from "@app/game-engine";
+import { formatEuro, objectiveBudgetMultiplier, type ObjectiveTier } from "@app/game-engine";
 
 /**
  * **L'obiettivo stagionale, dichiarato dal DS.**
@@ -31,6 +31,7 @@ export function SeasonObjectiveScreen({
   season,
   choices,
   finances,
+  secondDivision = false,
   onChoose,
 }: {
   season: number;
@@ -44,8 +45,18 @@ export function SeasonObjectiveScreen({
    * fatturato non veniva mai detto in chiaro: si vedeva solo un budget che cala.
    */
   finances?: { revenue: number; wageBudget: number; transferBudget: number };
+  /** La scala degli obiettivi cambia fra le due divisioni, e con essa i moltiplicatori. */
+  secondDivision?: boolean;
   onChoose: (tier: ObjectiveTier) => void;
 }) {
+  const budgetMoltiplicatore = (tier: ObjectiveTier) => objectiveBudgetMultiplier(tier, secondDivision);
+  // Verde se l ambizione porta mezzi in piu, rame se ne toglie: il colore dice il verso prima
+  // ancora che si legga la cifra.
+  const budgetColore = (tier: ObjectiveTier) => {
+    const m = budgetMoltiplicatore(tier);
+    return m > 1 ? "#3ddc6b" : m < 1 ? "#b07a5e" : "var(--text-secondary)";
+  };
+
   return (
     <motion.div
       initial={{ opacity: 0 }}
@@ -111,9 +122,30 @@ export function SeasonObjectiveScreen({
                     Obiettivo: entro la {tier.targetPosition}ª posizione
                   </p>
                 </div>
+                {/* **I mezzi che quell'ambizione porta con sé.** Senza questo numero la scelta
+                    sarebbe al buio, e la regola "più ambizioso, più budget" resterebbe una
+                    meccanica nascosta invece di essere il compromesso su cui si decide. */}
+                {finances && (
+                  <span
+                    className="shrink-0 rounded-lg px-2 py-1 text-right text-[10px] font-extrabold tabular-nums"
+                    style={{
+                      backgroundColor: `${budgetColore(tier)}1f`,
+                      color: budgetColore(tier),
+                    }}
+                  >
+                    {formatEuro(Math.round(finances.revenue * budgetMoltiplicatore(tier)))}
+                    <span className="block text-[9px] font-bold opacity-80">fatturato</span>
+                  </span>
+                )}
               </button>
             );
           })}
+          {choices.length === 1 && (
+            <p className="px-1 text-[11px] leading-relaxed text-[var(--text-secondary)]">
+              Con questa rosa la società non ammette alternative: sei la squadra da battere, e
+              l'unico risultato che conta è vincere.
+            </p>
+          )}
         </div>
       </motion.div>
     </motion.div>

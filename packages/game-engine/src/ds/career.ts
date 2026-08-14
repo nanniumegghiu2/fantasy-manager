@@ -170,6 +170,7 @@ import {
 import {
   objectiveMet,
   positionsBelowTarget,
+  objectiveBudgetMultiplier,
   suggestObjectiveTiers,
   type ObjectiveLabel,
   type ObjectiveTier,
@@ -2367,11 +2368,41 @@ export function answerBoardSackDemand(
 }
 
 /** Dichiara l'obiettivo: chiude il gate di inizio stagione, come il rinnovo col mister. */
-export function setSeasonObjective(state: CareerState, tier: ObjectiveTier): CareerState {
-  return {
+/**
+ * Dichiara l'obiettivo, **e con esso i mezzi**.
+ *
+ * Richiesta dell'utente: più si è ambiziosi, più alto è il budget. È ciò che rende la
+ * dichiarazione una decisione invece di una formalità — prima non costava e non rendeva nulla,
+ * quindi la scelta razionale era sempre la più prudente: si incassava il giudizio benevolo della
+ * dirigenza a fine anno senza rinunciare a niente.
+ *
+ * Il moltiplicatore agisce sul **fatturato**, non sulla sola cassa mercato: promettere il titolo
+ * significa avere più mezzi per costruire *e* per pagare gli stipendi, che è come funziona un
+ * bilancio vero. La ripartizione fra le due casse resta quella decisa dal DS.
+ */
+export function setSeasonObjective(
+  state: CareerState,
+  tier: ObjectiveTier,
+  world?: CareerWorld,
+): CareerState {
+  const conObiettivo: CareerState = {
     ...state,
     seasonObjective: { targetPosition: tier.targetPosition, label: tier.label, setSeason: state.season },
     seasonObjectiveSet: true,
+  };
+  if (!world) return conObiettivo;
+
+  const moltiplicatore = objectiveBudgetMultiplier(tier, inSecondDivision(state, world));
+  if (moltiplicatore === 1) return conObiettivo;
+
+  const fatturato = revenueOf(state, world);
+  const nuovoFatturato = Math.round(fatturato * moltiplicatore);
+  return {
+    ...conObiettivo,
+    seasonRevenue: nuovoFatturato,
+    // La cassa mercato si muove della **differenza**: gli impegni già firmati non cambiano, e
+    // sommare l'intero delta al mercato è ciò che rende visibile il premio dell'ambizione.
+    budget: Math.max(0, state.budget + (nuovoFatturato - fatturato)),
   };
 }
 

@@ -156,30 +156,37 @@ describe("realismo del mercato IA", () => {
   });
 
   /**
-   * **Il difetto segnalato, preso di petto.** Chi cede un titolare lo rimpiazza nella stessa
-   * finestra: le due operazioni si decidono insieme, e se il rimpiazzo non esiste la cessione
-   * non avviene affatto.
+   * ⚠️ **Le catene di sostituzione sono state rimosse** (decisione dell'utente, 2026-08-14).
+   *
+   * Il modello precedente imponeva che chi cede un titolare lo rimpiazzasse nella stessa
+   * finestra, e questo test lo verificava. Ma la regola produceva proprio il difetto che l'utente
+   * ha segnalato: *"a catena ci sarà la squadra che ha venduto Caio che necessiterà di acquistare
+   * Sempronio"* — ogni movimento ne imponeva un altro **dello stesso ruolo**, cioè l'opposto di
+   * come si comporta un club vero, che interviene dove serve a lui.
+   *
+   * L'invariante che conta resta, e si regge su un'altra gamba: si vende solo da un reparto che
+   * **dopo l'uscita è ancora sopra il fabbisogno**. È il test qui sotto a garantirla, non più la
+   * catena.
    */
-  it("chi cede un titolare compra un rimpiazzo di livello vicino, nella stessa finestra", () => {
-    const { evoluto, transfers } = mercatoVario();
+  it("un club che vende non è costretto a ricomprare nello stesso reparto", () => {
+    /**
+     * La proprietà nuova, ed è quella che l'utente ha chiesto: *"non per forza una squadra che
+     * vende un ATT comprerà un ATT se non ne ha di bisogno"*. Si misura sull'insieme delle
+     * operazioni: se esistesse ancora la catena, **ogni** club venditore comprerebbe nello stesso
+     * reparto in cui ha ceduto.
+     */
+    const { transfers } = mercatoVario();
+    const venditori = new Set(transfers.map((t) => t.fromClubId));
+    expect(venditori.size).toBeGreaterThan(0);
 
-    const cessioniDiTitolari = transfers.filter((t) => t.kind === "colpo");
-    expect(cessioniDiTitolari.length).toBeGreaterThan(0);
+    const haRicompratoNelloStessoReparto = (clubId: string) => {
+      const usciti = transfers.filter((t) => t.fromClubId === clubId);
+      const entrati = transfers.filter((t) => t.toClubId === clubId);
+      return usciti.some((u) => entrati.some((e) => e.department === u.department));
+    };
 
-    for (const uscita of cessioniDiTitolari) {
-      const rimpiazzo = transfers.find(
-        (t) =>
-          t.kind === "sostituzione" &&
-          t.toClubId === uscita.fromClubId &&
-          t.replacesPlayerName === uscita.playerName,
-      );
-      expect(rimpiazzo).toBeDefined();
-
-      const partito = evoluto.byId.get(uscita.playerId)!;
-      const arrivato = evoluto.byId.get(rimpiazzo!.playerId)!;
-      expect(arrivato.overall).toBeGreaterThanOrEqual(partito.overall - 3);
-      expect(arrivato.department).toBe(partito.department);
-    }
+    const vincolati = [...venditori].filter(haRicompratoNelloStessoReparto).length;
+    expect(vincolati).toBeLessThan(venditori.size);
   });
 
   it("la qualità dei titolari di un reparto non crolla per una cessione", () => {

@@ -109,11 +109,55 @@ export function suggestObjectiveTiers(
   const indiceRealistico = scala.findIndex((t) => posizioneStimata <= t.targetPosition);
   const r = indiceRealistico === -1 ? scala.length - 1 : indiceRealistico;
   const ultimo = scala.length - 1;
-  const indiceAmbizioso = Math.max(0, r - 1);
-  const indiceConservativo = Math.min(ultimo, r + 1);
 
-  const indici = [...new Set([indiceAmbizioso, r, indiceConservativo])].sort((a, b) => a - b);
-  return indici.map((i) => scala[i]!);
+  /**
+   * ⚠️ **La società si allinea alla propria forza** (richiesta esplicita dell'utente).
+   *
+   * Prima le tre scelte erano sempre simmetriche — una più ambiziosa, una realistica, una più
+   * prudente — anche per la squadra più forte della nazione, a cui veniva quindi offerto di
+   * dichiarare "metà classifica" e incassarne il giudizio benevolo a fine anno. Non è quello che
+   * fa un presidente: chi ha la rosa migliore del campionato **deve vincere**, e non c'è nulla da
+   * scegliere.
+   *
+   * La prudenza si guadagna scendendo di livello: chi è fra i primi può scegliere *se* puntare al
+   * titolo o alla sua lotta, ma non può chiamarsi fuori.
+   */
+  const nessunoPiuForte = piuForti === 0;
+  const fraIPrimi = piuForti <= 2;
+
+  const indici = nessunoPiuForte
+    ? [0] // la più forte della nazione ha un obiettivo solo: vincere
+    : fraIPrimi
+      ? [...new Set([Math.max(0, r - 1), r])]
+      : [...new Set([Math.max(0, r - 1), r, Math.min(ultimo, r + 1)])];
+
+  return indici.sort((a, b) => a - b).map((i) => scala[i]!);
+}
+
+/**
+ * **Quanto vale, in mezzi, dichiarare un obiettivo ambizioso.**
+ *
+ * Richiesta dell'utente: *"più si è ambiziosi più il budget sarà alto"*. È ciò che trasforma la
+ * dichiarazione d'intenti in una **decisione**: prima sceglierla non costava e non rendeva
+ * nulla, quindi la scelta razionale era sempre la più prudente — si incassava il giudizio
+ * benevolo della dirigenza senza rinunciare a niente.
+ *
+ * Ora il compromesso è esplicito e a doppio taglio: chi promette il titolo riceve i mezzi per
+ * provarci, ma verrà giudicato su quello (`board.ts`), e mancarlo apre la richiesta di esonero
+ * del mister. Chi promette poco tiene la dirigenza tranquilla e va sul mercato con meno.
+ *
+ * Il moltiplicatore dipende dalla **posizione nella scala**, non dall'etichetta: così vale
+ * identico nelle due divisioni senza casi speciali — la promozione in Serie B è ambiziosa quanto
+ * il titolo in Serie A, ed è giusto che paghi uguale.
+ */
+export function objectiveBudgetMultiplier(tier: ObjectiveTier, secondDivision = false): number {
+  const scala = thresholdsFor(secondDivision);
+  const indice = scala.findIndex((t) => t.label === tier.label);
+  if (indice < 0) return 1;
+
+  // Dalla più ambiziosa (indice 0) alla più prudente: +35%, +18%, pari, −12%, −20%.
+  const moltiplicatori = [1.35, 1.18, 1, 0.88, 0.8];
+  return moltiplicatori[Math.min(indice, moltiplicatori.length - 1)]!;
 }
 
 /**

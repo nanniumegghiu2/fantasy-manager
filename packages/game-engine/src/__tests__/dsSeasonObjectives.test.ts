@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  objectiveBudgetMultiplier,
   objectiveMet,
   OBJECTIVE_THRESHOLDS,
   SECOND_DIVISION_THRESHOLDS,
@@ -136,6 +137,57 @@ describe("la stima usa gli undici migliori", () => {
     const opp = avversarie(Array.from({ length: 19 }, (_, i) => 70 + i * 0.5));
     const tiers = suggestObjectiveTiers(undici(85), opp, 20);
     expect(tiers.some((t) => t.label === "Titolo")).toBe(true);
+  });
+});
+
+/**
+ * **La società si allinea alla propria forza** (richiesta dell'utente, 2026-08-14).
+ *
+ * Prima le tre scelte erano sempre simmetriche, anche per la squadra più forte della nazione: le
+ * si poteva dichiarare "metà classifica" e incassare il giudizio benevolo della dirigenza a fine
+ * anno. Non è quello che fa un presidente — chi ha la rosa migliore **deve vincere** — e la
+ * prudenza va guadagnata scendendo di livello.
+ */
+describe("l'ambizione dipende da quanto si è forti, e porta i mezzi con sé", () => {
+  it("alla più forte della nazione non si propone alternativa: solo vincere", () => {
+    const opp = avversarie(Array.from({ length: 19 }, () => 70));
+    const tiers = suggestObjectiveTiers(undici(92), opp, 20);
+    expect(tiers).toHaveLength(1);
+    expect(tiers[0]!.label).toBe("Titolo");
+  });
+
+  it("chi è fra i primi sceglie se puntare al titolo o alla sua lotta, ma non si chiama fuori", () => {
+    // Due avversarie più forti: siamo terzi in griglia, quindi Titolo o Europa — non "metà
+    // classifica", che per una squadra così sarebbe una resa dichiarata in partenza.
+    const opp = avversarie([90, 89, ...Array.from({ length: 17 }, () => 70)]);
+    const tiers = suggestObjectiveTiers(undici(85), opp, 20);
+    expect(tiers.length).toBeLessThanOrEqual(2);
+    expect(tiers.every((t) => t.targetPosition <= 4)).toBe(true);
+  });
+
+  it("una squadra di metà classifica mantiene le tre scelte, prudenza compresa", () => {
+    const opp = avversarie(Array.from({ length: 19 }, (_, i) => 65 + i));
+    expect(suggestObjectiveTiers(undici(75), opp, 20)).toHaveLength(3);
+  });
+
+  it("più l'obiettivo è ambizioso, più alto è il fatturato concesso", () => {
+    const titolo = objectiveBudgetMultiplier({ targetPosition: 1, label: "Titolo" });
+    const europa = objectiveBudgetMultiplier({ targetPosition: 4, label: "Europa" });
+    const salvezza = objectiveBudgetMultiplier({ targetPosition: 17, label: "Salvezza" });
+
+    expect(titolo).toBeGreaterThan(europa);
+    expect(europa).toBeGreaterThan(salvezza);
+    // La prudenza costa davvero: senza un malus, dichiarare poco sarebbe gratis e quindi sempre
+    // la scelta razionale.
+    expect(salvezza).toBeLessThan(1);
+  });
+
+  it("la scala della seconda divisione paga come quella della prima, senza casi speciali", () => {
+    // La promozione in Serie B è ambiziosa quanto il titolo in Serie A: il moltiplicatore
+    // dipende dalla posizione nella scala, non dall'etichetta.
+    expect(objectiveBudgetMultiplier({ targetPosition: 3, label: "Promozione" }, true)).toBe(
+      objectiveBudgetMultiplier({ targetPosition: 1, label: "Titolo" }, false),
+    );
   });
 });
 
