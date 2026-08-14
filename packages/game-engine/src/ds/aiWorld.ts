@@ -808,7 +808,15 @@ export function evaluateAiCoaches(
       const currentCoachId = coachesMap.get(club.id);
       if (currentCoachId) {
         notices.push({
-          id: `notice-${club.id}-${season}-${Math.random().toString(36).slice(2, 6)}`,
+          /**
+           * **Id derivato, mai casuale.** C'era un suffisso `Math.random()` che non serviva a
+           * nulla — un club produce al più una notizia per stagione, quindi `club.id + season` è
+           * già univoco — ma rendeva il motore **non riproducibile**: in single-player è invisibile
+           * (è solo la chiave di una riga), nel multigiocatore a passo bloccato due client
+           * calcolerebbero stati diversi alla prima notizia di mercato allenatori, che è esattamente
+           * il tipo di divergenza impossibile da diagnosticare a valle.
+           */
+          id: `notice-${club.id}-${season}`,
           season,
           kind: "esonero",
           coachName: "L'allenatore",

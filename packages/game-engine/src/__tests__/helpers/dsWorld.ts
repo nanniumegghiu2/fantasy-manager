@@ -21,8 +21,6 @@ import { ROLE_DEPARTMENT } from "@app/shared-types";
 import type { Role } from "@app/shared-types";
 import type { LeagueTeam } from "../../season/leagueState";
 
-import type { LeagueTeam } from "../season/leagueState";
-
 export const ROLES: Role[] = [
   "POR", "POR", "POR",
   "TD", "TD", "DC", "DC", "DC", "DC", "TS", "TS",
