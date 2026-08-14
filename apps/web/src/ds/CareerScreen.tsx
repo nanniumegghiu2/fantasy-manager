@@ -444,6 +444,8 @@ export function CareerScreen({
       }
       setDialogo(esito.dialogue);
       onChange(esito.state);
+      // La promessa di rinnovo si tratta **qui**, non da ricordare in Rosa piu tardi.
+      if (esito.openRenewal) setRinnovoPer(dialogo.playerId);
     },
     [dialogo, state, world, onChange],
   );
@@ -586,6 +588,7 @@ export function CareerScreen({
       }
       onChange(esito.state);
       setDialogoForzato(esito.dialogue);
+      if (esito.openRenewal) setRinnovoPer(dialogoForzato.playerId);
     },
     [state, world, dialogoForzato, onChange, segnalaPremio],
   );

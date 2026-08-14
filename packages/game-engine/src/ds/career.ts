@@ -4084,7 +4084,7 @@ export function applyPlayerDialogue(
   world: CareerWorld,
   dialogue: Dialogue,
   move: DialogueMove,
-): { state: CareerState; dialogue: Dialogue; message?: string } {
+): { state: CareerState; dialogue: Dialogue; message?: string; openRenewal?: boolean } {
   const facts = playerFactsOf(state, world, dialogue.playerId);
   if (!facts) return { state, dialogue };
   let messaggio: string | undefined;
@@ -4194,7 +4194,23 @@ export function applyPlayerDialogue(
   // il tema bloccante ricomparirebbe a ogni giornata anche dopo averlo risolto.
   if (effetti.dialogue.status !== "aperta") next = clearCaptaincyGrudge(next, id);
 
-  return { state: next, dialogue: effetti.dialogue, message: messaggio };
+  /**
+   * **"Ti offro il rinnovo" apre il rinnovo, qui.**
+   *
+   * ⚠️ `openRenewal` era dichiarato in `DialogueEffects` e **non lo leggeva nessuno**: la mossa
+   * esisteva, il giocatore rispondeva bene, e poi non succedeva niente — bisognava ricordarsi di
+   * andare in Rosa e riaprire il tavolo del contratto a mano. È la segnalazione dell'utente:
+   * *"se prometto un rinnovo devo trattarlo nella stessa schermata in cui l'ho promesso"*.
+   *
+   * Il flag esce dal riduttore e la UI apre il tavolo sopra la conversazione: una promessa che
+   * si mantiene nel gesto stesso in cui la si fa, invece di diventare un impegno da ricordare.
+   */
+  return {
+    state: next,
+    dialogue: effetti.dialogue,
+    message: messaggio,
+    openRenewal: effetti.openRenewal,
+  };
 }
 
 /* -------------------------------------------------------------------------- */
@@ -4423,6 +4439,9 @@ export function signIncomingPlayer(
     potential: pool.potential ?? pool.overall + Math.max(0, 24 - eta),
     // Arriva adesso: l'affiatamento se lo deve guadagnare.
     sinceSeason: state.season,
+    // ...e le sue occasioni si contano da questa giornata, non da inizio stagione: senza,
+    // un acquisto di gennaio apriva un caso di minutaggio senza aver giocato un minuto.
+    joinedAtMatchday: state.league.round,
   });
 
   // L'allenatore si accorge se gli hai preso quello che chiedeva, anche via trattativa.
@@ -4699,6 +4718,8 @@ export function signFreeAgent(
     overall: agente.overall,
     potential: Math.max(agente.overall, agente.baseOverall + (agente.age <= 22 ? 8 : 2)),
     sinceSeason: state.season,
+    // Le sue occasioni si contano da qui, non da inizio stagione.
+    joinedAtMatchday: state.league.round,
     morale: 72,
     injuryMatchdaysLeft: 0,
     fatigue: 0,

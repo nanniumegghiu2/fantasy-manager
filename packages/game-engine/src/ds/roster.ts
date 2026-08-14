@@ -316,6 +316,8 @@ export interface NewRosterEntry {
   overall: number;
   potential: number;
   sinceSeason: number;
+  /** Giornata in cui entra in rosa, se arriva a stagione in corso: conta le sue occasioni da li. */
+  joinedAtMatchday?: number;
   /** Morale di partenza: 70 = contento ma non euforico (placeholder di bilanciamento). */
   morale?: number;
   stats?: SeasonStats;
@@ -327,6 +329,7 @@ export function createRosterEntry(input: NewRosterEntry): RosterEntry {
     overall: input.overall,
     potential: input.potential,
     sinceSeason: input.sinceSeason,
+    joinedAtMatchday: input.joinedAtMatchday,
     morale: input.morale ?? 70,
     injuryMatchdaysLeft: 0,
     fatigue: 0,

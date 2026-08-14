@@ -140,6 +140,43 @@ describe("un tema può aprirsi solo se i fatti lo reggono", () => {
     expect(eligibleTopics(nuovo).map((t) => t.id)).not.toContain("poco_impiego");
   });
 
+  /**
+   * ⚠️ **Il bug segnalato dall'utente**: un giocatore appena comprato apriva una conversazione
+   * per chiedere minutaggio *senza aver giocato un solo minuto con la squadra*.
+   *
+   * La causa era aritmetica, non di soglia: le giornate disponibili si contavano dall'inizio
+   * della stagione, quindi chi arriva nel mercato di riparazione trovava già diciannove giornate
+   * alle spalle — "ha avuto abbastanza occasioni" risultava vero il giorno stesso della firma, e
+   * la sua quota di minuti era zero perché il campionato era cominciato senza di lui.
+   *
+   * La correzione sta nei **fatti** e non nei singoli temi: `arrivedThisSeason` copriva solo
+   * `poco_impiego`, e comunque non bastava — un acquisto estivo alla seconda giornata ha
+   * davvero giocato poco, ma non ha ancora avuto nessuna occasione.
+   */
+  it("chi è appena arrivato non ha ancora nulla di cui lamentarsi", () => {
+    const appenaComprato = facts(
+      { matchday: 20, season: 3 },
+      { sinceSeason: 3, joinedAtMatchday: 19, morale: 40, overall: 84 },
+    );
+
+    expect(appenaComprato.matchdaysAvailable).toBeLessThan(6);
+    const tema = pickTopic(appenaComprato);
+    expect(tema?.id).not.toBe("poco_impiego");
+    expect(tema?.id).not.toBe("giovane_crescita");
+  });
+
+  it("...ma dopo qualche giornata senza mai giocare, il caso si apre eccome", () => {
+    // Il duale: se il correttivo silenziasse per sempre chi è arrivato in corsa, avremmo
+    // scambiato un difetto con un altro.
+    const dopoDieciGiornate = facts(
+      { matchday: 30, season: 3 },
+      { sinceSeason: 3, joinedAtMatchday: 19, morale: 40, overall: 84 },
+    );
+
+    expect(dopoDieciGiornate.matchdaysAvailable).toBeGreaterThanOrEqual(6);
+    expect(dopoDieciGiornate.playedShare).toBeLessThan(0.3);
+  });
+
   it("chi è in prestito altrove non apre conversazioni", () => {
     const inPrestito = facts({}, { loan: { hostClubId: "altro", untilSeason: 3 }, morale: 10 });
     expect(eligibleTopics(inPrestito)).toHaveLength(0);

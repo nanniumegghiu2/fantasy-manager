@@ -103,6 +103,30 @@ export function PlayerDialogueChat({
           </div>
         </header>
 
+        {/**
+         * **Il problema, come titolo.**
+         *
+         * Segnalazione dell'utente: *"non ho mai ben chiara la motivazione"*. L'informazione
+         * c'era già — l'etichetta del tema — ma stava in grigio piccolo sotto il nome, alla pari
+         * di un sottotitolo, mentre è **la cosa da leggere per prima**: senza sapere di cosa si
+         * sta parlando, le mosse sono un elenco di bottoni. La spiegazione in una riga viene dal
+         * giocatore stesso (la sua apertura), che finora era leggibile solo scorrendo la chat.
+         */}
+        <div
+          className="border-b px-4 py-2.5"
+          style={{ borderColor: "#ff8a3d33", backgroundColor: "#ff8a3d12" }}
+        >
+          <p className="flex items-center gap-1.5 text-[10px] font-extrabold tracking-wider text-[#ff8a3d] uppercase">
+            <ShieldAlert size={11} /> Il problema
+          </p>
+          <p className="mt-0.5 text-sm leading-tight font-extrabold">{dialogue.topicLabel}</p>
+          {dialogue.log[0]?.text && (
+            <p className="mt-1 text-[11px] leading-snug text-[var(--text-secondary)] italic">
+              «{dialogue.log[0].text}»
+            </p>
+          )}
+        </div>
+
         {/* Il suo caso: i fatti, non solo il testo. */}
         <div className="flex flex-wrap gap-1.5 border-b border-[var(--surface-border)] bg-black/20 px-4 py-2">
           {dialogue.highlights.map((h) => (

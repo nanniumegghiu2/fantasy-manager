@@ -197,8 +197,31 @@ export interface PlayerFactsInput {
 export function buildPlayerFacts(input: PlayerFactsInput): PlayerFacts {
   const { entry, player, roster, roleOf } = input;
 
-  const giornateSaltate = Math.min(input.matchday, entry.injuryMatchdaysLeft);
-  const matchdaysAvailable = Math.max(0, input.matchday - giornateSaltate);
+  /**
+   * ⚠️ **Le giornate disponibili si contano da quando è arrivato, non dall'inizio della
+   * stagione.**
+   *
+   * Il difetto segnalato dall'utente: un giocatore appena comprato apriva subito una
+   * conversazione per chiedere minutaggio, *senza aver giocato un solo minuto con la squadra*.
+   * La causa è aritmetica — chi arriva nel mercato di riparazione trova `matchday` già a
+   * diciannove, quindi la soglia "ha avuto abbastanza occasioni" risultava superata il giorno
+   * stesso della firma, e la sua quota di minuti era zero perché il campionato era cominciato
+   * senza di lui.
+   *
+   * `arrivedThisSeason` copriva un solo tema (`poco_impiego`) e comunque non bastava: un
+   * acquisto estivo alla seconda giornata ha davvero giocato poco, ma non ha ancora avuto
+   * nessuna occasione. La correzione va qui, nei **fatti**, così vale per ogni tema che li legge
+   * senza doversene ricordare uno per uno.
+   *
+   * Le giornate da cui si conta sono quelle dopo l'arrivo: chi è nella squadra da inizio anno
+   * non cambia di nulla, chi è arrivato a gennaio parte da zero e matura il diritto di
+   * lamentarsi giocando — o non giocando — le giornate successive.
+   */
+  const giornateDallArrivo = entry.sinceSeason === input.season
+    ? Math.max(0, input.matchday - (entry.joinedAtMatchday ?? 0))
+    : input.matchday;
+  const giornateSaltate = Math.min(giornateDallArrivo, entry.injuryMatchdaysLeft);
+  const matchdaysAvailable = Math.max(0, giornateDallArrivo - giornateSaltate);
   const minutiDisponibili = matchdaysAvailable * 90;
   const playedShare = minutiDisponibili > 0 ? Math.min(1, entry.stats.minutes / minutiDisponibili) : 0;
 

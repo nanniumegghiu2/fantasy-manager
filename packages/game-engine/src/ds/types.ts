@@ -161,6 +161,17 @@ export interface RosterEntry {
   potential: number;
   /** Stagione in cui è arrivato al club: base della continuità, cioè dell'affiatamento. */
   sinceSeason: number;
+  /**
+   * Giornata di campionato in cui è entrato in rosa, se è arrivato a stagione in corso.
+   *
+   * Serve a contare le sue occasioni **da quando c'è**: senza, un acquisto di gennaio trovava
+   * diciannove giornate già alle spalle e apriva subito un caso di minutaggio pur non avendo
+   * giocato un minuto — non poteva, il campionato era cominciato senza di lui.
+   *
+   * Assente sui salvataggi precedenti e su chi c'era da inizio anno: in entrambi i casi vale
+   * zero, che è il comportamento di sempre.
+   */
+  joinedAtMatchday?: number;
   /** 0-100. Sotto la soglia il giocatore chiede la cessione. */
   morale: number;
   /** Giornate di indisponibilità rimanenti; 0 = disponibile. */
