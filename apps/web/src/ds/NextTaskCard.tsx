@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { motion } from "framer-motion";
 import {
   ArrowRight,
@@ -58,7 +59,19 @@ export function NextTaskCard({
   onApriMercato?: () => void;
   onVaiRosa?: () => void;
 }) {
-  const compito = prossimoCompito(state, world, standings, onApriMercato, onVaiRosa);
+  /**
+   * ⚠️ **Memoizzata, e non è un'ottimizzazione facoltativa.**
+   *
+   * `prossimoCompito` consulta lo spogliatoio, che resta l'operazione di lettura più cara del
+   * motore. Questa card sta nella scheda Stagione, che si ri-renderizza **a ogni referto
+   * mostrato** durante la corsa (uno ogni 260ms): senza memo, ogni giornata pagava il conto
+   * daccapo. È la metà di mia responsabilità del difetto segnalato dall'utente — l'altra metà
+   * era `careerPlayers` ricostruita 1.902 volte per chiamata (vedi `career.ts`).
+   */
+  const compito = useMemo(
+    () => prossimoCompito(state, world, standings, onApriMercato, onVaiRosa),
+    [state, world, standings, onApriMercato, onVaiRosa],
+  );
   if (!compito) return null;
 
   const { icona: Icona, titolo, dettaglio, tono, vai, vaiLabel } = compito;

@@ -499,3 +499,81 @@ Tre non erano nella diagnosi: li ha fatti emergere il lavoro.
 - **Il percorso misurato è la prima stagione.** Schermate che vivono più avanti — dirigenza,
   esonero, trionfo, teatro della partita — le ho lette nel codice ma non fotografate in
   esecuzione: la diagnosi su quelle è per lettura, e lo dichiaro.
+
+---
+
+# Parte E — Il difetto di prestazioni (2026-08-15, dopo la segnalazione)
+
+Segnalazione dell'utente dopo il rinnovo: *«graficamente è molto godibile ma lento e macchinoso
+nella navigazione e nei click dei tasti»*.
+
+## La causa: `careerPlayers` ricostruita dentro un ciclo
+
+`careerPlayers(state, world)` fa `{ ...world.players }` — copia l'**intero indice del mondo**,
+3.564 giocatori nel database reale. È chiamata in fondo a decine di funzioni di lettura
+(`playerFactsOf`, `playerValue`, `peerWage`, `contractFor`…), che a loro volta girano **una volta
+per giocatore** dentro cicli come `dressingRoom`.
+
+Misurato (`perf.bench.test.ts`, mondo da 3.526 giocatori, rosa da 26):
+
+| | prima | dopo |
+|---|---|---|
+| `dressingRoom` senza regen | 9,1ms | 3,0ms |
+| `dressingRoom` con **un** regen | **1.817ms** | **2,8ms** |
+| copie dell'indice per chiamata | **1.902** | **1** |
+
+Quasi **due secondi di JavaScript bloccante** per consultare lo spogliatoio, e la funzione è
+consultata a ogni render.
+
+## Perché non si era mai visto prima, e perché si vede adesso
+
+Il difetto è **preesistente al rinnovo**, ma era silente per una ragione precisa: con
+`state.generated` vuoto la funzione esce subito senza copiare nulla. `generated` si popola col
+primo regen, cioè **dalla seconda stagione in poi**. Chi giocava una stagione non lo incontrava
+mai.
+
+Il rinnovo l'ha reso visibile in due modi, e il secondo è colpa mia:
+- `NextTaskCard` consulta lo spogliatoio, e sta nella scheda Stagione, che si ri-renderizza **a
+  ogni referto mostrato** durante la corsa — uno ogni 260ms;
+- l'avevo scritta **senza `useMemo`**, quindi ogni giornata pagava il conto daccapo.
+
+⚠️ **La mia verifica non poteva coglierlo**: la misura di Parte D percorre 17 schermate ma non
+supera mai la **prima stagione**, dove `careerPlayers` esce subito. È il limite dichiarato di
+quella misura, non un caso sfortunato — e la lezione è che un percorso di prova che si ferma
+all'inizio non prova ciò che succede dopo.
+
+## La correzione
+
+Due cache per identità (`WeakMap`), su `careerPlayers` e su `dressingRoom`. Sono corrette perché
+nessuno dei loro ingredienti viene mai mutato sul posto — `world.players` si ricostruisce a ogni
+stagione, `state` e `state.generated` si riassegnano a ogni azione (verificato: nessun
+`.push`/`.splice` in tutto il motore, e nessun chiamante scrive nel risultato). Più il `useMemo`
+mancante in `NextTaskCard`.
+
+Fatte **al posto giusto**: 26 punti chiamano `careerPlayers`, e correggerli uno per uno avrebbe
+lasciato in piedi la trappola per il prossimo che la chiama dentro un ciclo.
+
+⚠️ **Il benchmark è stato riscritto per battere la propria cache** — cronometra uno `state` nuovo
+a ogni giro. Misurando lo stesso oggetto avrebbe misurato la memoizzazione e non il calcolo, e
+sarebbe restato verde anche con il costo vero tornato a mille millisecondi: lo stesso antipattern
+già registrato nel Decision Log (2026-07-31, 2026-08-13).
+
+## Cosa resta, misurato e non risolto
+
+Con CPU rallentata 4× (telefono di fascia media), in **prima stagione** — dove le cache non
+c'entrano perché il difetto non si manifestava:
+
+| azione | al fotogramma | JavaScript bloccante |
+|---|---|---|
+| cambio scheda della carriera | 85-245ms | 0-113ms |
+| **apertura del mercato** | **568ms** | **454ms** |
+| scheda Notizie | 434ms | 352ms |
+| scheda Cerca | 305ms | 238ms |
+
+Le letture del motore in quel pannello costano ormai ~3ms in tutto: il resto è **disegno** — la
+finestra monta 466 nodi in un colpo, fra la lavagna tattica, la rosa e le sue righe. A riposo la
+modalità sta a 165 fps senza un solo long task, quindi non c'è nessun ciclo che gira a vuoto: è
+il costo di montare un pannello grande tutto insieme.
+
+La strada, se l'apertura del mercato resta fastidiosa: montare **solo la scheda attiva** e
+rimandare la lavagna tattica a quando la si guarda davvero.

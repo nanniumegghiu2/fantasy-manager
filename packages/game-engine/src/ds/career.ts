@@ -713,11 +713,47 @@ export function seasonCalendar(state: CareerState, world: CareerWorld): SeasonWe
  * giorno dopo essere nati. Si costruisce qui, una sola volta per chiamata, invece di chiedere
  * al chiamante di ricordarsene.
  */
+/**
+ * ⚠️ **La cache che rende `careerPlayers` chiamabile dentro un ciclo.**
+ *
+ * Il difetto che l'ha imposta, misurato dopo una segnalazione dell'utente («lenta e macchinosa
+ * nella navigazione e nei click»): la funzione fa `{ ...world.players }`, cioè copia l'**intero
+ * indice del mondo** — 3.564 giocatori nel database reale — e viene chiamata in fondo a decine
+ * di funzioni di lettura (`playerFactsOf`, `playerValue`, `peerWage`, …), che a loro volta
+ * girano **una volta per giocatore** dentro cicli come `dressingRoom`.
+ *
+ * Misura su un mondo realistico (`perf.bench.test.ts`): una singola chiamata a `dressingRoom`
+ * ricostruiva l'indice **1.902 volte** e passava da 9ms a **1.817ms** — quasi due secondi di
+ * JavaScript bloccante per consultare lo spogliatoio.
+ *
+ * Il difetto esisteva da prima del rinnovo grafico, ma era **silente**: si vedeva solo dalla
+ * seconda stagione in poi, perché con `generated` vuoto la funzione esce subito e non copia
+ * nulla. Il rinnovo l'ha reso visibile chiamando `dressingRoom` a ogni render.
+ *
+ * La cache è **per identità** dei due ingredienti, ed è corretta perché nessuno dei due viene
+ * mai mutato sul posto: `world.players` si ricostruisce a ogni stagione e `state.generated` si
+ * riassegna a ogni nuovo regen (verificato: nessun `.push`/`.splice` in tutto il motore). Un
+ * `WeakMap` non trattiene in vita né il mondo né lo stato.
+ */
+const cacheAnagrafica = new WeakMap<
+  Record<string, ResolvedPlayer>,
+  WeakMap<object, Record<string, ResolvedPlayer>>
+>();
+
 export function careerPlayers(
   state: CareerState,
   world: CareerWorld,
 ): Record<string, ResolvedPlayer> {
   if (state.generated.length === 0) return world.players;
+
+  let perMondo = cacheAnagrafica.get(world.players);
+  if (!perMondo) {
+    perMondo = new WeakMap();
+    cacheAnagrafica.set(world.players, perMondo);
+  }
+  const memo = perMondo.get(state.generated);
+  if (memo) return memo;
+
   const index: Record<string, ResolvedPlayer> = { ...world.players };
   for (const player of state.generated) {
     index[player.id] = {
@@ -730,6 +766,7 @@ export function careerPlayers(
       birthDate: player.birthDate,
     };
   }
+  perMondo.set(state.generated, index);
   return index;
 }
 
@@ -4110,7 +4147,36 @@ export interface DressingRoomEntry {
  * ufficio reclami. Prima l'elenco era "chi ha il morale sotto 55", quindi ci finiva dentro anche
  * chi non aveva nulla che il club potesse concedergli.
  */
+/**
+ * ⚠️ **Anche questa è memoizzata, per la stessa ragione della precedente.**
+ *
+ * `dressingRoom` è la lettura più cara del motore (~3ms su un mondo reale anche con l'anagrafica
+ * già in cache: costruisce i fatti di ogni giocatore e valuta 17 argomenti, due volte, per
+ * ciascuno). È anche una domanda che l'interfaccia fa **spesso e da più punti** — il badge del
+ * mercato, l'elenco dello Spogliatoio, la card del compito — e la stessa risposta veniva
+ * calcolata due o tre volte per lo stesso stato.
+ *
+ * La chiave è l'identità di `state`, che il motore sostituisce a ogni azione invece di mutarlo:
+ * finché lo stato è lo stesso, lo spogliatoio non può essere cambiato. Il `WeakMap` lascia
+ * raccogliere gli stati vecchi senza trattenerli.
+ */
+const cacheSpogliatoio = new WeakMap<CareerState, WeakMap<object, DressingRoomEntry[]>>();
+
 export function dressingRoom(state: CareerState, world: CareerWorld): DressingRoomEntry[] {
+  let perStato = cacheSpogliatoio.get(state);
+  if (!perStato) {
+    perStato = new WeakMap();
+    cacheSpogliatoio.set(state, perStato);
+  }
+  const memo = perStato.get(world);
+  if (memo) return memo;
+
+  const risultato = computeDressingRoom(state, world);
+  perStato.set(world, risultato);
+  return risultato;
+}
+
+function computeDressingRoom(state: CareerState, world: CareerWorld): DressingRoomEntry[] {
   const out: DressingRoomEntry[] = [];
   for (const entry of state.roster) {
     const facts = playerFactsOf(state, world, entry.playerId);
