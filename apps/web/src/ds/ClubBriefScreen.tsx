@@ -8,6 +8,7 @@ import { overallTier } from "../classic/theme";
 import { clubRating, continentalEntrants, initialRoster, startingBudget } from "./buildCareerWorld";
 import { DEPARTMENT_LABEL, RoleChips } from "./RoleChips";
 import { euro } from "./format";
+import { Stat, StatRow } from "./ui";
 import type { DsWorldData } from "./useDsWorld";
 
 /**
@@ -99,13 +100,13 @@ export function ClubBriefScreen({
             <ArrowLeft size={17} />
           </button>
           <div className="min-w-0 flex-1">
-            <p className="truncate text-[11px] font-bold tracking-widest text-[var(--text-secondary)] uppercase">
+            <p className="truncate text-label font-bold tracking-widest text-[var(--text-secondary)] uppercase">
               {club?.leagueName}
             </p>
-            <h1 className="truncate text-lg leading-tight font-extrabold">{club?.name}</h1>
+            <h1 className="truncate text-title leading-tight font-extrabold">{club?.name}</h1>
           </div>
           <span
-            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-base font-extrabold"
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-control text-body font-extrabold"
             style={{ backgroundColor: overallTier(rating).dot, color: overallTier(rating).dotText }}
           >
             {rating}
@@ -114,18 +115,20 @@ export function ClubBriefScreen({
       </header>
 
       <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-4 px-4 py-4 pb-28">
-        <div className="grid gap-2.5 sm:grid-cols-3">
-          <Dato icona={Wallet} etichetta="Budget di mercato" valore={euro(budget)} evidenzia />
-          <Dato icona={Users} etichetta="Giocatori in rosa" valore={`${rosa.length}`} />
-          <Dato
-            icona={Star}
-            etichetta="Prestigio"
-            valore={`${club?.prestigeTier ?? 3} su 5`}
-          />
-        </div>
+        {/* ⚠️ **Tre numeri, una riga — non tre schermate.**
+
+            Erano tre schede impilate da ~150px l'una: la prima schermata del dossier mostrava
+            *tre numeri*, e la rosa — che è la ragione per cui il dossier esiste (CLAUDE.md
+            § 3.7.9) — restava molto sotto la piega senza che niente dicesse che c'era. Numeri
+            che si confrontano fra loro vanno affiancati, non impilati. */}
+        <StatRow>
+          <Stat icon={Wallet} label="Budget" value={euro(budget)} tone="gold" />
+          <Stat icon={Users} label="In rosa" value={rosa.length} />
+          <Stat icon={Star} label="Prestigio" value={`${club?.prestigeTier ?? 3}/5`} />
+        </StatRow>
 
         {inCorona && (
-          <p className="flex items-center gap-2 rounded-2xl border border-[#f5c518]/30 bg-[#f5c518]/5 p-3 text-sm font-semibold text-[#c9a10b]">
+          <p className="flex items-center gap-2 rounded-card border border-[#f5c518]/30 bg-[#f5c518]/5 p-3 text-body font-semibold text-[#c9a10b]">
             <Crown size={16} className="shrink-0" />
             Parte già ammessa alla Corona Continentale.
           </p>
@@ -133,7 +136,7 @@ export function ClubBriefScreen({
 
         {/* La difficoltà si sceglie qui, dove si vede subito quanto cambia il budget. */}
         <section>
-          <h2 className="mb-2 text-[10px] font-bold tracking-widest text-[var(--text-secondary)] uppercase">
+          <h2 className="mb-2 text-micro font-bold tracking-widest text-[var(--text-secondary)] uppercase">
             Difficoltà
           </h2>
           <div className="grid gap-2 sm:grid-cols-3">
@@ -142,7 +145,7 @@ export function ClubBriefScreen({
                 key={d.id}
                 type="button"
                 onClick={() => onDifficulty(d.id)}
-                className={`relative rounded-2xl border p-3 text-left transition-colors ${
+                className={`relative rounded-card border p-3 text-left transition-colors ${
                   difficulty === d.id
                     ? "border-[var(--brand)] bg-[var(--brand)]/10"
                     : "border-[var(--surface-border)] bg-[var(--surface-raised)] hover:border-[var(--brand)]/50"
@@ -158,8 +161,8 @@ export function ClubBriefScreen({
                     />
                   ))}
                 </span>
-                <p className="mt-1.5 text-sm font-extrabold">{d.nome}</p>
-                <p className="mt-0.5 text-[11px] leading-relaxed text-[var(--text-secondary)]">
+                <p className="mt-1.5 text-body font-extrabold">{d.nome}</p>
+                <p className="mt-0.5 text-label leading-relaxed text-[var(--text-secondary)]">
                   {d.effetto}
                 </p>
               </button>
@@ -169,7 +172,7 @@ export function ClubBriefScreen({
 
         {/* Copertura per reparto: è ciò che dice dove servirà comprare. */}
         <section>
-          <h2 className="mb-2 text-[10px] font-bold tracking-widest text-[var(--text-secondary)] uppercase">
+          <h2 className="mb-2 text-micro font-bold tracking-widest text-[var(--text-secondary)] uppercase">
             Come è fatta la rosa
           </h2>
           <div className="grid grid-cols-4 gap-2">
@@ -178,19 +181,19 @@ export function ClubBriefScreen({
                 key={dep}
                 type="button"
                 onClick={() => setReparto(reparto === dep ? "tutti" : dep)}
-                className={`rounded-2xl border p-2.5 text-center transition-colors ${
+                className={`rounded-card border p-2.5 text-center transition-colors ${
                   reparto === dep
                     ? "border-[var(--brand)] bg-[var(--brand)]/10"
                     : "border-[var(--surface-border)] bg-[var(--surface-raised)]"
                 }`}
               >
-                <p className="text-[10px] font-bold tracking-wide text-[var(--text-secondary)] uppercase">
+                <p className="text-micro font-bold tracking-wide text-[var(--text-secondary)] uppercase">
                   {DEPARTMENT_LABEL[dep]}
                 </p>
-                <p className="mt-1 text-lg leading-none font-extrabold tabular-nums">
+                <p className="mt-1 text-title leading-none font-extrabold tabular-nums">
                   {perReparto[dep].n}
                 </p>
-                <p className="mt-0.5 text-[10px] text-[var(--text-secondary)] tabular-nums">
+                <p className="mt-0.5 text-label text-[var(--text-secondary)] tabular-nums">
                   media {Math.round(perReparto[dep].media) || "—"}
                 </p>
               </button>
@@ -199,7 +202,7 @@ export function ClubBriefScreen({
         </section>
 
         <section>
-          <h2 className="mb-2 flex items-center gap-2 text-[10px] font-bold tracking-widest text-[var(--text-secondary)] uppercase">
+          <h2 className="mb-2 flex items-center gap-2 text-micro font-bold tracking-widest text-[var(--text-secondary)] uppercase">
             {reparto === "tutti" ? "Rosa completa" : DEPARTMENT_LABEL[reparto]}
             {reparto !== "tutti" && (
               <button
@@ -218,23 +221,23 @@ export function ClubBriefScreen({
               return (
                 <li
                   key={player.id}
-                  className="flex items-center gap-2.5 rounded-xl border border-[var(--surface-border)] bg-[var(--surface-raised)] p-2.5"
+                  className="flex items-center gap-2.5 rounded-control border border-[var(--surface-border)] bg-[var(--surface-raised)] p-2.5"
                 >
                   <span
-                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-sm font-extrabold"
+                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-control text-body font-extrabold"
                     style={{ backgroundColor: tier.dot, color: tier.dotText }}
                   >
                     {player.overall}
                   </span>
                   <div className="min-w-0 flex-1">
-                    <p className="flex items-center gap-1.5 truncate text-sm leading-tight font-bold">
+                    <p className="flex items-center gap-1.5 truncate text-body leading-tight font-bold">
                       <NationFlag nation={player.nation} />
                       <span className="truncate">{player.name}</span>
                     </p>
                     <div className="mt-1 flex items-center gap-1.5">
                       <RoleChips role={player.role} secondary={player.secondaryRoles} />
                       {eta !== null && (
-                        <span className="text-[10px] text-[var(--text-secondary)] tabular-nums">
+                        <span className="text-label text-[var(--text-secondary)] tabular-nums">
                           {eta}a
                         </span>
                       )}
@@ -257,7 +260,7 @@ export function ClubBriefScreen({
           <button
             type="button"
             onClick={onAccept}
-            className="flex w-full items-center justify-center gap-2.5 rounded-2xl bg-[var(--brand)] py-4 text-base font-extrabold text-[var(--brand-contrast)] transition-transform active:scale-[0.98]"
+            className="flex w-full items-center justify-center gap-2.5 rounded-card bg-[var(--brand)] py-4 text-body font-extrabold text-[var(--brand-contrast)] transition-transform active:scale-[0.98]"
           >
             <Signature size={19} />
             Accetta l'incarico
@@ -268,32 +271,3 @@ export function ClubBriefScreen({
   );
 }
 
-function Dato({
-  icona: Icona,
-  etichetta,
-  valore,
-  evidenzia,
-}: {
-  icona: typeof Wallet;
-  etichetta: string;
-  valore: string;
-  evidenzia?: boolean;
-}) {
-  return (
-    <div
-      className={`flex items-center gap-3 rounded-2xl border p-3.5 ${
-        evidenzia
-          ? "border-[var(--accent)]/40 bg-[var(--accent)]/8"
-          : "border-[var(--surface-border)] bg-[var(--surface-raised)]"
-      }`}
-    >
-      <Icona size={18} className={evidenzia ? "text-[var(--accent)]" : "text-[var(--text-secondary)]"} />
-      <div className="min-w-0">
-        <p className="truncate text-base leading-none font-extrabold">{valore}</p>
-        <p className="mt-1 text-[10px] font-semibold tracking-wide text-[var(--text-secondary)] uppercase">
-          {etichetta}
-        </p>
-      </div>
-    </div>
-  );
-}

@@ -47,7 +47,7 @@ export function MiniStandings({
           {tabella.slice(0, 10).map((row) => (
             <li key={row.teamId}>
               <div
-                className={`flex items-center gap-2 px-3 py-1.5 text-sm ${
+                className={`flex items-center gap-2 px-3 py-1.5 text-body ${
                   row.teamIndex === nostroIndiceCoppa ? "bg-[var(--brand)]/10 font-extrabold" : ""
                 }`}
               >
@@ -55,9 +55,9 @@ export function MiniStandings({
                   className="w-1 shrink-0 self-stretch rounded-full"
                   style={{ backgroundColor: row.position <= 8 ? "#f5c518" : "transparent" }}
                 />
-                <span className="w-5 shrink-0 text-[11px] tabular-nums">{row.position}</span>
-                <span className="min-w-0 flex-1 truncate text-[13px]">{row.name}</span>
-                <span className="shrink-0 text-[13px] font-extrabold tabular-nums">{row.points}</span>
+                <span className="w-5 shrink-0 text-label tabular-nums">{row.position}</span>
+                <span className="min-w-0 flex-1 truncate text-label">{row.name}</span>
+                <span className="shrink-0 text-label font-extrabold tabular-nums">{row.points}</span>
               </div>
             </li>
           ))}
@@ -104,13 +104,13 @@ export function MiniStandings({
           return (
             <li key={row.teamId}>
               {saltoPrima && (
-                <p className="px-3 py-0.5 text-center text-[10px] leading-none text-[var(--text-secondary)]">
+                <p className="px-3 py-0.5 text-center text-label leading-none text-[var(--text-secondary)]">
                   ···
                 </p>
               )}
               <motion.div
                 layout
-                className={`flex items-center gap-2 px-3 py-1.5 text-sm ${
+                className={`flex items-center gap-2 px-3 py-1.5 text-body ${
                   row.isUser ? "bg-[var(--brand)]/10 font-extrabold" : ""
                 }`}
               >
@@ -125,9 +125,9 @@ export function MiniStandings({
                           : "transparent",
                   }}
                 />
-                <span className="w-5 shrink-0 text-[11px] tabular-nums">{row.position}</span>
-                <span className="min-w-0 flex-1 truncate text-[13px]">{row.name}</span>
-                <span className="shrink-0 text-[13px] font-extrabold tabular-nums">{row.points}</span>
+                <span className="w-5 shrink-0 text-label tabular-nums">{row.position}</span>
+                <span className="min-w-0 flex-1 truncate text-label">{row.name}</span>
+                <span className="shrink-0 text-label font-extrabold tabular-nums">{row.points}</span>
               </motion.div>
             </li>
           );
@@ -151,13 +151,13 @@ function Riquadro({
   children: React.ReactNode;
 }) {
   return (
-    <aside className="overflow-hidden rounded-2xl border border-[var(--surface-border)] bg-[var(--surface-raised)]">
+    <aside className="overflow-hidden rounded-card border border-[var(--surface-border)] bg-[var(--surface-raised)]">
       <div className="flex items-center justify-between gap-2 border-b border-[var(--surface-border)] px-3 py-2">
         <div className="min-w-0">
-          <p className="text-[10px] font-bold tracking-widest text-[var(--text-secondary)] uppercase">
+          <p className="text-micro font-bold tracking-widest text-[var(--text-secondary)] uppercase">
             {titolo}
           </p>
-          <p className="truncate text-[11px] font-semibold text-[var(--text-secondary)]">
+          <p className="truncate text-label font-semibold text-[var(--text-secondary)]">
             {sottotitolo}
           </p>
         </div>
@@ -184,7 +184,7 @@ function Selettore({
           key={v}
           type="button"
           onClick={() => onChange(v)}
-          className={`px-2.5 py-1 text-[10px] font-bold transition-colors ${
+          className={`px-2.5 py-1 text-label font-bold transition-colors ${
             vista === v
               ? "bg-[var(--brand)] text-[var(--brand-contrast)]"
               : "text-[var(--text-secondary)]"
@@ -200,8 +200,8 @@ function Selettore({
 function Numero({ etichetta, valore }: { etichetta: string; valore: number }) {
   return (
     <div className="py-1.5">
-      <p className="text-sm leading-none font-extrabold tabular-nums">{valore}</p>
-      <p className="mt-0.5 text-[10px] font-semibold text-[var(--text-secondary)]">{etichetta}</p>
+      <p className="text-body leading-none font-extrabold tabular-nums">{valore}</p>
+      <p className="mt-0.5 text-label font-semibold text-[var(--text-secondary)]">{etichetta}</p>
     </div>
   );
 }

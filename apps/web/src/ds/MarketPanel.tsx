@@ -7,6 +7,10 @@ import {
   Check,
   ClipboardList,
   FileSignature,
+  ChevronRight,
+  CircleAlert,
+  Footprints,
+  Goal,
   Newspaper,
   Landmark,
   LayoutGrid,
@@ -29,6 +33,7 @@ import {
   MAX_SQUAD_SIZE,
   computeAvgRating,
   currentLineup,
+  financesOf,
   findCoach,
   getFormation,
   livePromiseStatus,
@@ -64,6 +69,7 @@ import { CoachPromisesPanel, type LiveCoachPromise } from "./CoachPromisesPanel"
 import { CoachNegotiationChat } from "./CoachNegotiationChat";
 import { FinancesPanel } from "./FinancesPanel";
 import { SegmentedNav, type SegmentedItem } from "./SegmentedNav";
+import { Button, Chip, ChipBar, Sheet } from "./ui";
 import { ContractLengthPicker } from "./ContractLengthPicker";
 import { CaptaincyCard } from "./CaptaincyCard";
 import { FreeAgentsPanel } from "./FreeAgentsPanel";
@@ -71,7 +77,7 @@ import { SpogliatoioPanel } from "./SpogliatoioPanel";
 import type { CoachPromise } from "@app/game-engine";
 import type { DsWorldData } from "./useDsWorld";
 import { DEPARTMENT_LABEL, RoleChips } from "./RoleChips";
-import { euro, moraleLabel } from "./format";
+import { cognome, euro, moraleLabel } from "./format";
 
 /**
  * **La finestra di mercato: il cuore della modalità.**
@@ -112,7 +118,7 @@ function Badge({ overall }: { overall: number }) {
   const tier = overallTier(overall);
   return (
     <span
-      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-sm font-extrabold"
+      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-control text-body font-extrabold"
       style={{ backgroundColor: tier.dot, color: tier.dotText }}
     >
       {overall}
@@ -121,7 +127,7 @@ function Badge({ overall }: { overall: number }) {
 }
 
 function Vuoto({ testo }: { testo: string }) {
-  return <p className="py-10 text-center text-sm text-[var(--text-secondary)]">{testo}</p>;
+  return <p className="py-10 text-center text-body text-[var(--text-secondary)]">{testo}</p>;
 }
 
 interface MarketPanelProps {
@@ -204,7 +210,10 @@ export function MarketPanel({
    */
   const [subMercato, setSubMercato] = useState<SubMercato>("ricerca");
   const [tab, setTab] = useState<Tab>("rosa");
+  /** Le finanze non sono più una scheda ma un foglio, aperto dai numeri in testata. */
+  const [finanzeAperte, setFinanzeAperte] = useState(false);
   const budget = state.budget;
+  const finanzeOra = useMemo(() => financesOf(state, world), [state, world]);
 
   /** Badge di notifica sul tab Rosa: quanti giocatori aspettano un faccia a faccia. */
   /**
@@ -252,39 +261,61 @@ export function MarketPanel({
         animate={{ y: 0 }}
         exit={{ y: "100%" }}
         transition={{ type: "spring", stiffness: 320, damping: 34 }}
-        className="relative flex h-[92svh] w-full max-w-xl flex-col overflow-hidden rounded-t-3xl border border-[var(--surface-border)] bg-[var(--surface)] sm:h-[86svh] sm:rounded-3xl"
+        className="relative flex h-[90svh] w-full max-w-xl flex-col overflow-hidden rounded-t-[1.75rem] border border-[var(--surface-border)] bg-[var(--surface)] shadow-[var(--elev-sheet)] sm:rounded-[1.75rem]"
       >
         <DealToast deal={deal} />
 
-        <header className="flex items-center gap-3 border-b border-[var(--surface-border)] px-4 py-3">
-          <div className="min-w-0 flex-1">
-            <p className="text-[11px] font-bold tracking-widest text-[var(--accent)] uppercase">
+        <div className="flex justify-center pt-2.5 pb-1">
+          <span className="h-1 w-9 rounded-full bg-[var(--surface-border)]" />
+        </div>
+
+        {/* **Le due casse in testata, al posto di una scheda.**
+
+            *Finanze* non era un posto dove si va: è un dato che serve **mentre** si decide.
+            Toglierla dalla barra libera la larghezza che mancava alle altre quattro — con
+            cinque voci restavano 26px per parola e quattro etichette su cinque erano
+            illeggibili («Fi…», «M…», «N…», e *Offerte* con 3px su 40 necessari). */}
+        <header className="flex items-center gap-3 border-b border-[var(--surface-border)] px-4 pb-3">
+          <button
+            type="button"
+            onClick={() => setFinanzeAperte(true)}
+            className="min-w-0 flex-1 text-left"
+          >
+            <p className="text-micro text-[var(--accent)] uppercase">
               Mercato {snapshot.window === "estiva" ? "estivo" : "di riparazione"}
             </p>
             {/* Il budget "salta" a ogni variazione: è il numero che l'utente sta guardando
                 mentre decide, e vederlo cambiare chiude il cerchio con la conferma. */}
-            <motion.p
+            <motion.span
               key={budget}
               initial={{ scale: 1.14 }}
               animate={{ scale: 1 }}
               transition={{ type: "spring", stiffness: 420, damping: 18 }}
-              className="flex items-center gap-1.5 text-lg leading-tight font-extrabold"
+              className="num flex items-center gap-1.5 text-display leading-tight"
             >
-              <Wallet size={17} />
+              <Wallet size={20} className="text-[var(--text-secondary)]" />
               {euro(budget)}
-            </motion.p>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="shrink-0 rounded-full bg-[var(--brand)] px-4 py-2.5 text-sm font-extrabold text-[var(--brand-contrast)] transition-transform active:scale-95"
-          >
-            Chiudi il mercato
+            </motion.span>
+            <span
+              className="num mt-0.5 flex items-center gap-1 text-label font-bold"
+              style={{
+                color: finanzeOra.wageRoom < 0 ? "var(--danger)" : "var(--text-secondary)",
+              }}
+            >
+              <Landmark size={12} />
+              {euro(finanzeOra.wageRoom)} di margine ingaggi
+              <ChevronRight size={12} />
+            </span>
           </button>
+
+          <Button variant="secondary" onClick={onClose}>
+            Chiudi
+          </Button>
         </header>
 
         {/* Dove sei, prima di decidere: nella finestra invernale è il contesto che dice se
-            comprare per vincere o per salvarsi. */}
+            comprare per vincere o per salvarsi. Compresso in una riga apribile — misurato,
+            libera ~260px, cioè da 1,5 a 4 card di giocatore visibili. */}
         <MarketBriefing state={state} world={world} standings={standings} />
 
         <div className="border-b border-[var(--surface-border)] px-3 py-2">
@@ -293,14 +324,13 @@ export function MarketPanel({
             value={tab}
             onChange={setTab}
             items={[
-              { key: "finanze", label: "Finanze", icon: Landmark },
               {
                 key: "offerte",
                 label: "Offerte",
                 icon: ArrowUpRight,
                 count: snapshot.offers.length + snapshot.loanOffers.length,
               },
-              { key: "mercato", label: "Mercato", icon: Search },
+              { key: "mercato", label: "Cerca", icon: Search },
               { key: "rosa", label: "Rosa", icon: ClipboardList, badge: chatInSospeso },
               { key: "notizie", label: "Notizie", icon: Newspaper },
             ]}
@@ -310,19 +340,18 @@ export function MarketPanel({
         {/* Il riscontro dell'operazione è il `DealToast` in cima: una seconda riga di testo qui
             sotto direbbe la stessa cosa due volte. */}
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3 space-y-3">
+        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-3">
           {promesseLive.length > 0 && (
             <>
               <CoachPromisesPanel
                 promises={promesseLive}
-                coachName={findCoach(state.coachId ?? "")?.name ?? "Mister"}
                 onProposeAlternative={(promise) => {
                   setRispostaAlternativa(null);
                   setAlternativaPer(promise);
                 }}
               />
               {rispostaAlternativa && (
-                <p className="rounded-2xl border border-[var(--brand)]/30 bg-[var(--brand)]/8 px-3 py-2.5 text-xs leading-relaxed">
+                <p className="rounded-card border border-[var(--brand)]/30 bg-[var(--brand)]/8 px-3 py-2.5 text-label leading-relaxed">
                   «{rispostaAlternativa}»
                 </p>
               )}
@@ -341,15 +370,25 @@ export function MarketPanel({
           )}
           {tab === "mercato" && (
             <div className="flex flex-col gap-3">
-              <SegmentedNav
-                layoutId="ds-market-sub"
-                size="sm"
-                value={subMercato}
-                onChange={setSubMercato}
-                items={SUB_MERCATO.map((v) =>
-                  v.key === "cedibili" ? { ...v, count: snapshot.aiSellable?.length ?? 0 } : v,
-                )}
-              />
+              {/* **Pastiglie che scorrono, non segmenti compressi.**
+
+                  Con quattro segmenti a larghezza uguale si leggeva «C..» per *Cedibili IA* e
+                  «Svinc…» per *Svincolati*. Una pastiglia tiene la **sua** larghezza e la fila
+                  scorre, con la sfumatura sul bordo a dire che c'è dell'altro — senza, una fila
+                  che scorre sembra una fila che finisce lì. */}
+              <ChipBar>
+                {SUB_MERCATO.map(({ key, label, icon }) => (
+                  <Chip
+                    key={key}
+                    icon={icon}
+                    selected={subMercato === key}
+                    count={key === "cedibili" ? (snapshot.aiSellable?.length ?? 0) : undefined}
+                    onClick={() => setSubMercato(key)}
+                  >
+                    {label}
+                  </Chip>
+                ))}
+              </ChipBar>
 
               {(subMercato === "ricerca" || subMercato === "cedibili") && (
                 <SchedaRicerca
@@ -395,9 +434,6 @@ export function MarketPanel({
               standoffChiuse={standoffChiuse}
             />
           )}
-          {tab === "finanze" && (
-            <FinancesPanel state={state} world={world} onShift={onShiftFinances} />
-          )}
           {tab === "notizie" && (
             <TransferFeedPanel
               state={state}
@@ -408,6 +444,20 @@ export function MarketPanel({
           )}
         </div>
       </motion.div>
+
+      {/* Le finanze aperte dai numeri in testata: sono contesto per decidere, quindi si
+          consultano **sopra** il mercato e si richiudono, senza perdere il posto in cui si
+          stava lavorando — che è ciò che costava una scheda a sé. */}
+      {finanzeAperte && (
+        <Sheet
+          title="Finanze"
+          eyebrow="Le due casse"
+          size="compact"
+          onClose={() => setFinanzeAperte(false)}
+        >
+          <FinancesPanel state={state} world={world} onShift={onShiftFinances} />
+        </Sheet>
+      )}
 
       {alternativaPer && (
         <PromiseAlternativePicker
@@ -463,14 +513,14 @@ function PromiseAlternativePicker({
         animate={{ y: 0 }}
         exit={{ y: "100%" }}
         transition={{ type: "spring", stiffness: 330, damping: 32 }}
-        className="flex h-[75svh] w-full max-w-md flex-col overflow-hidden rounded-t-3xl border border-[var(--surface-border)] bg-[var(--surface)] sm:h-[68svh] sm:rounded-3xl"
+        className="flex h-[75svh] w-full max-w-md flex-col overflow-hidden rounded-t-3xl border border-[var(--surface-border)] bg-[var(--surface)] sm:h-[68svh] sm:rounded-card"
       >
         <header className="flex items-center justify-between gap-2 border-b border-[var(--surface-border)] px-4 py-3">
           <div className="min-w-0">
-            <p className="text-[11px] font-bold tracking-widest text-[var(--brand)] uppercase">
+            <p className="text-micro font-bold tracking-widest text-[var(--brand)] uppercase">
               Alternativa dal database
             </p>
-            <p className="truncate text-xs text-[var(--text-secondary)]">{promise.description}</p>
+            <p className="truncate text-label text-[var(--text-secondary)]">{promise.description}</p>
           </div>
           <button
             type="button"
@@ -491,7 +541,7 @@ function PromiseAlternativePicker({
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Cerca per nome o club..."
-            className="w-full rounded-full border border-[var(--surface-border)] bg-[var(--surface-raised)] py-2.5 pr-4 pl-9 text-sm outline-none focus:border-[var(--brand)]"
+            className="w-full rounded-full border border-[var(--surface-border)] bg-[var(--surface-raised)] py-2.5 pr-4 pl-9 text-body outline-none focus:border-[var(--brand)]"
           />
         </label>
 
@@ -503,15 +553,15 @@ function PromiseAlternativePicker({
               {risultati.map((r) => (
                 <li
                   key={r.playerId}
-                  className="flex items-center gap-2.5 rounded-2xl border border-[var(--surface-border)] bg-[var(--surface-raised)] p-2.5"
+                  className="flex items-center gap-2.5 rounded-card border border-[var(--surface-border)] bg-[var(--surface-raised)] p-2.5"
                 >
                   <Badge overall={r.overall} />
                   <div className="min-w-0 flex-1">
-                    <p className="flex items-center gap-1.5 truncate text-sm leading-tight font-bold">
+                    <p className="flex items-center gap-1.5 truncate text-body leading-tight font-bold">
                       <NationFlag nation={world.players[r.playerId]?.nation ?? ""} />
                       <span className="truncate">{r.name}</span>
                     </p>
-                    <p className="truncate text-[11px] text-[var(--text-secondary)]">{r.clubName}</p>
+                    <p className="truncate text-label text-[var(--text-secondary)]">{r.clubName}</p>
                   </div>
                   <button
                     type="button"
@@ -526,7 +576,7 @@ function PromiseAlternativePicker({
                         role: promise.targetRole ?? r.role,
                       })
                     }
-                    className="shrink-0 rounded-full bg-[var(--brand)] px-3 py-2 text-xs font-extrabold text-[var(--brand-contrast)] transition-transform active:scale-95"
+                    className="shrink-0 rounded-full bg-[var(--brand)] px-3 py-2 text-label font-extrabold text-[var(--brand-contrast)] transition-transform active:scale-95"
                   >
                     Proponi
                   </button>
@@ -578,31 +628,31 @@ function SchedaOfferte({
       {snapshot.loanOffers.map((loan) => (
         <li
           key={`loan-${loan.playerId}`}
-          className="flex flex-col gap-2.5 rounded-2xl border border-[var(--surface-border)] bg-[var(--surface-raised)] p-3"
+          className="flex flex-col gap-2.5 rounded-card border border-[var(--surface-border)] bg-[var(--surface-raised)] p-3"
         >
           <div className="flex items-center gap-2.5">
             <Plane size={15} className="shrink-0 text-[#5aa9e6]" />
             <div className="min-w-0 flex-1">
-              <p className="flex items-center gap-1.5 truncate text-sm leading-tight font-bold">
+              <p className="flex items-center gap-1.5 truncate text-body leading-tight font-bold">
                 <NationFlag nation={world.players[loan.playerId]?.nation ?? ""} />
                 <span className="truncate">{loan.playerName}</span>
               </p>
-              <p className="truncate text-[11px] text-[var(--text-secondary)]">
+              <p className="truncate text-label text-[var(--text-secondary)]">
                 Destinazione: {loan.clubName}
               </p>
             </div>
             <span className="shrink-0 text-right">
-              <span className="block text-sm font-extrabold">
+              <span className="block text-body font-extrabold">
                 {Math.round(loan.expectedMinutes / 90)} partite
               </span>
-              <span className="block text-[10px] font-bold text-[var(--text-secondary)]">garantite</span>
+              <span className="block text-label font-bold text-[var(--text-secondary)]">garantite</span>
             </span>
           </div>
           <div className="flex gap-2">
             <button
               type="button"
               onClick={() => onAction({ kind: "manda_in_prestito", playerId: loan.playerId, clubId: loan.clubId })}
-              className="flex flex-1 items-center justify-center gap-1.5 rounded-full bg-[#3ddc6b]/15 py-2 text-xs font-bold text-[#2a9b4d]"
+              className="flex min-h-tap flex-1 items-center justify-center gap-1.5 rounded-control bg-[var(--win)]/15 text-label font-bold text-[var(--win)]"
             >
               <Check size={13} />
               Accetta
@@ -611,7 +661,7 @@ function SchedaOfferte({
               type="button"
               disabled={bloccati.has(loan.playerId)}
               onClick={() => onNegotiateLoan(loan.playerId)}
-              className={`flex flex-1 items-center justify-center gap-1.5 rounded-full py-2 text-xs font-bold ${
+              className={`flex min-h-tap flex-1 items-center justify-center gap-1.5 rounded-control text-label font-bold ${
                 bloccati.has(loan.playerId)
                   ? "cursor-not-allowed border border-[var(--surface-border)] text-[var(--text-secondary)]"
                   : "border border-[var(--accent)]/50 text-[var(--accent)]"
@@ -624,7 +674,7 @@ function SchedaOfferte({
               type="button"
               onClick={() => onAction({ kind: "rifiuta_prestito", playerId: loan.playerId })}
               aria-label="Rifiuta la destinazione"
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[var(--surface-border)] text-[var(--text-secondary)]"
+              className="flex h-tap w-tap shrink-0 items-center justify-center rounded-control border border-[var(--surface-border)] text-[var(--text-secondary)]"
             >
               <X size={15} />
             </button>
@@ -634,27 +684,27 @@ function SchedaOfferte({
       {snapshot.offers.map((offer) => (
         <li
           key={offer.playerId}
-          className="flex flex-col gap-2.5 rounded-2xl border border-[var(--surface-border)] bg-[var(--surface-raised)] p-3"
+          className="flex flex-col gap-2.5 rounded-card border border-[var(--surface-border)] bg-[var(--surface-raised)] p-3"
         >
           <div className="flex items-center gap-2.5">
             <ArrowUpRight size={15} className="shrink-0 text-[#ff8a3d]" />
             <div className="min-w-0 flex-1">
-              <p className="flex items-center gap-1.5 truncate text-sm leading-tight font-bold">
+              <p className="flex items-center gap-1.5 truncate text-body leading-tight font-bold">
                 <NationFlag nation={world.players[offer.playerId]?.nation ?? ""} />
                 <span className="truncate">{offer.playerName}</span>
               </p>
-              <p className="truncate text-[11px] text-[var(--text-secondary)]">
+              <p className="truncate text-label text-[var(--text-secondary)]">
                 Offerta del {offer.fromClubName}
                 {valori.has(offer.playerId) && ` · vale ${euro(valori.get(offer.playerId)!)}`}
               </p>
             </div>
             <span className="shrink-0 text-right">
-              <span className="block text-sm font-extrabold">{euro(offer.fee)}</span>
+              <span className="block text-body font-extrabold">{euro(offer.fee)}</span>
               {/* Sopra o sotto il valore: è l'unica informazione che rende l'offerta
                   valutabile in un colpo d'occhio invece che a memoria. */}
               {valori.has(offer.playerId) && (
                 <span
-                  className="block text-[10px] font-bold tabular-nums"
+                  className="block text-label font-bold tabular-nums"
                   style={{
                     color: offer.fee >= valori.get(offer.playerId)! ? "#3ddc6b" : "#ff8a3d",
                   }}
@@ -669,7 +719,7 @@ function SchedaOfferte({
             <button
               type="button"
               onClick={() => onAction({ kind: "accetta_offerta", playerId: offer.playerId })}
-              className="flex flex-1 items-center justify-center gap-1.5 rounded-full bg-[#3ddc6b]/15 py-2 text-xs font-bold text-[#2a9b4d]"
+              className="flex min-h-tap flex-1 items-center justify-center gap-1.5 rounded-control bg-[var(--win)]/15 text-label font-bold text-[var(--win)]"
             >
               <Check size={13} />
               Accetta
@@ -680,7 +730,7 @@ function SchedaOfferte({
               type="button"
               disabled={bloccati.has(offer.playerId)}
               onClick={() => onNegotiate(offer.playerId)}
-              className={`flex flex-1 items-center justify-center gap-1.5 rounded-full py-2 text-xs font-bold ${
+              className={`flex min-h-tap flex-1 items-center justify-center gap-1.5 rounded-control text-label font-bold ${
                 bloccati.has(offer.playerId)
                   ? "cursor-not-allowed border border-[var(--surface-border)] text-[var(--text-secondary)]"
                   : "border border-[var(--accent)]/50 text-[var(--accent)]"
@@ -693,7 +743,7 @@ function SchedaOfferte({
               type="button"
               onClick={() => onAction({ kind: "rifiuta_offerta", playerId: offer.playerId })}
               aria-label="Rifiuta l'offerta"
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[var(--surface-border)] text-[var(--text-secondary)]"
+              className="flex h-tap w-tap shrink-0 items-center justify-center rounded-control border border-[var(--surface-border)] text-[var(--text-secondary)]"
             >
               <X size={15} />
             </button>
@@ -852,7 +902,7 @@ function SchedaRicerca({
       {/* Con la rosa al massimo si può ancora **cercare** (serve a farsi un'idea) ma non
           comprare: dirlo qui evita di scoprirlo premendo un pulsante che sembrava attivo. */}
       {rosaPiena && (
-        <p className="flex items-center gap-2 rounded-2xl border border-[#ffab2e]/40 bg-[#ffab2e]/8 p-3 text-[11px] leading-relaxed font-semibold text-[#c9821b]">
+        <p className="flex items-center gap-2 rounded-card border border-[#ffab2e]/40 bg-[#ffab2e]/8 p-3 text-label leading-relaxed font-semibold text-[#c9821b]">
           <TriangleAlert size={15} className="shrink-0" />
           Rosa al completo ({MAX_SQUAD_SIZE} giocatori): per comprare devi prima cedere
           qualcuno dalla scheda "La mia rosa".
@@ -868,13 +918,13 @@ function SchedaRicerca({
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Cerca per nome o club..."
-            className="w-full rounded-full border border-[var(--surface-border)] bg-[var(--surface-raised)] py-2.5 pr-11 pl-9 text-sm outline-none focus:border-[var(--brand)]"
+            className="w-full rounded-full border border-[var(--surface-border)] bg-[var(--surface-raised)] py-2.5 pr-11 pl-9 text-body outline-none focus:border-[var(--brand)]"
           />
           <button
             type="button"
             onClick={() => setFiltriAperti((v) => !v)}
             aria-label="Filtri"
-            className={`absolute top-1/2 right-1.5 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full ${
+            className={`absolute top-1/2 right-1 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-control ${
               filtriAperti ? "bg-[var(--brand)] text-[var(--brand-contrast)]" : "text-[var(--text-secondary)]"
             }`}
           >
@@ -890,12 +940,12 @@ function SchedaRicerca({
             exit={{ height: 0, opacity: 0 }}
             className="overflow-hidden"
           >
-            <div className="flex flex-col gap-2.5 rounded-2xl border border-[var(--surface-border)] bg-[var(--surface-raised)] p-3">
+            <div className="flex flex-col gap-2.5 rounded-card border border-[var(--surface-border)] bg-[var(--surface-raised)] p-3">
               <div className="flex flex-wrap gap-1.5">
                 {DEPARTMENTS.map((d) => (
                   <Chip
                     key={d}
-                    attivo={department === d}
+                    selected={department === d}
                     onClick={() => {
                       setDepartment(department === d ? undefined : d);
                       setRoles(new Set());
@@ -911,7 +961,7 @@ function SchedaRicerca({
                   {ruoliDelReparto.map((r) => (
                     <Chip
                       key={r}
-                      attivo={roles.has(r)}
+                      selected={roles.has(r)}
                       onClick={() =>
                         setRoles((prev) => {
                           const next = new Set(prev);
@@ -928,17 +978,17 @@ function SchedaRicerca({
               )}
 
               <div className="flex flex-wrap gap-1.5">
-                <Chip attivo={soloAllaPortata} onClick={() => setSoloAllaPortata((v) => !v)}>
+                <Chip selected={soloAllaPortata} onClick={() => setSoloAllaPortata((v) => !v)}>
                   Alla mia portata
                 </Chip>
-                <Chip attivo={soloPrestiti} onClick={() => setSoloPrestiti((v) => !v)}>
+                <Chip selected={soloPrestiti} onClick={() => setSoloPrestiti((v) => !v)}>
                   Solo prestiti
                 </Chip>
               </div>
 
               {/* Intervalli età/Overall: ricerche più mirate di un semplice tetto. */}
               <div className="flex items-center gap-2">
-                <span className="w-12 shrink-0 text-[10px] font-bold text-[var(--text-secondary)] uppercase">
+                <span className="w-12 shrink-0 text-micro font-bold text-[var(--text-secondary)] uppercase">
                   Età
                 </span>
                 <input
@@ -947,20 +997,20 @@ function SchedaRicerca({
                   placeholder="Min"
                   value={etaMin}
                   onChange={(e) => setEtaMin(e.target.value)}
-                  className="w-0 min-w-0 flex-1 rounded-lg border border-[var(--surface-border)] bg-[var(--surface)] px-2 py-1.5 text-xs font-semibold outline-none focus:border-[var(--brand)]"
+                  className="w-0 min-w-0 flex-1 rounded-control border border-[var(--surface-border)] bg-[var(--surface)] px-2 py-1.5 text-label font-semibold outline-none focus:border-[var(--brand)]"
                 />
-                <span className="text-[10px] text-[var(--text-secondary)]">–</span>
+                <span className="text-label text-[var(--text-secondary)]">–</span>
                 <input
                   type="number"
                   inputMode="numeric"
                   placeholder="Max"
                   value={etaMax}
                   onChange={(e) => setEtaMax(e.target.value)}
-                  className="w-0 min-w-0 flex-1 rounded-lg border border-[var(--surface-border)] bg-[var(--surface)] px-2 py-1.5 text-xs font-semibold outline-none focus:border-[var(--brand)]"
+                  className="w-0 min-w-0 flex-1 rounded-control border border-[var(--surface-border)] bg-[var(--surface)] px-2 py-1.5 text-label font-semibold outline-none focus:border-[var(--brand)]"
                 />
               </div>
               <div className="flex items-center gap-2">
-                <span className="w-12 shrink-0 text-[10px] font-bold text-[var(--text-secondary)] uppercase">
+                <span className="w-12 shrink-0 text-micro font-bold text-[var(--text-secondary)] uppercase">
                   Overall
                 </span>
                 <input
@@ -969,22 +1019,22 @@ function SchedaRicerca({
                   placeholder="Min"
                   value={overallMin}
                   onChange={(e) => setOverallMin(e.target.value)}
-                  className="w-0 min-w-0 flex-1 rounded-lg border border-[var(--surface-border)] bg-[var(--surface)] px-2 py-1.5 text-xs font-semibold outline-none focus:border-[var(--brand)]"
+                  className="w-0 min-w-0 flex-1 rounded-control border border-[var(--surface-border)] bg-[var(--surface)] px-2 py-1.5 text-label font-semibold outline-none focus:border-[var(--brand)]"
                 />
-                <span className="text-[10px] text-[var(--text-secondary)]">–</span>
+                <span className="text-label text-[var(--text-secondary)]">–</span>
                 <input
                   type="number"
                   inputMode="numeric"
                   placeholder="Max"
                   value={overallMax}
                   onChange={(e) => setOverallMax(e.target.value)}
-                  className="w-0 min-w-0 flex-1 rounded-lg border border-[var(--surface-border)] bg-[var(--surface)] px-2 py-1.5 text-xs font-semibold outline-none focus:border-[var(--brand)]"
+                  className="w-0 min-w-0 flex-1 rounded-control border border-[var(--surface-border)] bg-[var(--surface)] px-2 py-1.5 text-label font-semibold outline-none focus:border-[var(--brand)]"
                 />
               </div>
 
               <div className="flex flex-wrap gap-1.5">
                 {(["overall", "prezzo", "eta", "potenziale"] as const).map((s) => (
-                  <Chip key={s} attivo={sort === s} onClick={() => setSort(s)}>
+                  <Chip key={s} selected={sort === s} onClick={() => setSort(s)}>
                     {s === "overall" ? "Più forti" : s === "prezzo" ? "Più economici" : s === "eta" ? "Più giovani" : "Prospetti"}
                   </Chip>
                 ))}
@@ -1008,29 +1058,35 @@ function SchedaRicerca({
             return (
               <li
                 key={r.playerId}
-                className="flex flex-col gap-2 rounded-2xl border border-[var(--surface-border)] bg-[var(--surface-raised)] p-2.5"
+                className="flex flex-col gap-2 rounded-card border border-[var(--surface-border)] bg-[var(--surface-raised)] p-2.5"
               >
-                <div className="flex items-center gap-2.5">
+                {/* **La gerarchia risponde alla domanda vera: "lo prendo o no?"**
+
+                    Prima cognome, club e prezzo stavano tutti alla stessa misura, e il nome —
+                    per giunta quello legale completo — si tagliava. Ora il cognome è il titolo,
+                    il prezzo è un numero allineato a destra dove si cercano i numeri, e il
+                    contesto sta sotto in secondaria. */}
+                <div className="flex items-start gap-2.5">
                   <Badge overall={r.overall} />
                   <div className="min-w-0 flex-1">
-                    <p className="flex items-center gap-1.5 truncate text-sm leading-tight font-bold">
+                    <p className="flex items-center gap-1.5 text-body leading-tight font-bold">
                       <NationFlag nation={world.players[r.playerId]?.nation ?? ""} />
-                      <span className="truncate">{r.name}</span>
+                      <span className="truncate">{cognome(r.name)}</span>
                     </p>
-                    <p className="truncate text-[11px] text-[var(--text-secondary)]">
-                      {r.clubName} · <span className="tabular-nums">{r.age} anni</span> ·{" "}
-                      <span className="font-semibold text-[var(--accent)] tabular-nums">
-                        {euro(r.price)}
-                      </span>
+                    <p className="truncate text-label text-[var(--text-secondary)]">
+                      {r.clubName} · <span className="num">{r.age} anni</span>
                     </p>
                     <div className="mt-1">
                       <RoleChips role={r.role} secondary={r.secondaryRoles} />
                     </div>
                   </div>
+                  <span className="num shrink-0 text-body font-extrabold text-[var(--accent)]">
+                    {euro(r.price)}
+                  </span>
                 </div>
 
                 {soloCedibili && ragioneCedibile.has(r.playerId) && (
-                  <p className="rounded-lg bg-[var(--surface)] px-2.5 py-1.5 text-[10px] leading-relaxed text-[var(--text-secondary)]">
+                  <p className="rounded-control bg-[var(--surface)] px-2.5 py-1.5 text-label leading-relaxed text-[var(--text-secondary)]">
                     {ragioneCedibile.get(r.playerId)}
                   </p>
                 )}
@@ -1055,25 +1111,25 @@ function SchedaRicerca({
                         ? `Trattativa già saltata per ${r.name}`
                         : `Tratta per ${r.name}`
                     }
-                    className={`flex flex-1 items-center justify-center gap-1.5 rounded-full px-3 py-2 text-xs font-extrabold ${
+                    className={`flex min-h-tap flex-1 items-center justify-center gap-1.5 rounded-control px-3 text-label font-extrabold ${
                       rosaPiena || bloccati.has(r.playerId)
                         ? "cursor-not-allowed bg-[var(--surface)] text-[var(--text-secondary)]"
                         : "bg-[var(--brand)] text-[var(--brand-contrast)]"
                     }`}
                   >
-                    <MessagesSquare size={13} />
+                    <MessagesSquare size={15} />
                     {rosaPiena
                       ? "Rosa piena"
                       : bloccati.has(r.playerId)
-                        ? "Saltata"
-                        : `Tratta · ${euro(r.price)}`}
+                        ? "Trattativa saltata"
+                        : "Tratta"}
                   </button>
                   {r.loanable && (
                     <button
                       type="button"
                       disabled={rosaPiena}
                       onClick={() => onAction({ kind: "chiedi_prestito", target: r })}
-                      className={`flex items-center gap-1.5 rounded-full px-3 py-2 text-xs font-extrabold ${
+                      className={`flex items-center gap-1.5 rounded-full px-3 py-2 text-label font-extrabold ${
                         rosaPiena
                           ? "cursor-not-allowed bg-[var(--surface)] text-[var(--text-secondary)]"
                           : "bg-[#5aa9e6]/15 text-[#2f7fbd]"
@@ -1090,30 +1146,6 @@ function SchedaRicerca({
         </ul>
       )}
     </div>
-  );
-}
-
-function Chip({
-  attivo,
-  onClick,
-  children,
-}: {
-  attivo: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`rounded-full px-3 py-1.5 text-[11px] font-bold transition-colors ${
-        attivo
-          ? "bg-[var(--brand)] text-[var(--brand-contrast)]"
-          : "border border-[var(--surface-border)] text-[var(--text-secondary)]"
-      }`}
-    >
-      {children}
-    </button>
   );
 }
 
@@ -1194,7 +1226,6 @@ function SchedaRosa({
         <SegmentedNav
           className="flex-1"
           layoutId="ds-rosa-sub"
-          size="sm"
           value={subView}
           onChange={setSubView}
           items={[
@@ -1208,22 +1239,22 @@ function SchedaRosa({
             },
           ]}
         />
-        <span className="hidden shrink-0 text-[11px] font-bold text-[var(--text-secondary)] sm:inline">
+        <span className="hidden shrink-0 text-label font-bold text-[var(--text-secondary)] sm:inline">
           {formation.name} · {coach?.name ?? "Mister"}
         </span>
       </div>
 
       <div
-        className={`flex items-center justify-between rounded-2xl border px-3 py-2.5 ${
+        className={`flex items-center justify-between rounded-card border px-3 py-2.5 ${
           piena
             ? "border-[#ffab2e]/40 bg-[#ffab2e]/8"
             : "border-[var(--surface-border)] bg-[var(--surface-raised)]"
         }`}
       >
-        <span className="text-[11px] font-bold tracking-wide text-[var(--text-secondary)] uppercase">
+        <span className="text-micro font-bold tracking-wide text-[var(--text-secondary)] uppercase">
           Capienza Rosa
         </span>
-        <span className="text-sm font-extrabold tabular-nums">
+        <span className="text-body font-extrabold tabular-nums">
           {capienza}
           <span className="font-semibold text-[var(--text-secondary)]"> / {MAX_SQUAD_SIZE}</span>
         </span>
@@ -1262,8 +1293,8 @@ function SchedaRosa({
           </div>
 
           {/* Elenco dettagliato dei ruoli con Titolare vs Riserva Diretta */}
-          <div className="rounded-2xl border border-[var(--surface-border)] bg-[var(--surface-raised)] p-3">
-            <h3 className="mb-2 text-[11px] font-extrabold uppercase text-[var(--text-secondary)] tracking-wider">
+          <div className="rounded-card border border-[var(--surface-border)] bg-[var(--surface-raised)] p-3">
+            <h3 className="mb-2 text-micro font-extrabold uppercase text-[var(--text-secondary)] tracking-wider">
               Titolari & Sostituti Diretti per il Modulo {formation.name}
             </h3>
             <div className="flex flex-col gap-2">
@@ -1287,11 +1318,11 @@ function SchedaRosa({
                 return (
                   <div
                     key={slot.id}
-                    className="flex flex-col gap-1.5 rounded-xl border border-[var(--surface-border)]/60 bg-[var(--surface)] p-2.5 text-xs"
+                    className="flex flex-col gap-1.5 rounded-control border border-[var(--surface-border)]/60 bg-[var(--surface)] p-2.5 text-label"
                   >
                     <div className="flex items-center justify-between font-bold">
                       <span className="flex items-center gap-1.5 text-[var(--brand)]">
-                        <span className="rounded bg-[var(--brand)]/15 px-1.5 py-0.5 text-[10px] font-extrabold">
+                        <span className="rounded bg-[var(--brand)]/15 px-1.5 py-0.5 text-label font-extrabold">
                           {slot.role}
                         </span>
                         {ROLE_LABELS[slot.role]}
@@ -1301,7 +1332,7 @@ function SchedaRosa({
                     <div className="grid grid-cols-2 gap-2 pt-1 border-t border-[var(--surface-border)]/40">
                       {/* Titolare */}
                       <div>
-                        <span className="block text-[9px] font-bold text-[var(--text-secondary)] uppercase">
+                        <span className="block text-micro font-bold text-[var(--text-secondary)] uppercase">
                           Titolare
                         </span>
                         {starterPlayer && starterEntry ? (
@@ -1309,7 +1340,7 @@ function SchedaRosa({
                             <span className="font-extrabold text-[var(--brand)]">
                               [{starterEntry.overall}]
                             </span>
-                            <span className="truncate font-bold">{starterPlayer.name}</span>
+                            <span className="font-bold">{cognome(starterPlayer.name)}</span>
                             {(state.guaranteedStarters?.[slot.id] === starterId ||
                               state.guaranteedStarters?.[slot.role] === starterId) && (
                               <Star
@@ -1321,13 +1352,13 @@ function SchedaRosa({
                             )}
                           </div>
                         ) : (
-                          <span className="text-[10px] text-red-400 font-semibold">❌ Scoperto</span>
+                          <span className="flex items-center gap-1 text-label font-semibold text-[var(--danger)]"><CircleAlert size={12} /> Scoperto</span>
                         )}
                       </div>
 
                       {/* Riserva Diretta */}
                       <div>
-                        <span className="block text-[9px] font-bold text-[var(--text-secondary)] uppercase">
+                        <span className="block text-micro font-bold text-[var(--text-secondary)] uppercase">
                           Diretta Riserva
                         </span>
                         {backupPlayer && backupEntry ? (
@@ -1336,12 +1367,12 @@ function SchedaRosa({
                               [{backupEntry.overall}]
                             </span>
                             <span className="truncate text-[var(--text-secondary)]">
-                              {backupPlayer.name}
+                              {cognome(backupPlayer.name)}
                             </span>
                           </div>
                         ) : (
-                          <span className="text-[10px] text-amber-400 font-semibold">
-                            ⚠️ Nessun rincalzo naturale
+                          <span className="text-label text-amber-400 font-semibold">
+                            <TriangleAlert size={12} className="inline shrink-0" /> Nessun rincalzo naturale
                           </span>
                         )}
                       </div>
@@ -1356,7 +1387,7 @@ function SchedaRosa({
 
       {subView === "elenco" && (
         <>
-          <div className="flex items-center gap-3 px-1 text-[10px] font-semibold text-[var(--text-secondary)]">
+          <div className="flex items-center gap-3 px-1 text-label font-semibold text-[var(--text-secondary)]">
             <span className="flex items-center gap-1">
               <Tag size={11} className="text-[#ff8a3d]" /> in vendita
             </span>
@@ -1374,16 +1405,16 @@ function SchedaRosa({
         return (
           <section key={dep}>
             <h3 className="mb-1.5 flex items-baseline justify-between px-1">
-              <span className="text-[10px] font-bold tracking-widest text-[var(--text-secondary)] uppercase">
+              <span className="text-micro font-bold tracking-widest text-[var(--text-secondary)] uppercase">
                 {DEPARTMENT_LABEL[dep]}
               </span>
-              <span className="text-[10px] font-semibold text-[var(--text-secondary)] tabular-nums">
+              <span className="text-label font-semibold text-[var(--text-secondary)] tabular-nums">
                 {gruppo.length} · media{" "}
                 {Math.round(gruppo.reduce((s, e) => s + e.overall, 0) / gruppo.length)}
               </span>
             </h3>
 
-            <ul className="overflow-hidden rounded-2xl border border-[var(--surface-border)]">
+            <ul className="overflow-hidden rounded-card border border-[var(--surface-border)]">
               {gruppo.map((entry) => {
                 const player = world.players[entry.playerId];
                 const vendita = inVendita.has(entry.playerId);
@@ -1396,7 +1427,7 @@ function SchedaRosa({
                     }`}
                   >
                     <span
-                      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[13px] font-extrabold"
+                      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-control text-label font-extrabold"
                       style={{
                         backgroundColor: overallTier(entry.overall).dot,
                         color: overallTier(entry.overall).dotText,
@@ -1406,16 +1437,16 @@ function SchedaRosa({
                     </span>
 
                     <div className="min-w-0 flex-1">
-                      <p className="flex items-center gap-1.5 truncate text-[13px] leading-tight font-bold">
+                      <p className="flex items-center gap-1.5 truncate text-label leading-tight font-bold">
                         {player?.nation && <NationFlag nation={player.nation} />}
                         <span className="truncate">{player?.name ?? "Giocatore"}</span>
                       </p>
                       <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5">
                         {player && <RoleChips role={player.role} secondary={player.secondaryRoles} />}
-                        <span className="text-[10px] text-[var(--text-secondary)] tabular-nums">
+                        <span className="text-label text-[var(--text-secondary)] tabular-nums">
                           {world.market?.ageOf(entry.playerId) ?? "?"} anni
                         </span>
-                        <span className="text-[10px] font-semibold text-[var(--accent)] tabular-nums">
+                        <span className="text-label font-semibold text-[var(--accent)] tabular-nums">
                           {euro(valori.get(entry.playerId) ?? 0)}
                         </span>
                         {/* **La scadenza è un'informazione di prima fila**, non un dettaglio da
@@ -1431,7 +1462,7 @@ function SchedaRosa({
                               type="button"
                               onClick={() => onRenew(entry.playerId)}
                               title={c ? `Contratto fino al ${c.until} · ${formatWage(c.wage)}` : "Senza contratto"}
-                              className="flex items-center gap-1 rounded-full px-1.5 py-px text-[10px] font-bold"
+                              className="flex items-center gap-1 rounded-full px-1.5 py-px text-label font-bold"
                               style={{ backgroundColor: `${colore}1f`, color: colore }}
                             >
                               <FileSignature size={10} />
@@ -1450,7 +1481,7 @@ function SchedaRosa({
                               type="button"
                               disabled={!scontento}
                               onClick={() => onOpenStandoff(entry.playerId)}
-                              className={`flex items-center gap-1 rounded-full px-1.5 py-px text-[10px] font-bold ${
+                              className={`flex items-center gap-1 rounded-full px-1.5 py-px text-label font-bold ${
                                 scontento ? "cursor-pointer" : "cursor-default"
                               }`}
                               style={{ backgroundColor: `${color}1f`, color }}
@@ -1463,7 +1494,7 @@ function SchedaRosa({
                         {/* Infortunio: giorni rimanenti, per capire se serve intervenire sul
                             mercato — un infortunato non genera offerte né si può vendere. */}
                         {entry.injuryMatchdaysLeft > 0 && (
-                          <span className="flex items-center gap-1 rounded-full bg-[#ff4d4d]/12 px-1.5 py-px text-[10px] font-bold text-[#ff4d4d]">
+                          <span className="flex items-center gap-1 rounded-full bg-[#ff4d4d]/12 px-1.5 py-px text-label font-bold text-[#ff4d4d]">
                             <Activity size={10} />
                             Infortunato · {entry.injuryMatchdaysLeft}{" "}
                             {entry.injuryMatchdaysLeft === 1 ? "giornata" : "giornate"}
@@ -1472,7 +1503,7 @@ function SchedaRosa({
                       </div>
 
                       {/* Statistiche di Prestazione: Presenze, Gol, Assist, Media Voto */}
-                      <div className="mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[10px] font-semibold text-[var(--text-secondary)] border-t border-[var(--surface-border)]/40 pt-1">
+                      <div className="mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-label font-semibold text-[var(--text-secondary)] border-t border-[var(--surface-border)]/40 pt-1">
                         {entry.stats.appearances > 0 ? (
                           <>
                             <span className="tabular-nums">
@@ -1480,12 +1511,12 @@ function SchedaRosa({
                             </span>
                             {entry.stats.goals > 0 && (
                               <span className="tabular-nums font-extrabold text-emerald-400">
-                                ⚽ {entry.stats.goals}
+                                <Goal size={12} className="inline" /> {entry.stats.goals}
                               </span>
                             )}
                             {entry.stats.assists > 0 && (
                               <span className="tabular-nums font-extrabold text-blue-400">
-                                🅰️ {entry.stats.assists}
+                                <Footprints size={12} className="inline" /> {entry.stats.assists}
                               </span>
                             )}
                             {(() => {
@@ -1507,7 +1538,7 @@ function SchedaRosa({
                           </>
                         ) : entry.lastSeasonStats && entry.lastSeasonStats.appearances > 0 ? (
                           <>
-                            <span className="text-[9px] font-extrabold text-[var(--brand)] uppercase tracking-wider">
+                            <span className="text-micro font-extrabold text-[var(--brand)] uppercase tracking-wider">
                               Stag. Conclusa:
                             </span>
                             <span className="tabular-nums">
@@ -1515,7 +1546,7 @@ function SchedaRosa({
                             </span>
                             {entry.lastSeasonStats.goals > 0 && (
                               <span className="tabular-nums font-extrabold text-emerald-400">
-                                ⚽ {entry.lastSeasonStats.goals}
+                                <Goal size={12} className="inline" /> {entry.lastSeasonStats.goals}
                               </span>
                             )}
                             {(() => {
@@ -1528,7 +1559,7 @@ function SchedaRosa({
                             })()}
                           </>
                         ) : (
-                          <span className="italic text-[10px] text-[var(--text-secondary)]">
+                          <span className="italic text-label text-[var(--text-secondary)]">
                             Nessuna presenza ancora in stagione
                           </span>
                         )}
@@ -1619,7 +1650,7 @@ function AzioneIcona({
       title={etichetta}
       aria-label={etichetta}
       aria-pressed={attiva}
-      className="flex h-8 w-8 items-center justify-center rounded-lg border transition-colors"
+      className="flex h-8 w-8 items-center justify-center rounded-control border transition-colors"
       style={{
         borderColor: attiva ? colore : "var(--surface-border)",
         backgroundColor: attiva ? `${colore}22` : "transparent",
@@ -1688,12 +1719,12 @@ function SchedaMister({
   return (
     <div className="flex flex-col gap-3">
       {attuale && (
-        <div className="rounded-2xl border border-[var(--brand)]/40 bg-[var(--brand)]/8 p-3.5">
-          <p className="text-[10px] font-bold tracking-widest text-[var(--text-secondary)] uppercase">
+        <div className="rounded-card border border-[var(--brand)]/40 bg-[var(--brand)]/8 p-3.5">
+          <p className="text-micro font-bold tracking-widest text-[var(--text-secondary)] uppercase">
             In panchina adesso
           </p>
-          <p className="mt-1 text-base leading-tight font-extrabold">{attuale.name}</p>
-          <p className="mt-0.5 text-[11px] text-[var(--text-secondary)]">
+          <p className="mt-1 text-body leading-tight font-extrabold">{attuale.name}</p>
+          <p className="mt-0.5 text-label text-[var(--text-secondary)]">
             {getFormation(attuale.formationId)?.name ?? attuale.formationId} · attacco{" "}
             {attuale.style.attack > 0 ? `+${attuale.style.attack}` : attuale.style.attack} · difesa{" "}
             {attuale.style.defence > 0 ? `+${attuale.style.defence}` : attuale.style.defence}
@@ -1704,11 +1735,11 @@ function SchedaMister({
               da nessuna parte, e non c'era modo di rinnovarlo. */}
           <div className="mt-3 grid grid-cols-3 gap-2 border-t border-[var(--brand)]/20 pt-3">
             <span>
-              <span className="block text-[9px] font-bold tracking-widest text-[var(--text-secondary)] uppercase">
+              <span className="block text-micro font-bold tracking-widest text-[var(--text-secondary)] uppercase">
                 Contratto
               </span>
               <span
-                className="block text-sm font-extrabold tabular-nums"
+                className="block text-body font-extrabold tabular-nums"
                 style={{ color: stagioniResidue <= 1 ? "#ff4d4d" : "inherit" }}
               >
                 {contrattoMister
@@ -1717,23 +1748,23 @@ function SchedaMister({
               </span>
             </span>
             <span>
-              <span className="block text-[9px] font-bold tracking-widest text-[var(--text-secondary)] uppercase">
+              <span className="block text-micro font-bold tracking-widest text-[var(--text-secondary)] uppercase">
                 Ingaggio
               </span>
-              <span className="block text-sm font-extrabold tabular-nums">
+              <span className="block text-body font-extrabold tabular-nums">
                 {contrattoMister ? formatWage(contrattoMister.wage) : "—"}
               </span>
             </span>
             <span>
-              <span className="block text-[9px] font-bold tracking-widest text-[var(--text-secondary)] uppercase">
+              <span className="block text-micro font-bold tracking-widest text-[var(--text-secondary)] uppercase">
                 Buonuscita
               </span>
-              <span className="block text-sm font-extrabold tabular-nums">{euro(buonuscita)}</span>
+              <span className="block text-body font-extrabold tabular-nums">{euro(buonuscita)}</span>
             </span>
           </div>
 
           {stagioniResidue <= 1 && (
-            <p className="mt-2 rounded-xl bg-[#ff4d4d]/15 px-2.5 py-1.5 text-[11px] font-bold text-[#ff4d4d]">
+            <p className="mt-2 rounded-control bg-[#ff4d4d]/15 px-2.5 py-1.5 text-label font-bold text-[#ff4d4d]">
               È all'ultimo anno: se non rinnovi, a giugno lascia la panchina a parametro zero.
             </p>
           )}
@@ -1748,14 +1779,14 @@ function SchedaMister({
                     onRenewCoach(durataRinnovo);
                     setRinnovoAperto(false);
                   }}
-                  className="flex-1 rounded-xl bg-[var(--brand)] py-2.5 text-xs font-extrabold text-[var(--brand-contrast)]"
+                  className="flex-1 rounded-control bg-[var(--brand)] py-2.5 text-label font-extrabold text-[var(--brand-contrast)]"
                 >
                   Firma il rinnovo
                 </button>
                 <button
                   type="button"
                   onClick={() => setRinnovoAperto(false)}
-                  className="rounded-xl border border-[var(--surface-border)] px-3 text-xs font-bold text-[var(--text-secondary)]"
+                  className="rounded-control border border-[var(--surface-border)] px-3 text-label font-bold text-[var(--text-secondary)]"
                 >
                   Annulla
                 </button>
@@ -1765,20 +1796,20 @@ function SchedaMister({
             <button
               type="button"
               onClick={() => setRinnovoAperto(true)}
-              className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-xl border border-[var(--brand)]/50 py-2.5 text-xs font-extrabold text-[var(--brand)]"
+              className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-control border border-[var(--brand)]/50 py-2.5 text-label font-extrabold text-[var(--brand)]"
             >
               <FileSignature size={13} /> Rinnova il contratto
             </button>
           )}
 
-          <p className="mt-2 text-[11px] leading-relaxed text-[var(--text-secondary)]">
+          <p className="mt-2 text-label leading-relaxed text-[var(--text-secondary)]">
             Cambiarlo cambia il <strong>modulo</strong> con cui scende in campo la squadra, e costa
             la buonuscita qui sopra: guarda i ruoli della rosa prima di decidere.
           </p>
         </div>
       )}
 
-      <h3 className="text-[10px] font-bold tracking-widest text-[var(--text-secondary)] uppercase">
+      <h3 className="text-micro font-bold tracking-widest text-[var(--text-secondary)] uppercase">
         Chi accetterebbe la panchina
       </h3>
 
@@ -1789,17 +1820,17 @@ function SchedaMister({
           return (
             <li
               key={scelta.coachId}
-              className="flex items-center gap-2.5 rounded-2xl border border-[var(--surface-border)] bg-[var(--surface-raised)] p-2.5"
+              className="flex items-center gap-2.5 rounded-card border border-[var(--surface-border)] bg-[var(--surface-raised)] p-2.5"
             >
-              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[var(--surface)] text-[11px] font-extrabold">
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-control bg-[var(--surface)] text-label font-extrabold">
                 {getFormation(coach.formationId)?.name ?? coach.formationId}
               </span>
               <div className="min-w-0 flex-1">
-                <p className="flex items-center gap-1.5 truncate text-sm leading-tight font-bold">
+                <p className="flex items-center gap-1.5 truncate text-body leading-tight font-bold">
                   <NationFlag nation={coach.nation} />
                   <span className="truncate">{coach.name}</span>
                 </p>
-                <p className="truncate text-[11px] text-[var(--text-secondary)]">
+                <p className="truncate text-label text-[var(--text-secondary)]">
                   {coach.development >= 1.4
                     ? "Eccellente coi giovani"
                     : coach.development >= 1.15
@@ -1813,7 +1844,7 @@ function SchedaMister({
                 type="button"
                 disabled={!!scelta.blocked}
                 onClick={() => setChatCoach(coach)}
-                className={`shrink-0 rounded-full px-3.5 py-2 text-xs font-extrabold ${
+                className={`shrink-0 rounded-full px-3.5 py-2 text-label font-extrabold ${
                   scelta.blocked
                     ? "cursor-not-allowed bg-[var(--surface)] text-[var(--text-secondary)]"
                     : "bg-[var(--brand)] text-[var(--brand-contrast)] hover:opacity-90"

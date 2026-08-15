@@ -50,12 +50,12 @@ export function ClubViewerModal({
         animate={{ y: 0 }}
         exit={{ y: "100%" }}
         transition={{ type: "spring", stiffness: 330, damping: 32 }}
-        className="flex h-[85svh] w-full max-w-md flex-col overflow-hidden rounded-t-3xl border border-[var(--surface-border)] bg-[var(--surface)] sm:h-[78svh] sm:rounded-3xl"
+        className="flex h-[85svh] w-full max-w-md flex-col overflow-hidden rounded-t-3xl border border-[var(--surface-border)] bg-[var(--surface)] sm:h-[78svh] sm:rounded-card"
       >
         <header className="flex items-center gap-3 border-b border-[var(--surface-border)] px-4 py-3">
           <div className="min-w-0 flex-1">
-            <p className="truncate text-sm leading-tight font-extrabold">{clubName}</p>
-            <p className="truncate text-[11px] text-[var(--text-secondary)]">{roster.length} giocatori</p>
+            <p className="truncate text-body leading-tight font-extrabold">{clubName}</p>
+            <p className="truncate text-label text-[var(--text-secondary)]">{roster.length} giocatori</p>
           </div>
           <button
             type="button"
@@ -74,20 +74,20 @@ export function ClubViewerModal({
           </span>
           {coach ? (
             <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-bold">{coach.name}</p>
-              <p className="truncate text-[11px] text-[var(--text-secondary)]">
+              <p className="truncate text-body font-bold">{coach.name}</p>
+              <p className="truncate text-label text-[var(--text-secondary)]">
                 Modulo {coach.formationId}
                 {coach.tacticalPhilosophy ? ` · ${coach.tacticalPhilosophy}` : ""}
               </p>
             </div>
           ) : (
-            <p className="text-sm text-[var(--text-secondary)]">Staff tecnico</p>
+            <p className="text-body text-[var(--text-secondary)]">Staff tecnico</p>
           )}
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
           {roster.length === 0 ? (
-            <p className="py-10 text-center text-sm text-[var(--text-secondary)]">
+            <p className="py-10 text-center text-body text-[var(--text-secondary)]">
               Rosa non disponibile per questo club.
             </p>
           ) : (
@@ -97,17 +97,17 @@ export function ClubViewerModal({
                 return (
                   <li
                     key={r.playerId}
-                    className="flex items-center gap-2.5 rounded-2xl border border-[var(--surface-border)] bg-[var(--surface-raised)] p-2.5"
+                    className="flex items-center gap-2.5 rounded-card border border-[var(--surface-border)] bg-[var(--surface-raised)] p-2.5"
                   >
                     <span
-                      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-xs font-extrabold"
+                      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-control text-label font-extrabold"
                       style={{ backgroundColor: tier.dot, color: tier.dotText }}
                     >
                       {r.overall}
                     </span>
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-bold">{r.name}</p>
-                      <p className="truncate text-[11px] text-[var(--text-secondary)]">
+                      <p className="truncate text-body font-bold">{r.name}</p>
+                      <p className="truncate text-label text-[var(--text-secondary)]">
                         {ROLE_LABELS[r.role]} · {r.age} anni
                       </p>
                     </div>

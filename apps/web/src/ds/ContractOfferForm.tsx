@@ -98,8 +98,8 @@ export function ContractOfferForm({
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="border-b border-amber-500/20 bg-amber-500/10 px-4 py-2.5">
-        <p className="text-[10px] font-extrabold tracking-wider text-amber-300 uppercase">Chiede</p>
-        <p className="mt-0.5 text-xs leading-snug font-medium text-amber-100/90">
+        <p className="text-micro font-extrabold tracking-wider text-amber-300 uppercase">Chiede</p>
+        <p className="mt-0.5 text-label leading-snug font-medium text-amber-100/90">
           {formatWage(demand.wage)} · {demand.seasons} {demand.seasons === 1 ? "anno" : "anni"}
           {demand.clause > 0 && ` · clausola ${formatEuro(demand.clause)}`}
           {demand.wantsStarter && " · un posto da titolare"}
@@ -144,7 +144,7 @@ export function ContractOfferForm({
           />
         )}
 
-        <p className="px-1 text-[11px] font-bold text-[var(--brand)]">
+        <p className="px-1 text-label font-bold text-[var(--brand)]">
           {formatContractTotal(ingaggio, anni)}
         </p>
 
@@ -175,7 +175,7 @@ export function ContractOfferForm({
 
         {esito && (
           <p
-            className="rounded-xl px-3 py-2.5 text-[11px] font-bold"
+            className="rounded-control px-3 py-2.5 text-label font-bold"
             style={{
               backgroundColor: esito.ok ? "#3ddc6b22" : "#ff4d4d22",
               color: esito.ok ? "#2a9b4d" : "#ff4d4d",
@@ -191,7 +191,7 @@ export function ContractOfferForm({
           <button
             type="button"
             onClick={onCancel}
-            className="min-h-11 rounded-2xl border border-[var(--surface-border)] px-4 text-xs font-bold text-[var(--text-secondary)]"
+            className="min-h-11 rounded-card border border-[var(--surface-border)] px-4 text-label font-bold text-[var(--text-secondary)]"
           >
             {cancelLabel ?? "Annulla"}
           </button>
@@ -210,7 +210,7 @@ export function ContractOfferForm({
               }),
             )
           }
-          className="min-h-11 flex-1 rounded-2xl bg-[var(--brand)] py-3 text-sm font-extrabold text-[var(--brand-contrast)] transition-transform active:scale-98 disabled:opacity-40"
+          className="min-h-11 flex-1 rounded-card bg-[var(--brand)] py-3 text-body font-extrabold text-[var(--brand-contrast)] transition-transform active:scale-98 disabled:opacity-40"
         >
           {esito?.ok ? "Fatto" : submitLabel}
         </button>
@@ -231,14 +231,14 @@ function Passo({
   onPiu: () => void;
 }) {
   return (
-    <div className="flex items-center justify-between rounded-xl bg-[var(--surface-raised)] px-3 py-2 text-xs font-bold">
+    <div className="flex items-center justify-between rounded-control bg-[var(--surface-raised)] px-3 py-2 text-label font-bold">
       {label}
       <span className="flex items-center gap-1.5">
         <button
           type="button"
           aria-label={`Riduci ${label.toLowerCase()}`}
           onClick={onMeno}
-          className="flex h-9 w-9 items-center justify-center rounded-lg border border-[var(--surface-border)] active:scale-95"
+          className="flex h-9 w-9 items-center justify-center rounded-control border border-[var(--surface-border)] active:scale-95"
         >
           <Minus size={13} />
         </button>
@@ -247,7 +247,7 @@ function Passo({
           type="button"
           aria-label={`Aumenta ${label.toLowerCase()}`}
           onClick={onPiu}
-          className="flex h-9 w-9 items-center justify-center rounded-lg border border-[var(--surface-border)] active:scale-95"
+          className="flex h-9 w-9 items-center justify-center rounded-control border border-[var(--surface-border)] active:scale-95"
         >
           <Plus size={13} />
         </button>
@@ -274,7 +274,7 @@ function Interruttore({
       type="button"
       aria-pressed={attivo}
       onClick={onClick}
-      className="flex min-h-11 items-center justify-center gap-1.5 rounded-xl px-3 text-[11px] font-bold transition-colors"
+      className="flex min-h-11 items-center justify-center gap-1.5 rounded-control px-3 text-label font-bold transition-colors"
       style={{
         backgroundColor: attivo ? `${colore}33` : "var(--surface-raised)",
         color: attivo ? colore : "var(--text-secondary)",

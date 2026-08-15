@@ -5,6 +5,7 @@ import {
   ArrowRight,
   Flame,
   Frown,
+  Lightbulb,
   Search,
   ShieldAlert,
   Sparkles,
@@ -119,26 +120,26 @@ export function SeasonSquadReportModal({
         initial={{ scale: 0.9, y: 24, opacity: 0 }}
         animate={{ scale: 1, y: 0, opacity: 1 }}
         transition={{ type: "spring", stiffness: 320, damping: 26 }}
-        className="relative my-auto w-full max-w-2xl overflow-hidden rounded-3xl border border-[var(--surface-border)] bg-[var(--surface)] shadow-2xl flex flex-col max-h-[90vh]"
+        className="relative my-auto w-full max-w-2xl overflow-hidden rounded-card border border-[var(--surface-border)] bg-[var(--surface)] shadow-2xl flex flex-col max-h-[90vh]"
       >
         {/* Header Scheda */}
         <div className="relative border-b border-[var(--surface-border)] bg-gradient-to-r from-[var(--brand)]/20 via-[var(--surface)] to-[var(--surface)] p-5">
           <div className="flex items-start justify-between gap-3">
             <div>
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-[var(--brand)]/15 px-3 py-1 text-[11px] font-extrabold text-[var(--brand)] uppercase tracking-wider">
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-[var(--brand)]/15 px-3 py-1 text-micro font-extrabold text-[var(--brand)] uppercase tracking-wider">
                 <Activity size={13} />
                 Report Direttore Sportivo
               </span>
-              <h2 className="mt-2 text-2xl font-extrabold leading-tight text-[var(--text-primary)]">
+              <h2 className="mt-2 text-display font-extrabold leading-tight text-[var(--text-primary)]">
                 Valutazione Rosa & Crescita
               </h2>
-              <p className="mt-0.5 text-xs text-[var(--text-secondary)] font-medium">
+              <p className="mt-0.5 text-label text-[var(--text-secondary)] font-medium">
                 {clubName} · Stagione {summary.season} ({ordinale(summary.position)} posto)
               </p>
             </div>
             <div className="text-right">
-              <span className="text-xs text-[var(--text-secondary)] block">Totale Rosa</span>
-              <span className="text-xl font-black text-[var(--text-primary)] tabular-nums">
+              <span className="text-label text-[var(--text-secondary)] block">Totale Rosa</span>
+              <span className="text-title font-black text-[var(--text-primary)] tabular-nums">
                 {reports.length}
               </span>
             </div>
@@ -148,24 +149,24 @@ export function SeasonSquadReportModal({
         {/* Quadro Analitico Strategico (Base per il Mercato) */}
         <div className="overflow-y-auto p-4 space-y-4 flex-1">
           {analytics && (
-            <section className="rounded-2xl border border-[var(--surface-border)] bg-[var(--surface-raised)] p-4 space-y-3">
+            <section className="rounded-card border border-[var(--surface-border)] bg-[var(--surface-raised)] p-4 space-y-3">
               <div className="flex items-center gap-2">
                 <Sparkles size={16} className="text-[#f5c518]" />
-                <h3 className="text-xs font-black tracking-wider text-[var(--text-secondary)] uppercase">
+                <h3 className="text-micro font-black tracking-wider text-[var(--text-secondary)] uppercase">
                   Direttiva Strategica per il Mercato
                 </h3>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-xs">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-label">
                 {/* Top Performer */}
-                <div className="rounded-xl border border-[var(--surface-border)] bg-[var(--surface)] p-3 space-y-1">
-                  <span className="text-[10px] font-bold text-[var(--text-secondary)] uppercase flex items-center gap-1">
+                <div className="rounded-control border border-[var(--surface-border)] bg-[var(--surface)] p-3 space-y-1">
+                  <span className="text-micro font-bold text-[var(--text-secondary)] uppercase flex items-center gap-1">
                     <Trophy size={12} className="text-[#f5c518]" /> Top Scorer
                   </span>
-                  <p className="font-extrabold text-sm truncate">
+                  <p className="font-extrabold text-body truncate">
                     {analytics.topScorer ? analytics.topScorer.name : "Nessun marcatore"}
                   </p>
-                  <p className="text-[11px] text-[var(--text-secondary)]">
+                  <p className="text-label text-[var(--text-secondary)]">
                     {analytics.topScorer
                       ? `${analytics.topScorer.stats.goals} gol in ${analytics.topScorer.stats.appearances} presenze`
                       : "0 reti"}
@@ -173,29 +174,29 @@ export function SeasonSquadReportModal({
                 </div>
 
                 {/* Gemma della stagione */}
-                <div className="rounded-xl border border-[var(--surface-border)] bg-[var(--surface)] p-3 space-y-1">
-                  <span className="text-[10px] font-bold text-[var(--text-secondary)] uppercase flex items-center gap-1">
+                <div className="rounded-control border border-[var(--surface-border)] bg-[var(--surface)] p-3 space-y-1">
+                  <span className="text-micro font-bold text-[var(--text-secondary)] uppercase flex items-center gap-1">
                     <Flame size={12} className="text-[#3ddc6b]" /> Major Growth
                   </span>
-                  <p className="font-extrabold text-sm truncate text-[#3ddc6b]">
+                  <p className="font-extrabold text-body truncate text-[#3ddc6b]">
                     {analytics.topGainer ? analytics.topGainer.name : "Stabile"}
                   </p>
-                  <p className="text-[11px] text-[var(--text-secondary)]">
+                  <p className="text-label text-[var(--text-secondary)]">
                     {analytics.topGainer
-                      ? `+${analytics.topGainer.overallDelta} Overall (${analytics.topGainer.overallBefore} ➔ ${analytics.topGainer.overallAfter})`
+                      ? `+${analytics.topGainer.overallDelta} Overall (${analytics.topGainer.overallBefore} → ${analytics.topGainer.overallAfter})`
                       : "Nessuna crescita"}
                   </p>
                 </div>
 
                 {/* Reparto critico */}
-                <div className="rounded-xl border border-[var(--surface-border)] bg-[var(--surface)] p-3 space-y-1">
-                  <span className="text-[10px] font-bold text-[var(--text-secondary)] uppercase flex items-center gap-1">
+                <div className="rounded-control border border-[var(--surface-border)] bg-[var(--surface)] p-3 space-y-1">
+                  <span className="text-micro font-bold text-[var(--text-secondary)] uppercase flex items-center gap-1">
                     <ShieldAlert size={12} className="text-[#ff4d4d]" /> Reparto Debole
                   </span>
-                  <p className="font-extrabold text-sm truncate text-[#ff4d4d]">
+                  <p className="font-extrabold text-body truncate text-[#ff4d4d]">
                     {analytics.weakestDept ? `Linea ${analytics.weakestDept.dept}` : "Equilibrato"}
                   </p>
-                  <p className="text-[11px] text-[var(--text-secondary)]">
+                  <p className="text-label text-[var(--text-secondary)]">
                     {analytics.weakestDept
                       ? `Media Overall: ${analytics.weakestDept.avgAfter.toFixed(1)}`
                       : "Valori uniformi"}
@@ -204,9 +205,9 @@ export function SeasonSquadReportModal({
               </div>
 
               {/* Note di sintesi per il mercato */}
-              <div className="rounded-xl bg-[var(--surface)]/80 p-3 border border-[var(--surface-border)] text-xs space-y-1">
+              <div className="rounded-control bg-[var(--surface)]/80 p-3 border border-[var(--surface-border)] text-label space-y-1">
                 <p className="font-semibold text-[var(--text-primary)]">
-                  💡 <strong>Consiglio del DS per la finestra estiva:</strong>
+                  <Lightbulb size={13} className="inline shrink-0" /> <strong>Consiglio del DS per la finestra estiva:</strong>
                 </p>
                 <ul className="list-disc list-inside text-[var(--text-secondary)] space-y-0.5 pl-1">
                   {analytics.retiringPlayers.length > 0 && (
@@ -239,12 +240,12 @@ export function SeasonSquadReportModal({
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   placeholder="Cerca calciatore o ruolo..."
-                  className="w-full rounded-full border border-[var(--surface-border)] bg-[var(--surface-raised)] pl-9 pr-3 py-1.5 text-xs text-[var(--text-primary)] placeholder-[var(--text-secondary)] focus:outline-none focus:border-[var(--brand)]"
+                  className="w-full rounded-full border border-[var(--surface-border)] bg-[var(--surface-raised)] pl-9 pr-3 py-1.5 text-label text-[var(--text-primary)] placeholder-[var(--text-secondary)] focus:outline-none focus:border-[var(--brand)]"
                 />
               </div>
             </div>
 
-            <div className="flex gap-1.5 overflow-x-auto pb-1 text-xs">
+            <div className="flex gap-1.5 overflow-x-auto pb-1 text-label">
               <FilterChip
                 active={filter === "tutti"}
                 onClick={() => setFilter("tutti")}
@@ -253,22 +254,22 @@ export function SeasonSquadReportModal({
               <FilterChip
                 active={filter === "crescita"}
                 onClick={() => setFilter("crescita")}
-                label={`📈 Cresciuti (${analytics?.growingPlayers.length ?? 0})`}
+                label={`Cresciuti (${analytics?.growingPlayers.length ?? 0})`}
               />
               <FilterChip
                 active={filter === "declino"}
                 onClick={() => setFilter("declino")}
-                label={`📉 Declino/Ritiri (${(analytics?.decliningPlayers.length ?? 0) + (analytics?.retiringPlayers.length ?? 0)})`}
+                label={`Declino e ritiri (${(analytics?.decliningPlayers.length ?? 0) + (analytics?.retiringPlayers.length ?? 0)})`}
               />
               <FilterChip
                 active={filter === "scontenti"}
                 onClick={() => setFilter("scontenti")}
-                label={`😠 Scontenti (${analytics?.unhappyPlayers.length ?? 0})`}
+                label={`Scontenti (${analytics?.unhappyPlayers.length ?? 0})`}
               />
               <FilterChip
                 active={filter === "stats"}
                 onClick={() => setFilter("stats")}
-                label={`⚽ Marcatori/Assist`}
+                label={`Marcatori e assist`}
               />
             </div>
           </div>
@@ -280,7 +281,7 @@ export function SeasonSquadReportModal({
             ))}
 
             {filteredReports.length === 0 && (
-              <p className="py-8 text-center text-xs text-[var(--text-secondary)] font-medium">
+              <p className="py-8 text-center text-label text-[var(--text-secondary)] font-medium">
                 Nessun calciatore trovato per questo filtro.
               </p>
             )}
@@ -292,7 +293,7 @@ export function SeasonSquadReportModal({
           <button
             type="button"
             onClick={onContinue}
-            className="flex w-full items-center justify-center gap-2 rounded-2xl bg-[var(--brand)] py-3.5 text-sm font-extrabold text-[var(--brand-contrast)] shadow-lg transition-transform active:scale-[0.98]"
+            className="flex w-full items-center justify-center gap-2 rounded-card bg-[var(--brand)] py-3.5 text-body font-extrabold text-[var(--brand-contrast)] shadow-lg transition-transform active:scale-[0.98]"
           >
             <span>Prosegui al Meeting col Mister</span>
             <ArrowRight size={17} />
@@ -308,7 +309,7 @@ function FilterChip({ active, onClick, label }: { active: boolean; onClick: () =
     <button
       type="button"
       onClick={onClick}
-      className={`shrink-0 rounded-full px-3 py-1 text-xs font-bold transition-colors ${
+      className={`shrink-0 rounded-full px-3 py-1 text-label font-bold transition-colors ${
         active
           ? "bg-[var(--brand)] text-[var(--brand-contrast)]"
           : "border border-[var(--surface-border)] bg-[var(--surface-raised)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
@@ -324,40 +325,40 @@ function PlayerReportCard({ player }: { player: SeasonPlayerReport }) {
   const isNegative = player.overallDelta < 0;
 
   return (
-    <div className="flex items-center gap-3 rounded-2xl border border-[var(--surface-border)] bg-[var(--surface-raised)] p-3 text-xs">
+    <div className="flex items-center gap-3 rounded-card border border-[var(--surface-border)] bg-[var(--surface-raised)] p-3 text-label">
       {/* Badge Ruolo */}
-      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[var(--surface)] border border-[var(--surface-border)] font-extrabold text-xs text-[var(--brand)]">
+      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-control bg-[var(--surface)] border border-[var(--surface-border)] font-extrabold text-label text-[var(--brand)]">
         {player.role}
       </div>
 
       {/* Dettagli Anagrafici & Stato */}
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
-          <span className="font-extrabold text-sm truncate text-[var(--text-primary)]">
+          <span className="font-extrabold text-body truncate text-[var(--text-primary)]">
             {player.name}
           </span>
-          <span className="text-[11px] text-[var(--text-secondary)] font-medium">
+          <span className="text-label text-[var(--text-secondary)] font-medium">
             {player.age} anni
           </span>
 
           {player.retired && (
-            <span className="rounded-full bg-[#ff4d4d]/20 px-2 py-0.5 text-[10px] font-black text-[#ff4d4d] uppercase">
-              Ritiro 🔚
+            <span className="rounded-full bg-[#ff4d4d]/20 px-2 py-0.5 text-micro font-black text-[#ff4d4d] uppercase">
+              Ritiro
             </span>
           )}
           {player.loanReturn && (
-            <span className="rounded-full bg-[#3ddc6b]/20 px-2 py-0.5 text-[10px] font-black text-[#3ddc6b] uppercase">
+            <span className="rounded-full bg-[#3ddc6b]/20 px-2 py-0.5 text-micro font-black text-[#3ddc6b] uppercase">
               Rientro Prestito
             </span>
           )}
           {player.unhappy && !player.retired && (
-            <span className="rounded-full bg-[#ffab2e]/20 px-2 py-0.5 text-[10px] font-black text-[#ffab2e] uppercase flex items-center gap-0.5">
+            <span className="rounded-full bg-[#ffab2e]/20 px-2 py-0.5 text-micro font-black text-[#ffab2e] uppercase flex items-center gap-0.5">
               <Frown size={11} /> Scontento
             </span>
           )}
         </div>
 
-        <div className="mt-1 flex items-center gap-3 text-[11px] text-[var(--text-secondary)]">
+        <div className="mt-1 flex items-center gap-3 text-label text-[var(--text-secondary)]">
           <span>
             Pres: <strong className="text-[var(--text-primary)]">{player.stats.appearances}</strong>
           </span>
@@ -376,26 +377,26 @@ function PlayerReportCard({ player }: { player: SeasonPlayerReport }) {
       {/* Diff Overall */}
       <div className="shrink-0 text-right">
         <div className="flex items-center justify-end gap-1.5">
-          <span className="text-xs text-[var(--text-secondary)]">{player.overallBefore}</span>
-          <span className="text-xs text-[var(--text-secondary)]">➔</span>
-          <span className="text-sm font-black tabular-nums text-[var(--text-primary)]">
+          <span className="text-label text-[var(--text-secondary)]">{player.overallBefore}</span>
+          <ArrowRight size={13} className="shrink-0 text-[var(--text-secondary)]" />
+          <span className="text-body font-black tabular-nums text-[var(--text-primary)]">
             {player.overallAfter}
           </span>
         </div>
 
         <div className="mt-0.5 flex justify-end">
           {isPositive && (
-            <span className="inline-flex items-center gap-0.5 rounded-full bg-[#3ddc6b]/20 px-2 py-0.5 text-[10px] font-black text-[#3ddc6b]">
+            <span className="inline-flex items-center gap-0.5 rounded-full bg-[#3ddc6b]/20 px-2 py-0.5 text-label font-black text-[#3ddc6b]">
               <TrendingUp size={11} /> +{player.overallDelta}
             </span>
           )}
           {isNegative && (
-            <span className="inline-flex items-center gap-0.5 rounded-full bg-[#ff4d4d]/20 px-2 py-0.5 text-[10px] font-black text-[#ff4d4d]">
+            <span className="inline-flex items-center gap-0.5 rounded-full bg-[#ff4d4d]/20 px-2 py-0.5 text-label font-black text-[#ff4d4d]">
               <TrendingDown size={11} /> {player.overallDelta}
             </span>
           )}
           {!isPositive && !isNegative && (
-            <span className="inline-flex items-center rounded-full bg-[var(--surface)] px-2 py-0.5 text-[10px] font-bold text-[var(--text-secondary)]">
+            <span className="inline-flex items-center rounded-full bg-[var(--surface)] px-2 py-0.5 text-label font-bold text-[var(--text-secondary)]">
               Stabile
             </span>
           )}

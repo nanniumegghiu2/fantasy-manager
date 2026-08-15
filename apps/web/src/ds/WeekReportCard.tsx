@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from "framer-motion";
-import { Activity, AlertTriangle, Info, Trophy } from "lucide-react";
+import { Activity, AlertTriangle, Info, Trophy, Zap } from "lucide-react";
 import type { CoachUltimatum, MatchResult, WeekReport } from "@app/game-engine";
 import { CompetitionNightBanner } from "./CupProgress";
 import {
@@ -51,16 +51,16 @@ function Scoreline({
 
   return (
     <div
-      className="rounded-2xl border p-4"
+      className="rounded-card border p-4"
       style={{ borderColor: `${accent ?? OUTCOME_COLOR[esito]}55` }}
     >
       <div className="flex items-center gap-3">
-        <span className="min-w-0 flex-1 truncate text-right text-sm font-extrabold">{clubName}</span>
+        <span className="min-w-0 flex-1 truncate text-right text-body font-extrabold">{clubName}</span>
         <motion.span
           initial={{ scale: 0.6, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
           transition={{ type: "spring", stiffness: 420, damping: 20 }}
-          className="shrink-0 rounded-xl px-3 py-1.5 text-xl font-extrabold tabular-nums"
+          className="shrink-0 rounded-control px-3 py-1.5 text-title font-extrabold tabular-nums"
           style={{
             backgroundColor: `${OUTCOME_COLOR[esito]}22`,
             color: OUTCOME_COLOR[esito],
@@ -68,12 +68,12 @@ function Scoreline({
         >
           {result.goalsFor} - {result.goalsAgainst}
         </motion.span>
-        <span className="min-w-0 flex-1 truncate text-sm font-extrabold">{opponent}</span>
+        <span className="min-w-0 flex-1 truncate text-body font-extrabold">{opponent}</span>
       </div>
 
       {penalties && (
         <p
-          className="mt-2 text-center text-[11px] font-bold tracking-wide uppercase"
+          className="mt-2 text-center text-micro font-bold tracking-wide uppercase"
           style={{ color: OUTCOME_COLOR[esito] }}
         >
           {penalties.weWon ? "Passiamo il turno ai rigori" : "Fuori ai rigori"}
@@ -81,7 +81,7 @@ function Scoreline({
       )}
 
       {(marcatori.length > 0 || subiti.length > 0) && (
-        <div className="mt-3 grid grid-cols-2 gap-3 text-[11px] leading-relaxed">
+        <div className="mt-3 grid grid-cols-2 gap-3 text-label leading-relaxed">
           <ul className="space-y-0.5 text-right">
             {marcatori.map((m, i) => (
               <li key={i} className="truncate">
@@ -116,10 +116,10 @@ interface WeekReportCardProps {
 export function WeekReportCard({ report, clubName, nameById, ultimatum }: WeekReportCardProps) {
   if (!report) {
     return (
-      <div className="flex flex-col items-center gap-2 rounded-2xl border border-dashed border-[var(--surface-border)] px-4 py-10 text-center">
+      <div className="flex flex-col items-center gap-2 rounded-card border border-dashed border-[var(--surface-border)] px-4 py-10 text-center">
         <Trophy size={22} className="text-[var(--text-secondary)]" />
-        <p className="text-sm font-semibold">La stagione ti aspetta</p>
-        <p className="max-w-xs text-xs leading-relaxed text-[var(--text-secondary)]">
+        <p className="text-body font-semibold">La stagione ti aspetta</p>
+        <p className="max-w-xs text-label leading-relaxed text-[var(--text-secondary)]">
           Avanza di una settimana per giocare la prima giornata.
         </p>
       </div>
@@ -137,11 +137,11 @@ export function WeekReportCard({ report, clubName, nameById, ultimatum }: WeekRe
         className="flex flex-col gap-2.5"
       >
         {ultimatum && (
-          <div className="flex items-center gap-2.5 rounded-2xl border border-[#ff4d4d]/40 bg-[#ff4d4d]/10 p-3 text-xs">
+          <div className="flex items-center gap-2.5 rounded-card border border-[#ff4d4d]/40 bg-[#ff4d4d]/10 p-3 text-label">
             <AlertTriangle className="h-5 w-5 shrink-0 text-[#ff4d4d]" />
             <div>
-              <p className="font-extrabold text-[#ff4d4d]">⚡ ULTIMATUM DELLA SOCIETÀ</p>
-              <p className="text-[11px] text-[var(--text-primary)]">
+              <p className="flex items-center gap-1.5 font-extrabold text-[var(--danger)]"><Zap size={14} /> Ultimatum della società</p>
+              <p className="text-label text-[var(--text-primary)]">
                 Obiettivo: <strong className="font-bold">{ultimatum.pointsAccumulated}/{ultimatum.targetPoints} pt</strong> · Mancano <strong className="font-bold">{ultimatum.matchdaysLeft}</strong> giornate per salvare la panchina!
               </p>
             </div>
@@ -206,9 +206,9 @@ export function WeekReportCard({ report, clubName, nameById, ultimatum }: WeekRe
         )}
 
         {report.injuries.length > 0 && (
-          <ul className="flex flex-col gap-1 rounded-2xl border border-[#ff4d4d]/30 bg-[#ff4d4d]/5 p-3">
+          <ul className="flex flex-col gap-1 rounded-card border border-[#ff4d4d]/30 bg-[#ff4d4d]/5 p-3">
             {report.injuries.map((injury) => (
-              <li key={injury.playerId} className="flex items-center gap-2 text-xs">
+              <li key={injury.playerId} className="flex items-center gap-2 text-label">
                 <Activity size={13} className="shrink-0 text-[#ff4d4d]" />
                 <span className="font-semibold">{nameById[injury.playerId] ?? "Un giocatore"}</span>
                 <span className="text-[var(--text-secondary)]">
@@ -220,9 +220,9 @@ export function WeekReportCard({ report, clubName, nameById, ultimatum }: WeekRe
         )}
 
         {report.messages.length > 0 && (
-          <ul className="flex flex-col gap-1 rounded-2xl border border-[var(--surface-border)] bg-[var(--surface-raised)] p-3">
+          <ul className="flex flex-col gap-1 rounded-card border border-[var(--surface-border)] bg-[var(--surface-raised)] p-3">
             {report.messages.map((message, i) => (
-              <li key={i} className="flex items-start gap-2 text-xs leading-relaxed">
+              <li key={i} className="flex items-start gap-2 text-label leading-relaxed">
                 <Info size={13} className="mt-0.5 shrink-0 text-[var(--text-secondary)]" />
                 {message}
               </li>

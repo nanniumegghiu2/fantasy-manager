@@ -1,6 +1,17 @@
 import { useMemo, useState } from "react";
 import { motion } from "framer-motion";
-import { Activity, FileSignature, LayoutGrid, List, Plane, Sprout, Tag, TriangleAlert } from "lucide-react";
+import {
+  Activity,
+  FileSignature,
+  Goal,
+  LayoutGrid,
+  List,
+  Plane,
+  Sprout,
+  Tag,
+  TriangleAlert,
+  Zap,
+} from "lucide-react";
 import { ROLE_LABELS } from "@app/shared-types";
 import type { Department, Role } from "@app/shared-types";
 import {
@@ -87,43 +98,47 @@ export function SquadPanel({
   return (
     <div className="flex flex-col gap-3">
       {/* Banner Sintonia col Mister */}
-      <div className="flex items-center justify-between rounded-2xl border border-[var(--surface-border)] bg-[var(--surface-raised)] p-3">
+      <div className="flex items-center justify-between rounded-card border border-[var(--surface-border)] bg-[var(--surface-raised)] p-3">
         <div className="flex items-center gap-2">
           <span
             className="flex h-3 w-3 rounded-full animate-pulse"
             style={{ backgroundColor: infoSintonia.tone }}
           />
           <div>
-            <p className="text-xs font-extrabold leading-tight">Sintonia DS - Mister</p>
-            <p className="text-[11px] font-semibold" style={{ color: infoSintonia.tone }}>
+            <p className="text-label font-extrabold leading-tight">Sintonia DS - Mister</p>
+            <p className="text-label font-semibold" style={{ color: infoSintonia.tone }}>
               {state.coachHarmony ?? 75}% · {infoSintonia.label}
             </p>
           </div>
         </div>
-        <span className="text-[11px] text-[var(--text-secondary)] font-medium">
+        <span className="text-label text-[var(--text-secondary)] font-medium">
           {intoccabiliSet.size} intoccabili in rosa
         </span>
       </div>
 
       <div className="flex items-center gap-2">
-        <div className="flex overflow-hidden rounded-full border border-[var(--surface-border)]">
+        {/* I tre selettori erano alti 30px e la riga «28 giocatori · 4-2-3-1» accanto andava a
+            capo sopra di essi, sovrapponendosi all'etichetta «Ruoli». Ora i selettori occupano
+            la riga per intero a 44px, e il conteggio sta sotto dove ha spazio. */}
+        <div className="flex w-full overflow-hidden rounded-control border border-[var(--surface-border)]">
           {(["campo", "elenco", "ruoli"] as const).map((v) => (
             <button
               key={v}
               type="button"
+              aria-pressed={view === v}
               onClick={() => setView(v)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold transition-colors ${
+              className={`flex min-h-tap flex-1 items-center justify-center gap-1.5 text-label font-bold transition-colors ${
                 view === v
                   ? "bg-[var(--brand)] text-[var(--brand-contrast)]"
                   : "text-[var(--text-secondary)]"
               }`}
             >
-              {v === "campo" ? <LayoutGrid size={13} /> : v === "elenco" ? <List size={13} /> : <Tag size={13} />}
+              {v === "campo" ? <LayoutGrid size={14} /> : v === "elenco" ? <List size={14} /> : <Tag size={14} />}
               {v === "campo" ? "Campo" : v === "elenco" ? "Elenco" : "Ruoli"}
             </button>
           ))}
         </div>
-        <span className="ml-auto text-[11px] text-[var(--text-secondary)]">
+        <span className="num w-full text-label text-[var(--text-secondary)]">
           {state.roster.length} giocatori · {formation.name}
         </span>
       </div>
@@ -154,7 +169,7 @@ export function SquadPanel({
             })}
           </Pitch>
           {lineup.outOfPosition.length > 0 && (
-            <p className="mt-2 flex items-center justify-center gap-1.5 text-[11px] text-[#ffab2e]">
+            <p className="mt-2 flex items-center justify-center gap-1.5 text-label text-[#ffab2e]">
               <TriangleAlert size={12} />
               {lineup.outOfPosition.length} giocatori schierati fuori ruolo
             </p>
@@ -187,7 +202,7 @@ export function SquadPanel({
                 <motion.li
                   key={entry.playerId}
                   layout
-                  className={`flex flex-col gap-2 rounded-xl border p-2.5 ${
+                  className={`flex flex-col gap-2 rounded-control border p-2.5 ${
                     vendita
                       ? "border-[#ff8a3d]/40 bg-[#ff8a3d]/5"
                       : titolari.has(entry.playerId)
@@ -197,14 +212,14 @@ export function SquadPanel({
                 >
                   <div className="flex items-center gap-2.5">
                     <span
-                      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-sm font-extrabold"
+                      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-control text-body font-extrabold"
                       style={{ backgroundColor: tier.dot, color: tier.dotText }}
                     >
                       {entry.overall}
                     </span>
 
                     <div className="min-w-0 flex-1">
-                      <p className="flex items-center gap-1.5 truncate text-sm leading-tight font-bold">
+                      <p className="flex items-center gap-1.5 truncate text-body leading-tight font-bold">
                         {player?.nation && <NationFlag nation={player.nation} />}
                         <span className="truncate">{player?.name ?? "Giocatore"}</span>
                         {entry.injuryMatchdaysLeft > 0 && (
@@ -214,12 +229,12 @@ export function SquadPanel({
                           <Sprout size={12} className="shrink-0 text-[#3ddc6b]" />
                         )}
                         {intoccabiliSet.has(entry.playerId) && (
-                          <span className="shrink-0 rounded-md bg-[#f5c518]/20 px-1.5 py-0.5 text-[10px] font-extrabold text-[#d69e00]">
-                            ⚡ Intoccabile
+                          <span className="shrink-0 rounded-control bg-[#f5c518]/20 px-1.5 py-0.5 text-label font-extrabold text-[#d69e00]">
+                            <Zap size={11} className="inline" /> Intoccabile
                           </span>
                         )}
                         {entry.playerId === capitano && (
-                          <span className="shrink-0 rounded-md bg-amber-500/20 px-1.5 py-px text-[9px] font-extrabold text-amber-400">
+                          <span className="shrink-0 rounded-control bg-amber-500/20 px-1.5 py-px text-label font-extrabold text-amber-400">
                             © Capitano
                           </span>
                         )}
@@ -232,14 +247,14 @@ export function SquadPanel({
                             highlight={ruoliRichiesti}
                           />
                         )}
-                        <span className="text-[11px] text-[var(--text-secondary)]">
+                        <span className="text-label text-[var(--text-secondary)]">
                           {eta !== null && (
                             <span className={isAtPeak(eta) ? "text-[var(--text-primary)]" : undefined}>
                               {eta} anni
                             </span>
                           )}
                         </span>
-                        <span className="text-[11px]" style={{ color: morale.color }}>
+                        <span className="text-label" style={{ color: morale.color }}>
                           {morale.label}
                         </span>
                         {/* **La scadenza si vede qui**, non solo dentro il mercato: è ciò che
@@ -258,7 +273,7 @@ export function SquadPanel({
                               disabled={!onRenew}
                               onClick={() => onRenew?.(entry.playerId)}
                               title={c ? `Contratto fino al ${c.until} · ${formatWage(c.wage)}` : "Senza contratto"}
-                              className="flex items-center gap-1 rounded-full px-1.5 py-px text-[10px] font-bold disabled:cursor-default"
+                              className="flex items-center gap-1 rounded-full px-1.5 py-px text-label font-bold disabled:cursor-default"
                               style={{ backgroundColor: `${colore}1f`, color: colore }}
                             >
                               <FileSignature size={10} /> {etichetta}
@@ -269,7 +284,7 @@ export function SquadPanel({
                     </div>
 
                     <div className="w-20 shrink-0 text-right">
-                      <p className="text-[11px] font-bold tabular-nums">
+                      <p className="text-label font-bold tabular-nums">
                         {entry.stats.appearances}
                         <span className="font-normal text-[var(--text-secondary)]"> pres.</span>
                       </p>
@@ -284,7 +299,7 @@ export function SquadPanel({
                                 ? "#ff4d4d"
                                 : "var(--text-secondary)";
                         return (
-                          <p className="text-[10px] font-extrabold tabular-nums" style={{ color: tone }}>
+                          <p className="text-label font-extrabold tabular-nums" style={{ color: tone }}>
                             MV {mv > 0 ? mv.toFixed(1) : "--"}
                           </p>
                         );
@@ -296,8 +311,8 @@ export function SquadPanel({
                         />
                       </span>
                       {entry.stats.goals > 0 && (
-                        <p className="mt-0.5 text-[10px] font-bold text-emerald-400">
-                          ⚽ {entry.stats.goals}
+                        <p className="mt-0.5 text-label font-bold text-emerald-400">
+                          <Goal size={12} className="inline" /> {entry.stats.goals}
                         </p>
                       )}
                     </div>
@@ -316,7 +331,7 @@ export function SquadPanel({
                             on: !vendita,
                           })
                         }
-                        className={`flex-1 rounded-full px-3 py-1.5 text-[11px] font-bold ${
+                        className={`flex-1 rounded-full px-3 py-1.5 text-label font-bold ${
                           vendita
                             ? "bg-[#ff8a3d]/20 text-[#c96a20]"
                             : "border border-[var(--surface-border)] text-[var(--text-secondary)]"
@@ -329,7 +344,7 @@ export function SquadPanel({
                         onClick={() =>
                           onAction({ kind: "lista_prestiti", playerId: entry.playerId, on: !prestito })
                         }
-                        className={`flex-1 rounded-full px-3 py-1.5 text-[11px] font-bold ${
+                        className={`flex-1 rounded-full px-3 py-1.5 text-label font-bold ${
                           prestito
                             ? "bg-[#5aa9e6]/20 text-[#2f7fbd]"
                             : "border border-[var(--surface-border)] text-[var(--text-secondary)]"
@@ -352,8 +367,8 @@ export function SquadPanel({
           const inPrestitoAltrove = state.roster.filter((e) => e.loan?.hostClubId);
           if (inPrestitoAltrove.length === 0) return null;
           return (
-            <details className="mt-3 rounded-xl border border-[var(--surface-border)] bg-[var(--surface-raised)] p-2.5">
-              <summary className="flex cursor-pointer items-center gap-1.5 text-[11px] font-bold text-[var(--text-secondary)]">
+            <details className="mt-3 rounded-control border border-[var(--surface-border)] bg-[var(--surface-raised)] p-2.5">
+              <summary className="flex cursor-pointer items-center gap-1.5 text-label font-bold text-[var(--text-secondary)]">
                 <Plane size={12} className="shrink-0 text-[#5aa9e6]" />
                 In prestito altrove ({inPrestitoAltrove.length})
               </summary>
@@ -362,7 +377,7 @@ export function SquadPanel({
                   const player = world.players[entry.playerId];
                   const club = entry.loan?.hostClubId ? world.market?.clubs[entry.loan.hostClubId] : undefined;
                   return (
-                    <li key={entry.playerId} className="flex items-center justify-between text-[11px]">
+                    <li key={entry.playerId} className="flex items-center justify-between text-label">
                       <span className="truncate font-semibold">{player?.name ?? "Giocatore"}</span>
                       <span className="shrink-0 text-[var(--text-secondary)]">{club?.name ?? "altrove"}</span>
                     </li>
@@ -425,7 +440,7 @@ function CoperturaRuoli({
 
   return (
     <div className="flex flex-col gap-2">
-      <p className="rounded-2xl border border-dashed border-[var(--surface-border)] p-3 text-[11px] leading-relaxed text-[var(--text-secondary)]">
+      <p className="rounded-card border border-dashed border-[var(--surface-border)] p-3 text-label leading-relaxed text-[var(--text-secondary)]">
         Le caselle del <strong className="font-bold">{formation.name}</strong> e chi le sa
         coprire. In pieno chi ci gioca di ruolo, tratteggiato chi lo sa fare come ruolo
         secondario. Una casella con un solo uomo è dove un infortunio ti mette nei guai.
@@ -442,7 +457,7 @@ function CoperturaRuoli({
           return (
             <li
               key={role}
-              className={`flex items-center gap-3 rounded-xl border p-2.5 ${
+              className={`flex items-center gap-3 rounded-control border p-2.5 ${
                 scoperto
                   ? "border-[#ff4d4d]/40 bg-[#ff4d4d]/5"
                   : fragile
@@ -450,18 +465,18 @@ function CoperturaRuoli({
                     : "border-[var(--surface-border)] bg-[var(--surface-raised)]"
               }`}
             >
-              <span className="flex h-9 w-11 shrink-0 items-center justify-center rounded-lg bg-[var(--surface)] text-xs font-extrabold">
+              <span className="flex h-9 w-11 shrink-0 items-center justify-center rounded-control bg-[var(--surface)] text-label font-extrabold">
                 {role}
               </span>
               <div className="min-w-0 flex-1">
-                <p className="truncate text-sm leading-tight font-bold">{ROLE_LABELS[role]}</p>
-                <p className="text-[11px] text-[var(--text-secondary)]">
+                <p className="truncate text-body leading-tight font-bold">{ROLE_LABELS[role]}</p>
+                <p className="text-label text-[var(--text-secondary)]">
                   {quante === 1 ? "1 casella" : `${quante} caselle`} · {naturali} di ruolo
                   {adattati > 0 ? `, ${adattati} adattabili` : ""}
                 </p>
               </div>
               <span
-                className="shrink-0 text-sm font-extrabold tabular-nums"
+                className="shrink-0 text-body font-extrabold tabular-nums"
                 style={{
                   color: scoperto ? "#ff4d4d" : fragile ? "#ffab2e" : "var(--text-secondary)",
                 }}
@@ -482,12 +497,12 @@ function CoperturaRuoli({
           return (
             <div
               key={dep}
-              className="rounded-xl border border-[var(--surface-border)] bg-[var(--surface-raised)] p-2 text-center"
+              className="rounded-control border border-[var(--surface-border)] bg-[var(--surface-raised)] p-2 text-center"
             >
-              <p className="text-[10px] font-bold tracking-wide text-[var(--text-secondary)] uppercase">
+              <p className="text-micro font-bold tracking-wide text-[var(--text-secondary)] uppercase">
                 {DEPARTMENT_LABEL[dep]}
               </p>
-              <p className="mt-0.5 text-base leading-none font-extrabold tabular-nums">{n}</p>
+              <p className="mt-0.5 text-body leading-none font-extrabold tabular-nums">{n}</p>
             </div>
           );
         })}

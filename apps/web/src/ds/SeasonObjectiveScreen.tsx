@@ -80,32 +80,41 @@ export function SeasonObjectiveScreen({
       exit={{ opacity: 0 }}
       className="fixed inset-0 z-40 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
     >
+      {/* ⚠️ **Il riquadro non scorreva.** Non aveva né altezza massima né `overflow`: con le
+          finanze, due coppe da dichiarare e tre fasce, il contenuto supera i 740px di un
+          telefono piccolo e le ultime scelte finivano fuori schermo **senza modo di
+          raggiungerle** — cioè la stessa classe di vicolo cieco del cancello del mister.
+
+          Corretto anche `backgroundColor: "var(--brand)18"`: non è CSS valido (un `var()` non
+          si concatena con l'alfa), quindi quella fascia non ha mai avuto lo sfondo che
+          l'autore intendeva. `color-mix` è la forma che funziona davvero. */}
       <motion.div
         initial={{ scale: 0.92, y: 20, opacity: 0 }}
         animate={{ scale: 1, y: 0, opacity: 1 }}
         transition={{ type: "spring", stiffness: 320, damping: 26 }}
-        className="w-full max-w-sm overflow-hidden rounded-3xl border border-[var(--surface-border)] bg-[var(--surface)]"
+        className="flex max-h-[88svh] w-full max-w-sm flex-col overflow-y-auto rounded-card border border-[var(--surface-border)] bg-[var(--surface)] shadow-[var(--elev-overlay)]"
       >
-        <div className="flex flex-col items-center gap-1.5 px-6 py-6 text-center" style={{ backgroundColor: "var(--brand)18" }}>
-          <p className="text-[10px] font-bold tracking-widest text-[var(--text-secondary)] uppercase">
-            Stagione {season}
-          </p>
-          <h2 className="text-xl leading-tight font-extrabold">Qual è l'obiettivo?</h2>
-          <p className="mt-1 text-sm leading-relaxed text-[var(--text-secondary)]">
-            Una dichiarazione d'intenti alla società: pesa sul morale della rosa durante l'anno
-            e sul rapporto col mister a fine stagione.
+        <div
+          className="flex flex-col items-center gap-1.5 px-5 py-5 text-center"
+          style={{ backgroundColor: "color-mix(in srgb, var(--brand) 12%, transparent)" }}
+        >
+          <p className="text-micro text-[var(--text-secondary)] uppercase">Stagione {season}</p>
+          <h2 className="text-display leading-tight">Qual è l'obiettivo?</h2>
+          <p className="text-label leading-relaxed text-[var(--text-secondary)] text-balance">
+            Una dichiarazione d'intenti alla società: pesa sul morale della rosa durante l'anno e
+            sul rapporto col mister a fine stagione.
           </p>
         </div>
 
         {finances && (
           <div className="border-y border-[var(--surface-border)] bg-[var(--surface-raised)] px-4 py-3">
-            <p className="text-[10px] font-bold tracking-widest text-[var(--text-secondary)] uppercase">
+            <p className="text-micro font-bold tracking-widest text-[var(--text-secondary)] uppercase">
               La società mette a disposizione
             </p>
-            <p className="mt-0.5 text-lg leading-none font-extrabold tabular-nums">
+            <p className="mt-0.5 text-title leading-none font-extrabold tabular-nums">
               {formatEuro(finances.revenue)}
             </p>
-            <p className="mt-1.5 flex items-center gap-3 text-[11px] font-semibold text-[var(--text-secondary)]">
+            <p className="mt-1.5 flex items-center gap-3 text-label font-semibold text-[var(--text-secondary)]">
               <span className="flex items-center gap-1">
                 <Wallet size={11} /> {formatEuro(finances.transferBudget)} mercato
               </span>
@@ -113,7 +122,7 @@ export function SeasonObjectiveScreen({
                 <Users size={11} /> {formatEuro(finances.wageBudget)} ingaggi
               </span>
             </p>
-            <p className="mt-1 text-[10px] leading-snug text-[var(--text-secondary)]">
+            <p className="mt-1 text-label leading-snug text-[var(--text-secondary)]">
               La divisione la decidi tu, dal pannello Finanze o da qualunque tavolo contrattuale.
             </p>
           </div>
@@ -132,22 +141,23 @@ export function SeasonObjectiveScreen({
           <div className="flex flex-col gap-3 border-b border-[var(--surface-border)] px-4 py-3">
             {cups.map((coppa) => (
               <div key={coppa.key}>
-                <p className="text-[10px] font-bold tracking-widest text-[var(--text-secondary)] uppercase">
+                <p className="text-micro font-bold tracking-widest text-[var(--text-secondary)] uppercase">
                   {coppa.label}
                 </p>
-                <div className="mt-1.5 flex gap-1.5">
+                <div className="mt-1.5 flex flex-wrap gap-1.5">
                   {coppa.tiers.map((tier) => {
                     const attivo = sceltoCoppa[coppa.key]?.label === tier.label;
                     return (
                       <button
                         key={tier.label}
                         type="button"
+                        aria-pressed={attivo}
                         onClick={() =>
                           setSceltoCoppa((prev) => ({ ...prev, [coppa.key]: tier }))
                         }
-                        className={`min-h-10 flex-1 rounded-xl px-2 text-[11px] font-bold transition-colors ${
+                        className={`min-h-tap flex-1 rounded-control px-3 text-label font-bold whitespace-nowrap transition-colors ${
                           attivo
-                            ? "bg-[var(--accent)] text-[var(--brand-contrast)]"
+                            ? "bg-[var(--accent)] text-[var(--accent-contrast)]"
                             : "bg-[var(--surface-raised)] text-[var(--text-secondary)]"
                         }`}
                       >
@@ -158,7 +168,7 @@ export function SeasonObjectiveScreen({
                 </div>
               </div>
             ))}
-            <p className="text-[10px] leading-snug text-[var(--text-secondary)]">
+            <p className="text-label leading-snug text-[var(--text-secondary)]">
               La dirigenza giudica tutti gli obiettivi dichiarati, ma non allo stesso modo: la
               Corona pesa più del campionato, il campionato più della Coppa Tricolore.
             </p>
@@ -173,15 +183,17 @@ export function SeasonObjectiveScreen({
                 key={tier.targetPosition}
                 type="button"
                 onClick={() => onChoose(tier, sceltoCoppa)}
-                className="flex items-center gap-3 rounded-2xl border border-[var(--surface-border)] bg-[var(--surface-raised)] p-3.5 text-left transition-transform active:scale-[0.98] hover:border-[var(--brand)]"
+                className="flex items-center gap-3 rounded-card border border-[var(--surface-border)] bg-[var(--surface-raised)] p-3.5 text-left transition-transform active:scale-[0.98] hover:border-[var(--brand)]"
               >
                 <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--brand)]/15 text-[var(--brand)]">
                   <Icona size={18} />
                 </span>
                 <div className="min-w-0 flex-1">
-                  <p className="text-sm font-extrabold">{tier.label}</p>
-                  <p className="text-[11px] text-[var(--text-secondary)]">
-                    Obiettivo: entro la {tier.targetPosition}ª posizione
+                  <p className="text-body font-extrabold">{tier.label}</p>
+                  <p className="text-label text-[var(--text-secondary)]">
+                    {tier.targetPosition === 1
+                      ? "Vincere, e basta"
+                      : `Chiudere entro la ${tier.targetPosition}ª`}
                   </p>
                 </div>
                 {/* **I mezzi che quell'ambizione porta con sé.** Senza questo numero la scelta
@@ -189,21 +201,23 @@ export function SeasonObjectiveScreen({
                     meccanica nascosta invece di essere il compromesso su cui si decide. */}
                 {finances && (
                   <span
-                    className="shrink-0 rounded-lg px-2 py-1 text-right text-[10px] font-extrabold tabular-nums"
+                    className="shrink-0 rounded-control px-2 py-1 text-right"
                     style={{
-                      backgroundColor: `${budgetColore(tier)}1f`,
+                      backgroundColor: `color-mix(in srgb, ${budgetColore(tier)} 14%, transparent)`,
                       color: budgetColore(tier),
                     }}
                   >
-                    {formatEuro(Math.round(finances.revenue * budgetMoltiplicatore(tier)))}
-                    <span className="block text-[9px] font-bold opacity-80">fatturato</span>
+                    <span className="num block text-body font-extrabold">
+                      {formatEuro(Math.round(finances.revenue * budgetMoltiplicatore(tier)))}
+                    </span>
+                    <span className="block text-micro tracking-normal opacity-80">fatturato</span>
                   </span>
                 )}
               </button>
             );
           })}
           {choices.length === 1 && (
-            <p className="px-1 text-[11px] leading-relaxed text-[var(--text-secondary)]">
+            <p className="px-1 text-label leading-relaxed text-[var(--text-secondary)]">
               Con questa rosa la società non ammette alternative: sei la squadra da battere, e
               l'unico risultato che conta è vincere.
             </p>

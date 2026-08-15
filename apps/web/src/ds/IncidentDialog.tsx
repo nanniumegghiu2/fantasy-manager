@@ -79,7 +79,7 @@ export function IncidentDialog({
         initial={{ scale: 0.9, y: 20, opacity: 0 }}
         animate={{ scale: 1, y: 0, opacity: 1 }}
         transition={{ type: "spring", stiffness: 340, damping: 26 }}
-        className="w-full max-w-sm overflow-hidden rounded-3xl border border-[var(--surface-border)] bg-[var(--surface)]"
+        className="w-full max-w-sm overflow-hidden rounded-card border border-[var(--surface-border)] bg-[var(--surface)]"
       >
         <div
           className="flex flex-col items-center gap-2 px-6 py-6 text-center"
@@ -94,19 +94,19 @@ export function IncidentDialog({
           >
             <Icona size={26} />
           </motion.span>
-          <p className="text-[10px] font-bold tracking-widest text-[var(--text-secondary)] uppercase">
+          <p className="text-micro font-bold tracking-widest text-[var(--text-secondary)] uppercase">
             Dallo spogliatoio
           </p>
-          <h2 className="text-xl leading-tight font-extrabold" style={{ color: colore }}>
+          <h2 className="text-title leading-tight font-extrabold" style={{ color: colore }}>
             {incident.title}
           </h2>
         </div>
 
-        <p className="px-6 py-5 text-center text-sm leading-relaxed">{incident.message}</p>
+        <p className="px-6 py-5 text-center text-body leading-relaxed">{incident.message}</p>
 
         {incident.budgetDelta !== undefined && incident.budgetDelta !== 0 && (
           <p
-            className="mx-6 mb-5 rounded-2xl px-3 py-2 text-center text-sm font-extrabold tabular-nums"
+            className="mx-6 mb-5 rounded-card px-3 py-2 text-center text-body font-extrabold tabular-nums"
             style={{
               backgroundColor: incident.budgetDelta > 0 ? "#3ddc6b18" : "#ff4d4d18",
               color: incident.budgetDelta > 0 ? "#2a9b4d" : "#ff4d4d",
@@ -125,20 +125,20 @@ export function IncidentDialog({
              * comunque un po di veleno — una rissa non si chiude senza lasciare traccia.
              */
             <div className="flex flex-col gap-2">
-              <p className="px-1 text-[11px] font-bold text-[var(--text-secondary)]">
+              <p className="px-1 text-label font-bold text-[var(--text-secondary)]">
                 Chi tieni? L altro finisce sul mercato.
               </p>
               <button
                 type="button"
                 onClick={() => { onDecide?.("tieni_primo"); onClose(); }}
-                className="min-h-12 w-full rounded-2xl border border-[var(--brand)]/50 bg-[var(--brand)]/10 text-sm font-extrabold text-[var(--brand)] transition-transform active:scale-[0.98]"
+                className="min-h-12 w-full rounded-card border border-[var(--brand)]/50 bg-[var(--brand)]/10 text-body font-extrabold text-[var(--brand)] transition-transform active:scale-[0.98]"
               >
                 Tengo {nomePrimo ?? "il primo"}
               </button>
               <button
                 type="button"
                 onClick={() => { onDecide?.("tieni_secondo"); onClose(); }}
-                className="min-h-12 w-full rounded-2xl border border-[var(--brand)]/50 bg-[var(--brand)]/10 text-sm font-extrabold text-[var(--brand)] transition-transform active:scale-[0.98]"
+                className="min-h-12 w-full rounded-card border border-[var(--brand)]/50 bg-[var(--brand)]/10 text-body font-extrabold text-[var(--brand)] transition-transform active:scale-[0.98]"
               >
                 Tengo {nomeSecondo ?? "il secondo"}
               </button>
@@ -147,13 +147,13 @@ export function IncidentDialog({
             <button
               type="button"
               onClick={onClose}
-              className="w-full rounded-2xl bg-[var(--brand)] py-3.5 text-sm font-extrabold text-[var(--brand-contrast)] transition-transform active:scale-[0.98]"
+              className="w-full rounded-card bg-[var(--brand)] py-3.5 text-body font-extrabold text-[var(--brand-contrast)] transition-transform active:scale-[0.98]"
             >
               Ho capito
             </button>
           ) : sceltaPunizione ? (
             <div className="flex flex-col gap-2">
-              <p className="px-1 text-[11px] font-bold text-[var(--text-secondary)]">
+              <p className="px-1 text-label font-bold text-[var(--text-secondary)]">
                 Per quanti giorni lo fermi?
               </p>
               <div className="grid grid-cols-4 gap-2">
@@ -165,7 +165,7 @@ export function IncidentDialog({
                       onDecide?.("punizione", giorni);
                       onClose();
                     }}
-                    className="rounded-2xl border border-[#ff8a3d]/50 py-2.5 text-sm font-extrabold text-[#ff8a3d] transition-transform active:scale-95"
+                    className="rounded-card border border-[#ff8a3d]/50 py-2.5 text-body font-extrabold text-[#ff8a3d] transition-transform active:scale-95"
                   >
                     {giorni}
                   </button>
@@ -174,7 +174,7 @@ export function IncidentDialog({
               <button
                 type="button"
                 onClick={() => setSceltaPunizione(false)}
-                className="w-full rounded-2xl border border-[var(--surface-border)] px-3 py-2 text-[11px] font-bold text-[var(--text-secondary)]"
+                className="w-full rounded-card border border-[var(--surface-border)] px-3 py-2 text-label font-bold text-[var(--text-secondary)]"
               >
                 Annulla
               </button>
@@ -187,14 +187,14 @@ export function IncidentDialog({
                   onDecide?.("ignora");
                   onClose();
                 }}
-                className="w-full rounded-2xl border border-[var(--surface-border)] py-3 text-sm font-extrabold text-[var(--text-secondary)] transition-transform active:scale-[0.98]"
+                className="w-full rounded-card border border-[var(--surface-border)] py-3 text-body font-extrabold text-[var(--text-secondary)] transition-transform active:scale-[0.98]"
               >
                 Non fare nulla
               </button>
               <button
                 type="button"
                 onClick={() => setSceltaPunizione(true)}
-                className="w-full rounded-2xl bg-[#ff8a3d] py-3 text-sm font-extrabold text-white transition-transform active:scale-[0.98]"
+                className="w-full rounded-card bg-[#ff8a3d] py-3 text-body font-extrabold text-white transition-transform active:scale-[0.98]"
               >
                 Punizione
               </button>

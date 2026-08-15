@@ -19,6 +19,55 @@
   --color-copper-400: #a67d72;
   --color-copper-500: #805e56;
   --color-copper-600: #664942;
+
+  /* ---------------------------------------------------------------------- *
+   * SCALA TIPOGRAFICA — cinque misure, non ventisette.
+   *
+   * Prima esistevano solo i colori come token, quindi ogni schermata si è
+   * inventata le proprie misure: 353 usi di `text-[Npx]` arbitrario sotto i
+   * 12px nella sola DS mode, di cui 175 a 11px — che era di fatto il corpo
+   * del testo. Su un telefono 11px non si legge: si indovina.
+   *
+   * `label` è il **minimo assoluto**: sotto i 13px non si scende, mai.
+   * `micro` esiste solo per etichette maiuscole di una o due parole, dove il
+   * maiuscoletto spaziato rende la misura più leggibile di quanto dica il
+   * numero.
+   * ---------------------------------------------------------------------- */
+  --text-micro: 0.75rem; /* 12px — solo etichette maiuscole brevi */
+  --text-micro--line-height: 1.25;
+  --text-micro--letter-spacing: 0.08em;
+  --text-micro--font-weight: 700;
+
+  --text-label: 0.8125rem; /* 13px — minimo assoluto per il testo secondario */
+  --text-label--line-height: 1.4;
+
+  --text-body: 0.9375rem; /* 15px — il corpo del testo */
+  --text-body--line-height: 1.5;
+
+  --text-title: 1.1875rem; /* 19px — titoli di sezione e nomi protagonisti */
+  --text-title--line-height: 1.25;
+  --text-title--font-weight: 800;
+
+  --text-display: 1.75rem; /* 28px — i numeri che contano: budget, Overall, risultato */
+  --text-display--line-height: 1.1;
+  --text-display--font-weight: 800;
+
+  /* ---------------------------------------------------------------------- *
+   * RAGGI — tre, non sette. Erano `full`, `2xl`, `xl`, `lg`, `3xl`, `md`,
+   * `sm` mescolati senza regola nello stesso schermo.
+   * ---------------------------------------------------------------------- */
+  --radius-card: 1rem; /* 16px — superfici che contengono */
+  --radius-control: 0.75rem; /* 12px — cose che si premono */
+  /* `rounded-full` resta per le pastiglie: è una forma, non una misura. */
+
+  /* ---------------------------------------------------------------------- *
+   * BERSAGLIO TATTILE — la soglia sotto la quale il dito sbaglia.
+   *
+   * Non è una preferenza estetica: un tocco sbagliato su «Rifiuta» è una
+   * decisione di gioco presa per errore. Misurati 58 bersagli sotto i 44px
+   * nella sola scheda Mercato, e schede di navigazione alte 28px.
+   * ---------------------------------------------------------------------- */
+  --spacing-tap: 2.75rem; /* 44px — usabile come min-h-tap / h-tap / w-tap */
 }
 
 :root {
@@ -33,6 +82,21 @@
   --brand-contrast: #ffffff;
   --accent: var(--color-copper-500);
   --accent-contrast: #ffffff;
+
+  /* Elevazione: tre livelli dichiarati invece di bordi e sfondi decisi caso
+     per caso. `sheet` è per i fogli che salgono dal basso, `overlay` per ciò
+     che sta sopra un foglio (una trattativa aperta sopra il mercato). */
+  --elev-card: 0 1px 2px rgb(14 22 20 / 0.06);
+  --elev-sheet: 0 -8px 32px rgb(14 22 20 / 0.14);
+  --elev-overlay: 0 12px 48px rgb(14 22 20 / 0.22);
+
+  /* Esiti, in un posto solo: erano riscritti a mano come letterali esadecimali
+     in una dozzina di file. */
+  --win: #2a9b4d;
+  --draw: #b3781a;
+  --loss: #d63b3b;
+  --gold: #c99a06;
+  --danger: #d63b3b;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -46,6 +110,18 @@
     --brand-contrast: #0e1614;
     --accent: var(--color-copper-400);
     --accent-contrast: #2c1a15;
+
+    --elev-card: 0 1px 2px rgb(0 0 0 / 0.32);
+    --elev-sheet: 0 -8px 32px rgb(0 0 0 / 0.48);
+    --elev-overlay: 0 12px 48px rgb(0 0 0 / 0.6);
+
+    /* Sul fondo scuro gli stessi esiti vanno schiariti, altrimenti il verde
+       vittoria sparisce contro il verde muschio della superficie. */
+    --win: #3ddc6b;
+    --draw: #ffab2e;
+    --loss: #ff5c5c;
+    --gold: #f5c518;
+    --danger: #ff5c5c;
   }
 }
 
@@ -59,6 +135,16 @@
   --brand-contrast: #0e1614;
   --accent: var(--color-copper-400);
   --accent-contrast: #2c1a15;
+
+  --elev-card: 0 1px 2px rgb(0 0 0 / 0.32);
+  --elev-sheet: 0 -8px 32px rgb(0 0 0 / 0.48);
+  --elev-overlay: 0 12px 48px rgb(0 0 0 / 0.6);
+
+  --win: #3ddc6b;
+  --draw: #ffab2e;
+  --loss: #ff5c5c;
+  --gold: #f5c518;
+  --danger: #ff5c5c;
 }
 
 body {
@@ -67,4 +153,44 @@ body {
   color: var(--text-primary);
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
+}
+
+/* -------------------------------------------------------------------------- *
+ * Editoriale sportivo (piano DS mobile, decisione D3)
+ *
+ * I numeri sono protagonisti: budget, Overall, risultato, punti. Perché lo
+ * siano davvero devono essere **tabulari** — a cifre di larghezza uguale — o
+ * un budget che scende da 76.1 a 9.8 fa saltare la riga mentre lo si guarda.
+ * -------------------------------------------------------------------------- */
+.num {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+}
+
+/* La safe area, in un posto solo.
+ *
+ * Era gestita in **1 overlay su 19**: tutte le altre barre fisse — inclusa
+ * quella che porta il pulsante principale dell'intera modalità — finivano
+ * sotto la barra gestuale di iPhone e dei Pixel recenti. */
+.pb-safe {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+.pb-safe-4 {
+  padding-bottom: calc(1rem + env(safe-area-inset-bottom));
+}
+.pt-safe {
+  padding-top: env(safe-area-inset-top);
+}
+
+/* Chi ha chiesto meno movimento deve riceverne meno: non era considerato da
+   nessuna parte, e la modalità è piena di transizioni a molla. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

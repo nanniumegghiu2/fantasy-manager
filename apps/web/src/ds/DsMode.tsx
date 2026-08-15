@@ -9,6 +9,7 @@ import {
   type DsDifficulty,
 } from "@app/game-engine";
 import { ClubBriefScreen } from "./ClubBriefScreen";
+import { IntroScreen, introGiaVista } from "./IntroScreen";
 import { ClubPickerScreen } from "./ClubPickerScreen";
 import { CoachPickerScreen } from "./CoachPickerScreen";
 import { CareerScreen } from "./CareerScreen";
@@ -32,6 +33,7 @@ import { useDsWorld } from "./useDsWorld";
 
 type Step =
   | { kind: "elenco" }
+  | { kind: "intro" }
   | { kind: "club" }
   | { kind: "dossier"; clubId: string }
   | { kind: "allenatore"; clubId: string }
@@ -98,6 +100,10 @@ export function DsMode({ userId, onExit }: { userId: string | null; onExit: () =
   }
   if (error || !world) {
     return <Messaggio testo={error ?? "Nessun dato disponibile."} onExit={onExit} />;
+  }
+
+  if (step.kind === "intro") {
+    return <IntroScreen onDone={() => setStep({ kind: "club" })} />;
   }
 
   if (step.kind === "club") {
@@ -204,29 +210,31 @@ export function DsMode({ userId, onExit }: { userId: string | null; onExit: () =
             <ArrowLeft size={17} />
           </button>
           <div className="min-w-0">
-            <p className="text-[11px] font-bold tracking-widest text-[var(--text-secondary)] uppercase">
+            <p className="text-micro font-bold tracking-widest text-[var(--text-secondary)] uppercase">
               Modalità carriera
             </p>
-            <h1 className="truncate text-lg leading-tight font-extrabold">Direttore sportivo</h1>
+            <h1 className="truncate text-title leading-tight font-extrabold">Direttore sportivo</h1>
           </div>
         </div>
       </header>
 
       <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-4 px-4 py-5">
-        <section className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-pitch-700 to-pitch-950 p-6 text-white">
+        <section className="relative overflow-hidden rounded-card bg-gradient-to-br from-pitch-700 to-pitch-950 p-6 text-white">
           <Briefcase size={22} className="text-copper-300" />
-          <h2 className="mt-3 text-2xl leading-tight font-extrabold text-balance">
+          <h2 className="mt-3 text-display leading-tight font-extrabold text-balance">
             Dieci stagioni per costruire una squadra
           </h2>
-          <p className="mt-2 text-sm leading-relaxed text-white/70">
+          <p className="mt-2 text-body leading-relaxed text-white/70">
             Scegli il club e l'allenatore, poi fai il mercato, dai spazio ai giovani e portali a
             crescere. Le prime quattro vanno in Corona Continentale; le ultime tre retrocedono, e
             con la retrocessione la carriera finisce.
           </p>
+          {/* Alla prima carriera si passa dall'introduzione; chi ha già giocato va dritto alla
+              scelta del club. Lo stato vive sul dispositivo, non nel salvataggio. */}
           <button
             type="button"
-            onClick={() => setStep({ kind: "club" })}
-            className="mt-5 flex w-full items-center justify-center gap-2 rounded-2xl bg-white px-5 py-3.5 text-sm font-extrabold text-pitch-900 transition-transform active:scale-[0.98] sm:w-fit sm:px-8"
+            onClick={() => setStep({ kind: introGiaVista() ? "club" : "intro" })}
+            className="mt-5 flex min-h-tap w-full items-center justify-center gap-2 rounded-control bg-white px-5 text-body font-extrabold text-pitch-900 transition-transform active:scale-[0.98] sm:w-fit sm:px-8"
           >
             <Play size={17} fill="currentColor" />
             Nuova carriera
@@ -234,7 +242,7 @@ export function DsMode({ userId, onExit }: { userId: string | null; onExit: () =
         </section>
 
         {!userId && (
-          <p className="rounded-2xl border border-dashed border-[var(--surface-border)] p-4 text-sm leading-relaxed text-[var(--text-secondary)]">
+          <p className="rounded-card border border-dashed border-[var(--surface-border)] p-4 text-body leading-relaxed text-[var(--text-secondary)]">
             Stai giocando come ospite: la carriera resta in questa sessione e non viene salvata.
             Accedi per riprenderla quando vuoi.
           </p>
@@ -242,7 +250,7 @@ export function DsMode({ userId, onExit }: { userId: string | null; onExit: () =
 
         {userId && saves.length > 0 && (
           <section>
-            <h2 className="mb-2 text-[10px] font-bold tracking-widest text-[var(--text-secondary)] uppercase">
+            <h2 className="mb-2 text-micro font-bold tracking-widest text-[var(--text-secondary)] uppercase">
               Riprendi
             </h2>
             <ul className="flex flex-col gap-2">
@@ -252,7 +260,7 @@ export function DsMode({ userId, onExit }: { userId: string | null; onExit: () =
                 return (
                   <li
                     key={save.id}
-                    className="flex items-center gap-3 rounded-2xl border border-[var(--surface-border)] bg-[var(--surface-raised)] p-3"
+                    className="flex items-center gap-3 rounded-card border border-[var(--surface-border)] bg-[var(--surface-raised)] p-3"
                   >
                     <button
                       type="button"
@@ -261,14 +269,14 @@ export function DsMode({ userId, onExit }: { userId: string | null; onExit: () =
                       }
                       className="flex min-w-0 flex-1 items-center gap-3 text-left"
                     >
-                      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[var(--surface)] text-sm font-extrabold">
+                      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-control bg-[var(--surface)] text-body font-extrabold">
                         {save.season}
                       </span>
                       <span className="min-w-0">
-                        <span className="block truncate text-sm font-bold">
+                        <span className="block truncate text-body font-bold">
                           {club?.name ?? "Club"}
                         </span>
-                        <span className="block truncate text-[11px] text-[var(--text-secondary)]">
+                        <span className="block truncate text-label text-[var(--text-secondary)]">
                           {save.status === "conclusa"
                             ? "Carriera conclusa"
                             : `Settimana ${save.week}`}
@@ -296,7 +304,7 @@ export function DsMode({ userId, onExit }: { userId: string | null; onExit: () =
         )}
 
         {userId && savesLoading && (
-          <p className="text-sm text-[var(--text-secondary)]">Caricamento delle carriere...</p>
+          <p className="text-body text-[var(--text-secondary)]">Caricamento delle carriere...</p>
         )}
       </main>
     </div>
@@ -306,12 +314,12 @@ export function DsMode({ userId, onExit }: { userId: string | null; onExit: () =
 function Messaggio({ testo, onExit }: { testo: string; onExit?: () => void }) {
   return (
     <div className="flex min-h-svh flex-col items-center justify-center gap-4 bg-[var(--surface)] px-6 text-center">
-      <p className="text-sm text-[var(--text-secondary)]">{testo}</p>
+      <p className="text-body text-[var(--text-secondary)]">{testo}</p>
       {onExit && (
         <button
           type="button"
           onClick={onExit}
-          className="flex items-center gap-2 rounded-full border border-[var(--surface-border)] px-4 py-2 text-sm font-semibold"
+          className="flex items-center gap-2 rounded-full border border-[var(--surface-border)] px-4 py-2 text-body font-semibold"
         >
           <ArrowLeft size={16} />
           Torna alla home

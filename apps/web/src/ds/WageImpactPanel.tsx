@@ -87,12 +87,12 @@ export function WageImpactPanel({
   const sfora = dopo.margine < 0;
 
   return (
-    <section className="flex flex-col gap-2.5 rounded-2xl border border-[var(--surface-border)] bg-[var(--surface-raised)] p-3">
+    <section className="flex flex-col gap-2.5 rounded-card border border-[var(--surface-border)] bg-[var(--surface-raised)] p-3">
       <header className="flex items-baseline justify-between gap-2">
-        <p className="flex items-center gap-1.5 text-[10px] font-extrabold tracking-widest text-[var(--text-secondary)] uppercase">
+        <p className="flex items-center gap-1.5 text-micro font-extrabold tracking-widest text-[var(--text-secondary)] uppercase">
           <Wallet size={11} /> Impatto sul bilancio
         </p>
-        <p className="text-[10px] font-bold text-[var(--text-secondary)]">
+        <p className="text-label font-bold text-[var(--text-secondary)]">
           fatturato {formatEuro(vista.revenue)}
         </p>
       </header>
@@ -116,7 +116,7 @@ export function WageImpactPanel({
             }}
           />
         </div>
-        <p className="mt-1 flex items-baseline justify-between text-[10px] font-bold">
+        <p className="mt-1 flex items-baseline justify-between text-label font-bold">
           <span className="text-[var(--text-secondary)]">
             monte {formatWage(dopo.impegni)} su {formatWage(dopo.tetto)}
           </span>
@@ -126,7 +126,7 @@ export function WageImpactPanel({
         </p>
       </div>
 
-      <p className="text-[11px] leading-snug font-semibold">
+      <p className="text-label leading-snug font-semibold">
         Questo contratto vale{" "}
         <strong>{Math.round(dopo.quotaSulFatturato * 100)}%</strong> del fatturato annuo e{" "}
         <strong>{Math.round(dopo.quotaSulTetto * 100)}%</strong> della cassa ingaggi.
@@ -141,7 +141,7 @@ export function WageImpactPanel({
 
       {onShift && (
         <div className="border-t border-[var(--surface-border)] pt-2.5">
-          <p className="flex items-center justify-between text-[10px] font-extrabold tracking-widest text-[var(--text-secondary)] uppercase">
+          <p className="flex items-center justify-between text-micro font-extrabold tracking-widest text-[var(--text-secondary)] uppercase">
             <span className="flex items-center gap-1.5">
               <ArrowLeftRight size={11} /> Sposta dal mercato agli ingaggi
             </span>
@@ -164,7 +164,7 @@ export function WageImpactPanel({
             }}
             className="mt-1 w-full accent-[var(--brand)]"
           />
-          <p className="text-[10px] leading-snug text-[var(--text-secondary)]">
+          <p className="text-label leading-snug text-[var(--text-secondary)]">
             Mercato {formatEuro(dopo.mercato)} · liquidità ora {formatEuro(state.budget)}
             {inverno
               ? ` · a stagione in corso puoi spostare al più ${Math.round(WINTER_SHIFT_LIMIT * 100)} punti`

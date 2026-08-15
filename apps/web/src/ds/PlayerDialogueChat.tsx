@@ -67,13 +67,13 @@ export function PlayerDialogueChat({
         animate={{ y: 0 }}
         exit={{ y: "100%" }}
         transition={{ type: "spring", stiffness: 330, damping: 32 }}
-        className="flex h-[90svh] w-full max-w-md flex-col overflow-hidden rounded-t-3xl border border-[var(--surface-border)] bg-[var(--surface)] sm:h-[85svh] sm:rounded-3xl"
+        className="flex h-[90svh] w-full max-w-md flex-col overflow-hidden rounded-t-3xl border border-[var(--surface-border)] bg-[var(--surface)] sm:h-[85svh] sm:rounded-card"
       >
         <header className="border-b border-[var(--surface-border)] bg-[var(--surface-raised)]/50 p-4">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
-              <p className="truncate text-base font-extrabold">{dialogue.playerName}</p>
-              <p className="truncate text-[11px] text-[var(--text-secondary)]">{dialogue.topicLabel}</p>
+              <p className="truncate text-body font-extrabold">{dialogue.playerName}</p>
+              <p className="truncate text-label text-[var(--text-secondary)]">{dialogue.topicLabel}</p>
             </div>
             {(!dialogue.forced || chiusa) && (
               <button
@@ -88,7 +88,7 @@ export function PlayerDialogueChat({
           </div>
 
           <div className="mt-2 flex items-center gap-2">
-            <span className="text-[9px] font-extrabold tracking-widest text-[var(--text-secondary)] uppercase">
+            <span className="text-micro font-extrabold tracking-widest text-[var(--text-secondary)] uppercase">
               Fiducia
             </span>
             <span className="h-1.5 w-24 overflow-hidden rounded-full bg-[var(--surface)]">
@@ -97,7 +97,7 @@ export function PlayerDialogueChat({
                 animate={{ width: `${dialogue.trust}%` }}
               />
             </span>
-            <span className="text-[10px] font-bold tabular-nums text-[var(--text-secondary)]">
+            <span className="text-label font-bold tabular-nums text-[var(--text-secondary)]">
               {dialogue.trust}
             </span>
           </div>
@@ -116,12 +116,12 @@ export function PlayerDialogueChat({
           className="border-b px-4 py-2.5"
           style={{ borderColor: "#ff8a3d33", backgroundColor: "#ff8a3d12" }}
         >
-          <p className="flex items-center gap-1.5 text-[10px] font-extrabold tracking-wider text-[#ff8a3d] uppercase">
+          <p className="flex items-center gap-1.5 text-micro font-extrabold tracking-wider text-[#ff8a3d] uppercase">
             <ShieldAlert size={11} /> Il problema
           </p>
-          <p className="mt-0.5 text-sm leading-tight font-extrabold">{dialogue.topicLabel}</p>
+          <p className="mt-0.5 text-body leading-tight font-extrabold">{dialogue.topicLabel}</p>
           {dialogue.log[0]?.text && (
-            <p className="mt-1 text-[11px] leading-snug text-[var(--text-secondary)] italic">
+            <p className="mt-1 text-label leading-snug text-[var(--text-secondary)] italic">
               «{dialogue.log[0].text}»
             </p>
           )}
@@ -132,20 +132,20 @@ export function PlayerDialogueChat({
           {dialogue.highlights.map((h) => (
             <span
               key={h}
-              className="rounded-lg bg-[var(--surface-raised)] px-2 py-0.5 text-[10px] font-bold text-[var(--text-secondary)]"
+              className="rounded-control bg-[var(--surface-raised)] px-2 py-0.5 text-label font-bold text-[var(--text-secondary)]"
             >
               {h}
             </span>
           ))}
         </div>
 
-        <div className="border-b border-amber-500/20 bg-amber-500/10 px-4 py-2 text-xs">
-          <p className="text-[10px] font-extrabold tracking-wider text-amber-300 uppercase">Chiede</p>
+        <div className="border-b border-amber-500/20 bg-amber-500/10 px-4 py-2 text-label">
+          <p className="text-micro font-extrabold tracking-wider text-amber-300 uppercase">Chiede</p>
           <p className="mt-0.5 font-medium leading-tight text-amber-100/90">{dialogue.demand.description}</p>
         </div>
 
         <div className="flex items-center gap-2 border-b border-[var(--surface-border)] px-4 py-2">
-          <span className="text-[10px] font-extrabold tracking-widest text-[var(--text-secondary)] uppercase">
+          <span className="text-micro font-extrabold tracking-widest text-[var(--text-secondary)] uppercase">
             Pazienza
           </span>
           <span className="h-2 flex-1 overflow-hidden rounded-full bg-[var(--surface-raised)]">
@@ -157,7 +157,7 @@ export function PlayerDialogueChat({
               }}
             />
           </span>
-          <span className="font-mono text-[11px] font-bold text-[var(--text-secondary)]">
+          <span className="font-mono text-label font-bold text-[var(--text-secondary)]">
             {dialogue.patience}%
           </span>
         </div>
@@ -173,7 +173,7 @@ export function PlayerDialogueChat({
                 className={`flex ${m.speaker === "ds" ? "justify-end" : "justify-start"}`}
               >
                 <div
-                  className={`max-w-[85%] rounded-2xl px-3.5 py-2.5 text-[13px] leading-relaxed ${
+                  className={`max-w-[85%] rounded-card px-3.5 py-2.5 text-label leading-relaxed ${
                     m.speaker === "ds"
                       ? "rounded-br-md bg-[var(--brand)] font-medium text-[var(--brand-contrast)]"
                       : "rounded-bl-md border border-[var(--surface-border)] bg-[var(--surface-raised)]"
@@ -191,7 +191,7 @@ export function PlayerDialogueChat({
           {chiusa ? (
             <div className="flex flex-col gap-2">
               <p
-                className="flex items-center justify-center gap-2 rounded-2xl py-3 text-sm font-extrabold"
+                className="flex items-center justify-center gap-2 rounded-card py-3 text-body font-extrabold"
                 style={{ backgroundColor: `${tono}22`, color: tono }}
               >
                 {dialogue.status === "rottura" ? <ShieldAlert size={16} /> : <Check size={16} />}
@@ -200,14 +200,14 @@ export function PlayerDialogueChat({
               <button
                 type="button"
                 onClick={onClose}
-                className="w-full rounded-2xl bg-[var(--brand)] py-3 text-sm font-extrabold text-[var(--brand-contrast)]"
+                className="w-full rounded-card bg-[var(--brand)] py-3 text-body font-extrabold text-[var(--brand-contrast)]"
               >
                 Torna allo spogliatoio
               </button>
             </div>
           ) : repartoAperto ? (
             <div className="flex flex-col gap-2">
-              <p className="px-1 text-[11px] font-bold text-[var(--text-secondary)]">
+              <p className="px-1 text-label font-bold text-[var(--text-secondary)]">
                 In quale reparto prometti il rinforzo?
               </p>
               <div className="grid grid-cols-2 gap-2">
@@ -219,7 +219,7 @@ export function PlayerDialogueChat({
                       setRepartoAperto(false);
                       onMove({ kind: "promessa_rinforzo", department: dep });
                     }}
-                    className="rounded-2xl bg-[var(--brand)] px-3 py-2.5 text-xs font-bold text-[var(--brand-contrast)]"
+                    className="rounded-card bg-[var(--brand)] px-3 py-2.5 text-label font-bold text-[var(--brand-contrast)]"
                   >
                     {dep}
                   </button>
@@ -228,7 +228,7 @@ export function PlayerDialogueChat({
               <button
                 type="button"
                 onClick={() => setRepartoAperto(false)}
-                className="w-full rounded-2xl border border-[var(--surface-border)] py-2 text-[11px] font-bold text-[var(--text-secondary)]"
+                className="w-full rounded-card border border-[var(--surface-border)] py-2 text-label font-bold text-[var(--text-secondary)]"
               >
                 Annulla
               </button>
@@ -245,7 +245,7 @@ export function PlayerDialogueChat({
                     onClick={() =>
                       m.kind === "promessa_rinforzo" ? setRepartoAperto(true) : onMove({ kind: m.kind })
                     }
-                    className={`flex flex-col items-start gap-0.5 rounded-2xl border px-3 py-2 text-left transition-transform active:scale-95 ${
+                    className={`flex flex-col items-start gap-0.5 rounded-card border px-3 py-2 text-left transition-transform active:scale-95 ${
                       bloccata
                         ? "cursor-not-allowed border-[var(--surface-border)] opacity-45"
                         : m.answersDemand
@@ -255,16 +255,16 @@ export function PlayerDialogueChat({
                             : "border-[var(--surface-border)] bg-[var(--surface-raised)]"
                     }`}
                   >
-                    <span className="flex w-full items-center gap-1 text-[12px] font-extrabold">
+                    <span className="flex w-full items-center gap-1 text-label font-extrabold">
                       {m.answersDemand && !bloccata && <Check size={11} className="text-emerald-400" />}
                       <span className="min-w-0 flex-1 truncate">{m.label}</span>
                     </span>
                     <span
-                      className={`text-[9px] leading-tight font-semibold ${
+                      className={`text-label leading-tight font-semibold ${
                         bloccata ? "text-rose-400" : "text-[var(--text-secondary)]"
                       }`}
                     >
-                      {bloccata ? `✕ ${m.disabledReason}` : m.cost}
+                      {bloccata ? m.disabledReason : m.cost}
                     </span>
                   </button>
                 );

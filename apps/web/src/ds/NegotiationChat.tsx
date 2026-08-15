@@ -147,17 +147,17 @@ export function NegotiationChat({
         animate={{ y: 0 }}
         exit={{ y: "100%" }}
         transition={{ type: "spring", stiffness: 330, damping: 32 }}
-        className="flex h-[80svh] w-full max-w-md flex-col overflow-hidden rounded-t-3xl border border-[var(--surface-border)] bg-[var(--surface)] sm:h-[72svh] sm:rounded-3xl"
+        className="flex h-[80svh] w-full max-w-md flex-col overflow-hidden rounded-t-3xl border border-[var(--surface-border)] bg-[var(--surface)] sm:h-[72svh] sm:rounded-card"
       >
         <header className="flex items-center gap-3 border-b border-[var(--surface-border)] px-4 py-3">
           <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--surface-raised)] text-[var(--text-secondary)]">
             {inContratto ? <UserRound size={18} /> : <Building2 size={18} />}
           </span>
           <div className="min-w-0 flex-1">
-            <p className="truncate text-sm leading-tight font-extrabold">
+            <p className="truncate text-body leading-tight font-extrabold">
               {inContratto ? `Agente di ${negotiation.playerName}` : `Direttore sportivo · ${negotiation.clubName}`}
             </p>
-            <p className="truncate text-[11px] text-[var(--text-secondary)]">
+            <p className="truncate text-label text-[var(--text-secondary)]">
               {inContratto ? (
                 <>
                   Accordo col {negotiation.clubName} a {formattaCifra("acquisto", negotiation.amount)}
@@ -188,9 +188,9 @@ export function NegotiationChat({
             manca il giocatore. Senza, la comparsa improvvisa di un secondo tavolo si leggerebbe
             come "la trattativa è ricominciata da capo". */}
         {negotiation.kind === "acquisto" && (inContratto || negotiation.status === "aperta") && (
-          <ol className="flex items-center gap-2 border-b border-[var(--surface-border)] px-4 py-2 text-[10px] font-bold tracking-wide uppercase">
+          <ol className="flex items-center gap-2 border-b border-[var(--surface-border)] px-4 py-2 text-micro font-bold tracking-wide uppercase">
             <li className={inContratto ? "text-[#3ddc6b]" : "text-[var(--brand)]"}>
-              1 · Club {inContratto && "✓"}
+              1 · Club {inContratto && <Check size={12} className="inline" />}
             </li>
             <li aria-hidden className="h-px flex-1 bg-[var(--surface-border)]" />
             <li className={inContratto ? "text-[var(--brand)]" : "text-[var(--text-secondary)]"}>
@@ -205,7 +205,7 @@ export function NegotiationChat({
           <>
         {/* Pazienza: quanto ancora si può tirare la corda. */}
         <div className="flex items-center gap-2 border-b border-[var(--surface-border)] px-4 py-2">
-          <span className="text-[10px] font-bold tracking-widest text-[var(--text-secondary)] uppercase">
+          <span className="text-micro font-bold tracking-widest text-[var(--text-secondary)] uppercase">
             Pazienza
           </span>
           <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-[var(--surface-raised)]">
@@ -223,7 +223,7 @@ export function NegotiationChat({
               transition={{ duration: 0.4, ease: "easeOut" }}
             />
           </span>
-          <span className="text-[11px] font-extrabold tabular-nums">
+          <span className="text-label font-extrabold tabular-nums">
             {formattaCifra(negotiation.kind, negotiation.amount)}
           </span>
         </div>
@@ -239,16 +239,16 @@ export function NegotiationChat({
                 className={`flex ${messaggio.speaker === "noi" ? "justify-end" : "justify-start"}`}
               >
                 <div
-                  className={`max-w-[82%] rounded-2xl px-3.5 py-2.5 ${
+                  className={`max-w-[82%] rounded-card px-3.5 py-2.5 ${
                     messaggio.speaker === "noi"
                       ? "rounded-br-md bg-[var(--brand)] text-[var(--brand-contrast)]"
                       : "rounded-bl-md bg-[var(--surface-raised)]"
                   }`}
                 >
-                  <p className="text-[13px] leading-relaxed">{messaggio.text}</p>
+                  <p className="text-label leading-relaxed">{messaggio.text}</p>
                   {messaggio.amount !== undefined && (
                     <p
-                      className={`mt-1 text-sm font-extrabold tabular-nums ${
+                      className={`mt-1 text-body font-extrabold tabular-nums ${
                         messaggio.speaker === "noi" ? "" : "text-[var(--accent)]"
                       }`}
                     >
@@ -262,7 +262,7 @@ export function NegotiationChat({
 
           {scrive && (
             <div className="flex justify-start">
-              <div className="flex gap-1 rounded-2xl rounded-bl-md bg-[var(--surface-raised)] px-3.5 py-3">
+              <div className="flex gap-1 rounded-card rounded-bl-md bg-[var(--surface-raised)] px-3.5 py-3">
                 {[0, 1, 2].map((i) => (
                   <motion.span
                     key={i}
@@ -282,7 +282,7 @@ export function NegotiationChat({
           {chiusa ? (
             <div className="flex flex-col gap-2">
               <p
-                className="flex items-center justify-center gap-2 rounded-2xl py-2.5 text-sm font-extrabold"
+                className="flex items-center justify-center gap-2 rounded-card py-2.5 text-body font-extrabold"
                 style={{
                   backgroundColor: negotiation.status === "conclusa" ? "#3ddc6b22" : "#ff4d4d22",
                   color: negotiation.status === "conclusa" ? "#2a9b4d" : "#ff4d4d",
@@ -296,7 +296,7 @@ export function NegotiationChat({
               <button
                 type="button"
                 onClick={onClose}
-                className="w-full rounded-2xl bg-[var(--brand)] py-3 text-sm font-extrabold text-[var(--brand-contrast)]"
+                className="w-full rounded-card bg-[var(--brand)] py-3 text-body font-extrabold text-[var(--brand-contrast)]"
               >
                 Torna al mercato
               </button>
@@ -317,7 +317,7 @@ export function NegotiationChat({
                     disabled={disabilitata}
                     onClick={() => onMove(m.move)}
                     aria-label={disabilitata ? `${m.label} — budget insufficiente` : m.label}
-                    className={`flex items-center justify-center gap-1.5 rounded-2xl px-3 py-2.5 text-xs font-bold transition-transform ${
+                    className={`flex items-center justify-center gap-1.5 rounded-card px-3 py-2.5 text-label font-bold transition-transform ${
                       disabilitata
                         ? "cursor-not-allowed border border-[var(--surface-border)] text-[var(--text-secondary)] opacity-40"
                         : `active:scale-95 ${
@@ -342,7 +342,7 @@ export function NegotiationChat({
                 );
               })}
               </div>
-              <p className="mt-2 text-center text-[10px] leading-relaxed text-[var(--text-secondary)]">
+              <p className="mt-2 text-center text-label leading-relaxed text-[var(--text-secondary)]">
                 Prendere tempo può far arrivare un'altra squadra. L'ultimatum chiude o rompe.
               </p>
 
@@ -352,7 +352,7 @@ export function NegotiationChat({
                   0,5mln ecc." invece di digitare un numero). */}
               {personalizza ? (
                 <div className="mt-2.5 flex flex-col gap-2">
-                  <p className="text-center text-lg font-extrabold tabular-nums">
+                  <p className="text-center text-title font-extrabold tabular-nums">
                     {formattaCifra(negotiation.kind, cifra)}
                   </p>
                   <div className="flex items-center justify-center gap-1.5">
@@ -361,7 +361,7 @@ export function NegotiationChat({
                         key={`meno-${passo}`}
                         type="button"
                         onClick={() => setCifra((v) => Math.max(0, v - passo))}
-                        className="rounded-lg border border-[var(--surface-border)] px-2.5 py-1.5 text-[11px] font-bold text-[var(--text-secondary)] active:scale-95"
+                        className="rounded-control border border-[var(--surface-border)] px-2.5 py-1.5 text-label font-bold text-[var(--text-secondary)] active:scale-95"
                       >
                         −{etichettaPasso(negotiation.kind, passo)}
                       </button>
@@ -371,7 +371,7 @@ export function NegotiationChat({
                         key={`più-${passo}`}
                         type="button"
                         onClick={() => setCifra((v) => v + passo)}
-                        className="rounded-lg border border-[var(--brand)]/40 bg-[var(--brand)]/10 px-2.5 py-1.5 text-[11px] font-bold text-[var(--brand)] active:scale-95"
+                        className="rounded-control border border-[var(--brand)]/40 bg-[var(--brand)]/10 px-2.5 py-1.5 text-label font-bold text-[var(--brand)] active:scale-95"
                       >
                         +{etichettaPasso(negotiation.kind, passo)}
                       </button>
@@ -385,7 +385,7 @@ export function NegotiationChat({
                         onMove({ kind: "rilancia", amount: cifra });
                         setPersonalizza(false);
                       }}
-                      className={`flex-1 rounded-xl px-3 py-2 text-[11px] font-bold ${
+                      className={`flex-1 rounded-control px-3 py-2 text-label font-bold ${
                         nonSostenibile({ kind: "rilancia", amount: cifra })
                           ? "cursor-not-allowed bg-[var(--surface-raised)] text-[var(--text-secondary)] opacity-40"
                           : "bg-[var(--accent)] text-[var(--brand-contrast)]"
@@ -397,13 +397,13 @@ export function NegotiationChat({
                       type="button"
                       onClick={() => setPersonalizza(false)}
                       aria-label="Annulla cifra personalizzata"
-                      className="shrink-0 rounded-xl border border-[var(--surface-border)] p-2 text-[var(--text-secondary)]"
+                      className="shrink-0 rounded-control border border-[var(--surface-border)] p-2 text-[var(--text-secondary)]"
                     >
                       <X size={13} />
                     </button>
                   </div>
                   {nonSostenibile({ kind: "rilancia", amount: cifra }) && (
-                    <p className="px-1 text-[10px] font-bold text-[#ff4d4d]">
+                    <p className="px-1 text-label font-bold text-[#ff4d4d]">
                       Budget insufficiente per questa cifra.
                     </p>
                   )}
@@ -412,7 +412,7 @@ export function NegotiationChat({
                 <button
                   type="button"
                   onClick={() => setPersonalizza(true)}
-                  className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-2xl border border-dashed border-[var(--surface-border)] py-2 text-[11px] font-bold text-[var(--text-secondary)]"
+                  className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-card border border-dashed border-[var(--surface-border)] py-2 text-label font-bold text-[var(--text-secondary)]"
                 >
                   <SlidersHorizontal size={12} />
                   Personalizza la cifra

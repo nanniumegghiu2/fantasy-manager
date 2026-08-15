@@ -140,13 +140,13 @@ export function TransferFeedPanel({ state, world, dsWorld, aiSellable }: Transfe
     <div className="flex flex-col gap-3">
       {/* ---------------------------------------------------------- in diretta */}
       {finestraAperta && (nostreListe.length > 0 || (aiSellable?.length ?? 0) > 0) && (
-        <section className="overflow-hidden rounded-2xl border border-[var(--accent)]/30 bg-[var(--accent)]/6">
+        <section className="overflow-hidden rounded-card border border-[var(--accent)]/30 bg-[var(--accent)]/6">
           <header className="flex items-center gap-2 border-b border-[var(--accent)]/20 px-3 py-2">
             <span className="relative flex h-2 w-2">
               <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[var(--accent)] opacity-70" />
               <span className="relative inline-flex h-2 w-2 rounded-full bg-[var(--accent)]" />
             </span>
-            <p className="flex items-center gap-1.5 text-[10px] font-extrabold tracking-widest text-[var(--accent)] uppercase">
+            <p className="flex items-center gap-1.5 text-micro font-extrabold tracking-widest text-[var(--accent)] uppercase">
               <Radio size={11} /> Sul mercato adesso
             </p>
           </header>
@@ -154,17 +154,17 @@ export function TransferFeedPanel({ state, world, dsWorld, aiSellable }: Transfe
           <div className="flex flex-col gap-2 p-3">
             {nostreListe.length > 0 && (
               <div>
-                <p className="mb-1 text-[10px] font-extrabold tracking-widest text-[var(--text-secondary)] uppercase">
+                <p className="mb-1 text-micro font-extrabold tracking-widest text-[var(--text-secondary)] uppercase">
                   Le tue liste
                 </p>
                 <ul className="flex flex-wrap gap-1.5">
                   {nostreListe.map((g) => (
                     <li
                       key={`${g.tipo}-${g.id}`}
-                      className="flex items-center gap-1.5 rounded-lg border border-[var(--surface-border)] bg-[var(--surface)] px-2 py-1 text-[11px] font-bold"
+                      className="flex items-center gap-1.5 rounded-control border border-[var(--surface-border)] bg-[var(--surface)] px-2 py-1 text-label font-bold"
                     >
                       {g.name}
-                      <span className="text-[9px] font-extrabold text-[var(--text-secondary)] uppercase">
+                      <span className="text-micro font-extrabold text-[var(--text-secondary)] uppercase">
                         {g.tipo === "vendita" ? "cedibile" : "prestito"}
                       </span>
                     </li>
@@ -175,27 +175,27 @@ export function TransferFeedPanel({ state, world, dsWorld, aiSellable }: Transfe
 
             {(aiSellable?.length ?? 0) > 0 && (
               <div>
-                <p className="mb-1 text-[10px] font-extrabold tracking-widest text-[var(--text-secondary)] uppercase">
+                <p className="mb-1 text-micro font-extrabold tracking-widest text-[var(--text-secondary)] uppercase">
                   Liste trasferimenti delle altre
                 </p>
                 <ul className="flex flex-col gap-1">
                   {aiSellable!.slice(0, 8).map((a) => (
                     <li
                       key={a.playerId}
-                      className="flex items-center gap-2 rounded-lg bg-[var(--surface)] px-2 py-1.5"
+                      className="flex items-center gap-2 rounded-control bg-[var(--surface)] px-2 py-1.5"
                     >
-                      <span className="w-7 shrink-0 text-center text-[11px] font-black text-[var(--brand)]">
+                      <span className="w-7 shrink-0 text-center text-label font-black text-[var(--brand)]">
                         {a.overall}
                       </span>
                       <span className="min-w-0 flex-1">
-                        <span className="block truncate text-[12px] leading-tight font-bold">
+                        <span className="block truncate text-label leading-tight font-bold">
                           {a.playerName}
                         </span>
-                        <span className="block truncate text-[10px] text-[var(--text-secondary)]">
+                        <span className="block truncate text-label text-[var(--text-secondary)]">
                           {a.clubName} · {a.department}
                         </span>
                       </span>
-                      <span className="shrink-0 text-[11px] font-extrabold tabular-nums">
+                      <span className="shrink-0 text-label font-extrabold tabular-nums">
                         {euro(a.price)}
                       </span>
                     </li>
@@ -209,10 +209,10 @@ export function TransferFeedPanel({ state, world, dsWorld, aiSellable }: Transfe
 
       {/* ------------------------------------------------------------- notizie */}
       {notizie.length === 0 ? (
-        <div className="flex flex-col items-center gap-2 rounded-2xl border border-dashed border-[var(--surface-border)] px-4 py-8 text-center">
+        <div className="flex flex-col items-center gap-2 rounded-card border border-dashed border-[var(--surface-border)] px-4 py-8 text-center">
           <Newspaper size={20} className="text-[var(--text-secondary)]" />
-          <p className="text-sm font-semibold">Nessuna notizia, per ora</p>
-          <p className="max-w-xs text-xs leading-relaxed text-[var(--text-secondary)]">
+          <p className="text-body font-semibold">Nessuna notizia, per ora</p>
+          <p className="max-w-xs text-label leading-relaxed text-[var(--text-secondary)]">
             Quando le altre squadre si muoveranno, le loro operazioni compariranno qui come un
             notiziario.
           </p>
@@ -220,7 +220,7 @@ export function TransferFeedPanel({ state, world, dsWorld, aiSellable }: Transfe
       ) : (
         <>
           <div className="flex items-center justify-between gap-2">
-            <h3 className="flex items-center gap-1.5 text-sm font-extrabold">
+            <h3 className="flex items-center gap-1.5 text-body font-extrabold">
               <Newspaper size={15} className="text-[var(--brand)]" /> Calciomercato
             </h3>
             <div className="flex gap-1">
@@ -229,7 +229,7 @@ export function TransferFeedPanel({ state, world, dsWorld, aiSellable }: Transfe
                   key={f}
                   type="button"
                   onClick={() => setFiltro(f)}
-                  className={`rounded-lg px-2.5 py-1 text-[10px] font-extrabold tracking-wide uppercase transition-colors ${
+                  className={`min-h-tap rounded-control px-3.5 text-label font-extrabold transition-colors ${
                     filtro === f
                       ? "bg-[var(--brand)] text-[var(--brand-contrast)]"
                       : "bg-[var(--surface-raised)] text-[var(--text-secondary)]"
@@ -243,10 +243,10 @@ export function TransferFeedPanel({ state, world, dsWorld, aiSellable }: Transfe
 
           {perStagione.map(([stagione, elenco]) => (
             <section key={stagione} className="flex flex-col gap-2">
-              <p className="flex items-center gap-1.5 px-1 text-[10px] font-bold tracking-widest text-[var(--text-secondary)] uppercase">
+              <p className="flex items-center gap-1.5 px-1 text-micro font-bold tracking-widest text-[var(--text-secondary)] uppercase">
                 Stagione {stagione}
                 {stagione === state.season && (
-                  <span className="rounded-full bg-[var(--accent)]/15 px-2 py-0.5 text-[9px] text-[var(--accent)]">
+                  <span className="rounded-full bg-[var(--accent)]/15 px-2 py-0.5 text-label text-[var(--accent)]">
                     in corso
                   </span>
                 )}
@@ -289,37 +289,37 @@ function Post({
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: Math.min(indice, 10) * 0.04, duration: 0.26, ease: "easeOut" }}
-      className="overflow-hidden rounded-2xl border border-[var(--surface-border)] bg-[var(--surface-raised)]"
+      className="overflow-hidden rounded-card border border-[var(--surface-border)] bg-[var(--surface-raised)]"
     >
       <header className="flex items-center gap-2 px-3 pt-2.5">
         <span
-          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[10px] font-black"
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-label font-black"
           style={{ backgroundColor: `${stile.tono}22`, color: stile.tono }}
         >
           {club.slice(0, 2).toUpperCase()}
         </span>
         <span className="min-w-0 flex-1">
-          <span className="block truncate text-[12px] leading-tight font-extrabold">{club}</span>
+          <span className="block truncate text-label leading-tight font-extrabold">{club}</span>
           <span
-            className="flex items-center gap-1 text-[10px] font-bold"
+            className="flex items-center gap-1 text-label font-bold"
             style={{ color: stile.tono }}
           >
             <Icona size={10} /> {stile.etichetta}
           </span>
         </span>
-        <span className="shrink-0 text-[13px] font-extrabold tabular-nums">{euro(t.fee)}</span>
+        <span className="shrink-0 text-label font-extrabold tabular-nums">{euro(t.fee)}</span>
       </header>
 
       <div className="px-3 pt-2 pb-3">
-        <p className="text-[13px] leading-snug font-bold">
+        <p className="text-label leading-snug font-bold">
           {t.playerName}
           {t.department && (
-            <span className="ml-1.5 rounded bg-[var(--surface)] px-1.5 py-0.5 text-[9px] font-extrabold text-[var(--text-secondary)]">
+            <span className="ml-1.5 rounded bg-[var(--surface)] px-1.5 py-0.5 text-label font-extrabold text-[var(--text-secondary)]">
               {t.department}
             </span>
           )}
         </p>
-        <p className="mt-0.5 flex items-center gap-1 text-[11px] text-[var(--text-secondary)]">
+        <p className="mt-0.5 flex items-center gap-1 text-label text-[var(--text-secondary)]">
           <span className="truncate">{nomeClub(t.fromClubId)}</span>
           <ArrowRight size={10} className="shrink-0 text-[var(--accent)]" />
           <span className="truncate font-semibold text-[var(--text-primary)]">{club}</span>
@@ -327,9 +327,9 @@ function Post({
 
         {/* La seconda riga della catena: senza, la notizia direbbe metà della storia. */}
         {notizia.rimpiazzo && (
-          <div className="mt-2 flex items-start gap-2 rounded-xl border border-[var(--surface-border)] bg-[var(--surface)] px-2.5 py-2">
+          <div className="mt-2 flex items-start gap-2 rounded-control border border-[var(--surface-border)] bg-[var(--surface)] px-2.5 py-2">
             <Repeat2 size={12} className="mt-0.5 shrink-0 text-[#5aa9e6]" />
-            <p className="min-w-0 flex-1 text-[11px] leading-snug">
+            <p className="min-w-0 flex-1 text-label leading-snug">
               <strong>{nomeClub(notizia.rimpiazzo.toClubId)}</strong> non resta scoperto: arriva{" "}
               <strong>{notizia.rimpiazzo.playerName}</strong> da{" "}
               {nomeClub(notizia.rimpiazzo.fromClubId)} per {euro(notizia.rimpiazzo.fee)}.
@@ -338,12 +338,12 @@ function Post({
         )}
 
         {t.kind === "esubero" && (
-          <p className="mt-2 flex items-center gap-1.5 text-[10px] font-semibold text-[var(--text-secondary)]">
+          <p className="mt-2 flex items-center gap-1.5 text-label font-semibold text-[var(--text-secondary)]">
             <TrendingDown size={11} /> Era in eccedenza nel suo reparto.
           </p>
         )}
         {t.kind === "colpo" && !notizia.rimpiazzo && (
-          <p className="mt-2 flex items-center gap-1.5 text-[10px] font-semibold text-[var(--text-secondary)]">
+          <p className="mt-2 flex items-center gap-1.5 text-label font-semibold text-[var(--text-secondary)]">
             <BadgeCheck size={11} /> Operazione chiusa.
           </p>
         )}

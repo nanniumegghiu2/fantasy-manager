@@ -5,7 +5,7 @@ import { NationFlag } from "../classic/NationFlag";
 import { overallTier } from "../classic/theme";
 import { isPlayableLeague } from "@app/game-engine";
 import { clubHighlights, clubRating, continentalEntrants, initialRoster, startingBudget } from "./buildCareerWorld";
-import { euro } from "./format";
+import { cognome, euro } from "./format";
 import type { DsClub, DsWorldData } from "./useDsWorld";
 
 /**
@@ -49,7 +49,7 @@ function ClubCard({ club, world, inCup, selected, onSelect }: ClubCardProps) {
       layout
       onClick={onSelect}
       whileTap={{ scale: 0.985 }}
-      className={`relative flex w-full flex-col gap-3 rounded-2xl border p-4 text-left transition-colors ${
+      className={`relative flex w-full flex-col gap-3 rounded-card border p-4 text-left transition-colors ${
         selected
           ? "border-[var(--brand)] bg-[var(--brand)]/10"
           : "border-[var(--surface-border)] bg-[var(--surface-raised)] hover:border-[var(--brand)]/50"
@@ -57,16 +57,16 @@ function ClubCard({ club, world, inCup, selected, onSelect }: ClubCardProps) {
     >
       <div className="flex items-start gap-3">
         <span
-          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-base font-extrabold"
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-control text-body font-extrabold"
           style={{ backgroundColor: tier.dot, color: tier.dotText }}
         >
           {rating}
         </span>
         <div className="min-w-0 flex-1">
-          <p className="truncate text-[15px] leading-tight font-extrabold">{club.name}</p>
+          <p className="truncate text-body leading-tight font-extrabold">{club.name}</p>
           <div className="mt-1 flex items-center gap-2">
             <Stars tier={club.prestigeTier} />
-            <span className="text-[11px] text-[var(--text-secondary)]">
+            <span className="text-label text-[var(--text-secondary)]">
               {world.playersByClub.get(club.id)?.length ?? 0} in rosa
             </span>
           </div>
@@ -74,13 +74,13 @@ function ClubCard({ club, world, inCup, selected, onSelect }: ClubCardProps) {
       </div>
 
       {inCup && (
-        <span className="flex w-fit items-center gap-1.5 rounded-full bg-[#f5c518]/15 px-2.5 py-1 text-[10px] font-bold tracking-wider text-[#c9a10b] uppercase">
+        <span className="flex w-fit items-center gap-1.5 rounded-full bg-[#f5c518]/15 px-2.5 py-1 text-micro font-bold tracking-wider text-[#c9a10b] uppercase">
           <Crown size={11} />
           Ammessa alla Corona
         </span>
       )}
 
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-[var(--text-secondary)]">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-label text-[var(--text-secondary)]">
         <span className="flex items-center gap-1 font-semibold">
           <Wallet size={12} />
           {euro(budget)} di budget
@@ -91,11 +91,14 @@ function ClubCard({ club, world, inCup, selected, onSelect }: ClubCardProps) {
         {stelle.map((player) => (
           <li
             key={player.id}
-            className="flex items-center gap-1.5 rounded-full bg-[var(--surface)] px-2 py-1 text-[11px] font-semibold"
+            className="flex items-center gap-1.5 rounded-full bg-[var(--surface)] px-2 py-1 text-label font-semibold"
           >
             <NationFlag nation={player.nation} />
-            <span className="max-w-[110px] truncate">{player.name}</span>
-            <span className="text-[var(--text-secondary)]">{player.overall}</span>
+            {/* Il cognome, non il nome legale: qui erano misurati 110px disponibili contro i
+                134 di «Jonathan Michael Burkardt», quindi **quattordici nomi su questa sola
+                schermata** finivano tagliati a metà. */}
+            <span>{cognome(player.name)}</span>
+            <span className="num text-[var(--text-secondary)]">{player.overall}</span>
           </li>
         ))}
       </ul>
@@ -152,16 +155,16 @@ export function ClubPickerScreen({ world, onPick, onExit }: ClubPickerScreenProp
             <ArrowLeft size={17} />
           </button>
           <div className="min-w-0">
-            <p className="text-[11px] font-bold tracking-widest text-[var(--text-secondary)] uppercase">
+            <p className="text-micro font-bold tracking-widest text-[var(--text-secondary)] uppercase">
               Direttore sportivo · Passo 1 di 2
             </p>
-            <h1 className="truncate text-lg leading-tight font-extrabold">Scegli il club</h1>
+            <h1 className="truncate text-title leading-tight font-extrabold">Scegli il club</h1>
           </div>
         </div>
       </header>
 
       <main className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-4 px-4 py-4 pb-28">
-        <p className="text-sm leading-relaxed text-[var(--text-secondary)]">
+        <p className="text-body leading-relaxed text-[var(--text-secondary)]">
           Dieci stagioni alla guida di una squadra vera. Un club forte parte in Europa e con
           più mezzi; uno piccolo si costruisce comprando giovani e facendoli crescere — ma
           <strong className="font-bold"> retrocedere chiude la carriera</strong>.
@@ -176,7 +179,7 @@ export function ClubPickerScreen({ world, onPick, onExit }: ClubPickerScreenProp
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Cerca un club..."
-            className="w-full rounded-full border border-[var(--surface-border)] bg-[var(--surface-raised)] py-2.5 pr-4 pl-9 text-sm outline-none focus:border-[var(--brand)]"
+            className="w-full rounded-full border border-[var(--surface-border)] bg-[var(--surface-raised)] py-2.5 pr-4 pl-9 text-body outline-none focus:border-[var(--brand)]"
           />
         </label>
 
@@ -187,7 +190,7 @@ export function ClubPickerScreen({ world, onPick, onExit }: ClubPickerScreenProp
                 key={league.id}
                 type="button"
                 onClick={() => setLeagueId(league.id)}
-                className={`relative shrink-0 rounded-full px-4 py-2 text-sm font-bold whitespace-nowrap transition-colors ${
+                className={`relative shrink-0 rounded-full px-4 py-2 text-body font-bold whitespace-nowrap transition-colors ${
                   league.id === leagueId
                     ? "text-[var(--brand-contrast)]"
                     : "border border-[var(--surface-border)] text-[var(--text-secondary)]"
@@ -220,7 +223,7 @@ export function ClubPickerScreen({ world, onPick, onExit }: ClubPickerScreenProp
         </div>
 
         {clubs.length === 0 && (
-          <p className="py-8 text-center text-sm text-[var(--text-secondary)]">
+          <p className="py-8 text-center text-body text-[var(--text-secondary)]">
             Nessun club trovato.
           </p>
         )}
@@ -235,17 +238,17 @@ export function ClubPickerScreen({ world, onPick, onExit }: ClubPickerScreenProp
         >
           <div className="mx-auto flex w-full max-w-4xl items-center gap-3 px-4 py-3">
             <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-extrabold">
+              <p className="truncate text-body font-extrabold">
                 {world.clubsById.get(selected)?.name}
               </p>
-              <p className="text-[11px] text-[var(--text-secondary)]">
+              <p className="text-label text-[var(--text-secondary)]">
                 {world.clubsById.get(selected)?.leagueName}
               </p>
             </div>
             <button
               type="button"
               onClick={() => onPick(selected)}
-              className="rounded-full bg-[var(--brand)] px-6 py-3 text-sm font-extrabold text-[var(--brand-contrast)] transition-transform active:scale-95"
+              className="rounded-full bg-[var(--brand)] px-6 py-3 text-body font-extrabold text-[var(--brand-contrast)] transition-transform active:scale-95"
             >
               Vedi la rosa
             </button>

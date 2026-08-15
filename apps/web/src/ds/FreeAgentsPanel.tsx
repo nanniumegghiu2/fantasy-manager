@@ -58,9 +58,9 @@ function Intervallo({
   onMax: (v: string) => void;
 }) {
   const campo =
-    "w-full rounded-lg border border-[var(--surface-border)] bg-[var(--surface)] px-2 py-1.5 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--brand)]";
+    "w-full rounded-control border border-[var(--surface-border)] bg-[var(--surface)] px-2 py-1.5 text-body text-[var(--text-primary)] outline-none focus:border-[var(--brand)]";
   return (
-    <div className="text-[10px] font-bold text-[var(--text-secondary)]">
+    <div className="text-label font-bold text-[var(--text-secondary)]">
       {label}
       <div className="mt-1 flex items-center gap-1">
         <input
@@ -88,15 +88,15 @@ function Card({ agente, onApri }: { agente: FreeAgent; onApri: () => void }) {
   return (
     <motion.div
       layout
-      className="flex flex-col gap-2 rounded-2xl border border-[var(--surface-border)] bg-[var(--surface-raised)] p-3"
+      className="flex flex-col gap-2 rounded-card border border-[var(--surface-border)] bg-[var(--surface-raised)] p-3"
     >
       <div className="flex items-start gap-2">
-        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[var(--brand)]/15 text-xs font-black text-[var(--brand)]">
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-control bg-[var(--brand)]/15 text-label font-black text-[var(--brand)]">
           {agente.overall}
         </span>
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-extrabold">{agente.name}</p>
-          <p className="flex items-center gap-1.5 truncate text-[10px] text-[var(--text-secondary)]">
+          <p className="truncate text-body font-extrabold">{agente.name}</p>
+          <p className="flex items-center gap-1.5 truncate text-label text-[var(--text-secondary)]">
             <NationFlag nation={agente.nation} />
             {ROLE_LABELS[agente.role]} · {agente.age} anni
             {agente.origin === "regen" && " · giovane senza squadra"}
@@ -104,7 +104,7 @@ function Card({ agente, onApri }: { agente: FreeAgent; onApri: () => void }) {
         </div>
         {agente.windowsFree > 0 && (
           <span
-            className="flex shrink-0 items-center gap-1 rounded-lg bg-[#ff8a3d]/15 px-1.5 py-0.5 text-[9px] font-extrabold text-[#ff8a3d]"
+            className="flex shrink-0 items-center gap-1 rounded-control bg-[#ff8a3d]/15 px-1.5 py-0.5 text-label font-extrabold text-[#ff8a3d]"
             title="Chi resta libero perde smalto a ogni finestra"
           >
             <TrendingDown size={10} /> −{agente.baseOverall - agente.overall}
@@ -112,7 +112,7 @@ function Card({ agente, onApri }: { agente: FreeAgent; onApri: () => void }) {
         )}
       </div>
 
-      <p className="text-[11px] text-[var(--text-secondary)]">
+      <p className="text-label text-[var(--text-secondary)]">
         Chiede {formatWage(agente.askingWage)} · {agente.askingSeasons}{" "}
         {agente.askingSeasons === 1 ? "anno" : "anni"}
         {agente.wantsStarter && " · vuole giocare"}
@@ -121,7 +121,7 @@ function Card({ agente, onApri }: { agente: FreeAgent; onApri: () => void }) {
       <button
         type="button"
         onClick={onApri}
-        className="flex min-h-10 items-center justify-center gap-1.5 rounded-xl bg-[var(--brand)] text-[11px] font-extrabold text-[var(--brand-contrast)] active:scale-98"
+        className="flex min-h-10 items-center justify-center gap-1.5 rounded-control bg-[var(--brand)] text-label font-extrabold text-[var(--brand-contrast)] active:scale-98"
       >
         <UserPlus size={12} /> Tratta il contratto
       </button>
@@ -206,8 +206,8 @@ export function FreeAgentsPanel({
   return (
     <div className="flex flex-col gap-3">
       <header className="flex items-center justify-between">
-        <h3 className="text-sm font-extrabold">Svincolati</h3>
-        <span className="flex items-center gap-1 text-[11px] font-bold text-[var(--text-secondary)]">
+        <h3 className="text-body font-extrabold">Svincolati</h3>
+        <span className="flex items-center gap-1 text-label font-bold text-[var(--text-secondary)]">
           <Clock size={11} /> margine {formatEuro(margine)}
         </span>
       </header>
@@ -221,7 +221,7 @@ export function FreeAgentsPanel({
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Cerca per nome..."
-          className="w-full rounded-full border border-[var(--surface-border)] bg-[var(--surface-raised)] py-2.5 pr-11 pl-9 text-sm outline-none focus:border-[var(--brand)]"
+          className="w-full rounded-full border border-[var(--surface-border)] bg-[var(--surface-raised)] py-2.5 pr-11 pl-9 text-body outline-none focus:border-[var(--brand)]"
         />
         <button
           type="button"
@@ -243,7 +243,7 @@ export function FreeAgentsPanel({
             key={r.id}
             type="button"
             onClick={() => setReparto(r.id)}
-            className={`min-h-9 flex-1 rounded-lg text-[11px] font-bold transition-colors ${
+            className={`min-h-9 flex-1 rounded-control text-label font-bold transition-colors ${
               reparto === r.id
                 ? "bg-[var(--brand)] text-[var(--brand-contrast)]"
                 : "bg-[var(--surface-raised)] text-[var(--text-secondary)]"
@@ -262,7 +262,7 @@ export function FreeAgentsPanel({
             exit={{ height: 0, opacity: 0 }}
             className="overflow-hidden"
           >
-            <div className="flex flex-col gap-2.5 rounded-2xl border border-[var(--surface-border)] bg-[var(--surface-raised)] p-3">
+            <div className="flex flex-col gap-2.5 rounded-card border border-[var(--surface-border)] bg-[var(--surface-raised)] p-3">
               {/* Ruoli puntuali del reparto scelto: senza reparto sarebbe un elenco di 14 voci. */}
               {reparto !== "tutti" && (
                 <div className="flex flex-wrap gap-1">
@@ -280,7 +280,7 @@ export function FreeAgentsPanel({
                             return next;
                           })
                         }
-                        className={`min-h-8 rounded-lg px-2.5 text-[11px] font-bold transition-colors ${
+                        className={`min-h-8 rounded-control px-2.5 text-label font-bold transition-colors ${
                           attivo
                             ? "bg-[var(--brand)] text-[var(--brand-contrast)]"
                             : "bg-[var(--surface)] text-[var(--text-secondary)]"
@@ -316,7 +316,7 @@ export function FreeAgentsPanel({
                     key={key}
                     type="button"
                     onClick={() => setOrdine(key)}
-                    className={`min-h-9 flex-1 rounded-lg text-[11px] font-bold transition-colors ${
+                    className={`min-h-9 flex-1 rounded-control text-label font-bold transition-colors ${
                       ordine === key
                         ? "bg-[var(--accent)] text-[var(--brand-contrast)]"
                         : "bg-[var(--surface)] text-[var(--text-secondary)]"
@@ -332,7 +332,7 @@ export function FreeAgentsPanel({
       </AnimatePresence>
 
       {visibili.length === 0 ? (
-        <p className="rounded-2xl border border-dashed border-[var(--surface-border)] p-5 text-center text-xs text-[var(--text-secondary)]">
+        <p className="rounded-card border border-dashed border-[var(--surface-border)] p-5 text-center text-label text-[var(--text-secondary)]">
           Nessuno svincolato con questi criteri.
         </p>
       ) : (
@@ -356,12 +356,12 @@ export function FreeAgentsPanel({
               animate={{ y: 0 }}
               exit={{ y: "100%" }}
               transition={{ type: "spring", stiffness: 330, damping: 32 }}
-              className="flex max-h-[92svh] w-full max-w-md flex-col overflow-hidden rounded-t-3xl border border-[var(--surface-border)] bg-[var(--surface)] sm:rounded-3xl"
+              className="flex max-h-[92svh] w-full max-w-md flex-col overflow-hidden rounded-t-3xl border border-[var(--surface-border)] bg-[var(--surface)] sm:rounded-card"
             >
               <header className="flex items-start justify-between gap-3 border-b border-[var(--surface-border)] p-4">
                 <div className="min-w-0">
-                  <p className="truncate text-base font-extrabold">{trattativa.name}</p>
-                  <p className="flex items-center gap-2 text-[11px] text-[var(--text-secondary)]">
+                  <p className="truncate text-body font-extrabold">{trattativa.name}</p>
+                  <p className="flex items-center gap-2 text-label text-[var(--text-secondary)]">
                     Parametro zero · {trattativa.age} anni · {ROLE_LABELS[trattativa.role]}
                     {trattativa.suitors > 0 && (
                       <span className="flex items-center gap-1 font-bold text-[#ff8a3d]">
@@ -396,9 +396,9 @@ export function FreeAgentsPanel({
                     backgroundColor: contro.outcome === "disinteressato" ? "#ff4d4d12" : "#ff8a3d12",
                   }}
                 >
-                  <p className="text-[12px] leading-snug font-medium">{contro.messaggio}</p>
+                  <p className="text-label leading-snug font-medium">{contro.messaggio}</p>
                   {contro.counter && (
-                    <p className="mt-1.5 text-[11px] font-bold text-[#ff8a3d]">
+                    <p className="mt-1.5 text-label font-bold text-[#ff8a3d]">
                       Serve {formatWage(contro.counter.wage)}
                       {contro.counter.needsStarter && " + un posto da titolare garantito"}
                       {contro.counter.seasons && ` · ${contro.counter.seasons} anni`}
@@ -418,7 +418,7 @@ export function FreeAgentsPanel({
                */}
               {contro?.id === trattativa.id && contro.outcome === "disinteressato" ? (
                 <div className="flex flex-col gap-3 p-4">
-                  <p className="text-[11px] leading-relaxed text-[var(--text-secondary)]">
+                  <p className="text-label leading-relaxed text-[var(--text-secondary)]">
                     {contro.rivalClubName
                       ? `Ha firmato altrove: non è più sul mercato.`
                       : `Non c'è una cifra che lo convinca: meglio cercare altrove.`}
@@ -429,7 +429,7 @@ export function FreeAgentsPanel({
                       setContro(null);
                       setTrattativa(null);
                     }}
-                    className="min-h-11 w-full rounded-2xl bg-[var(--brand)] text-sm font-extrabold text-[var(--brand-contrast)] active:scale-98"
+                    className="min-h-11 w-full rounded-card bg-[var(--brand)] text-body font-extrabold text-[var(--brand-contrast)] active:scale-98"
                   >
                     Chiudi la trattativa
                   </button>

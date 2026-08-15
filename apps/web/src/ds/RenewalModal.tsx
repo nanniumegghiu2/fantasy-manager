@@ -53,12 +53,12 @@ export function RenewalModal({
         animate={{ y: 0 }}
         exit={{ y: "100%" }}
         transition={{ type: "spring", stiffness: 330, damping: 32 }}
-        className="flex max-h-[92svh] w-full max-w-md flex-col overflow-hidden rounded-t-3xl border border-[var(--surface-border)] bg-[var(--surface)] sm:rounded-3xl"
+        className="flex max-h-[92svh] w-full max-w-md flex-col overflow-hidden rounded-t-3xl border border-[var(--surface-border)] bg-[var(--surface)] sm:rounded-card"
       >
         <header className="flex items-start justify-between gap-3 border-b border-[var(--surface-border)] p-4">
           <div className="min-w-0">
-            <p className="truncate text-base font-extrabold">{facts.name}</p>
-            <p className="text-[11px] text-[var(--text-secondary)]">
+            <p className="truncate text-body font-extrabold">{facts.name}</p>
+            <p className="text-label text-[var(--text-secondary)]">
               {contratto
                 ? `Scade nel ${contratto.until} · ${formatWage(contratto.wage)}`
                 : "Senza contratto"}

@@ -239,8 +239,14 @@ export function PitchDot({
         )}
       </span>
 
+      {/* ⚠️ **L'unica eccezione dichiarata alla scala tipografica** (piano DS mobile, fase 0).
+          Qui il vincolo è geometrico e non di stile: il campo è largo ~330px e regge cinque
+          gettoni affiancati, quindi una targhetta a 13px si sovrapporrebbe a quella accanto.
+          Sono **etichette di un diagramma**, come i nomi su una mappa, non testo che si legge
+          di seguito — e restano affiancate al numero grande dell'Overall, che è il dato che si
+          cerca davvero. Alzate comunque da 9px a 11px: 9 non si leggeva. */}
       <span
-        className={`mt-1 max-w-[76px] truncate rounded-full px-1.5 py-px text-center text-[9px] leading-tight font-bold tracking-wide sm:text-[10px] ${
+        className={`mt-1 max-w-[76px] truncate rounded-full px-1.5 py-px text-center text-[11px] leading-tight font-bold tracking-wide ${
           state === "filled"
             ? "bg-black/65 text-white"
             : state === "dim"
@@ -254,7 +260,7 @@ export function PitchDot({
       {/* Provenienza: è ciò che decide le linee di intesa (sez. 3.4), quindi va letto sul
           campo e non solo nella lista del draft. */}
       {playerName && nation && (
-        <span className="mt-0.5 flex items-center gap-1 rounded-full bg-black/60 px-1 py-px text-[8px] leading-tight text-white/85 sm:text-[9px]">
+        <span className="mt-0.5 flex items-center gap-1 rounded-full bg-black/60 px-1 py-px text-[10px] leading-tight text-white/85">
           <OriginBadge nation={nation} league={league} size={7} compact />
           <span className="font-bold tracking-wide">{shortLabel}</span>
         </span>

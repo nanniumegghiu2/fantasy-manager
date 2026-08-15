@@ -87,7 +87,7 @@ export function TriumphScreen({ data, onClose }: TriumphScreenProps) {
           initial={{ opacity: 0, y: -10 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.1 }}
-          className="text-xs font-semibold uppercase tracking-[0.28em] text-white/55"
+          className="text-label font-semibold uppercase tracking-[0.28em] text-white/55"
         >
           {data.leagueName} · Stagione {data.season}
         </motion.p>
@@ -96,7 +96,7 @@ export function TriumphScreen({ data, onClose }: TriumphScreenProps) {
           initial={{ opacity: 0, scale: 0.92 }}
           animate={{ opacity: 1, scale: 1 }}
           transition={{ delay: 0.16, type: "spring", stiffness: 220, damping: 18 }}
-          className="mt-2 text-center text-3xl font-extrabold sm:text-4xl"
+          className="mt-2 text-center text-display font-extrabold sm:text-4xl"
         >
           {data.clubName}
         </motion.h1>
@@ -141,7 +141,7 @@ export function TriumphScreen({ data, onClose }: TriumphScreenProps) {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ delay: 0.5 + trofei * 0.2 }}
-            className="mt-3 text-center text-sm font-semibold text-white/75"
+            className="mt-3 text-center text-body font-semibold text-white/75"
           >
             {etichette.join("  ·  ")}
           </motion.p>
@@ -163,10 +163,10 @@ export function TriumphScreen({ data, onClose }: TriumphScreenProps) {
           ].map((c) => (
             <div
               key={c.etichetta}
-              className="rounded-2xl border border-white/10 bg-white/5 px-3 py-4 text-center"
+              className="rounded-card border border-white/10 bg-white/5 px-3 py-4 text-center"
             >
-              <p className="text-2xl font-extrabold">{c.valore}</p>
-              <p className="mt-1 text-[11px] font-semibold uppercase tracking-wider text-white/50">
+              <p className="text-display font-extrabold">{c.valore}</p>
+              <p className="mt-1 text-micro font-semibold uppercase tracking-wider text-white/50">
                 {c.etichetta}
               </p>
             </div>
@@ -174,7 +174,7 @@ export function TriumphScreen({ data, onClose }: TriumphScreenProps) {
         </motion.div>
 
         {data.topScorer && (
-          <p className="mt-4 text-sm font-semibold text-[#f5c518]">
+          <p className="mt-4 text-body font-semibold text-[#f5c518]">
             {data.topScorer.name} · {data.topScorer.goals} gol
           </p>
         )}
@@ -186,7 +186,7 @@ export function TriumphScreen({ data, onClose }: TriumphScreenProps) {
               key={f}
               type="button"
               onClick={() => setFormato(f)}
-              className={`rounded-full px-4 py-1.5 text-xs font-bold uppercase tracking-wider transition ${
+              className={`rounded-full px-4 py-1.5 text-label font-bold uppercase tracking-wider transition ${
                 formato === f ? "bg-white text-[#0e1614]" : "text-white/60"
               }`}
             >
@@ -200,7 +200,7 @@ export function TriumphScreen({ data, onClose }: TriumphScreenProps) {
             type="button"
             onClick={condividi}
             disabled={inCorso !== null}
-            className="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-[#f5c518] px-5 py-4 text-base font-bold text-[#2a2100] transition active:scale-[0.98] disabled:opacity-60"
+            className="flex flex-1 items-center justify-center gap-2 rounded-card bg-[#f5c518] px-5 py-4 text-body font-bold text-[#2a2100] transition active:scale-[0.98] disabled:opacity-60"
           >
             <Share2 size={18} />
             {inCorso === "share" ? "Preparo l'immagine…" : "Condividi"}
@@ -209,7 +209,7 @@ export function TriumphScreen({ data, onClose }: TriumphScreenProps) {
             type="button"
             onClick={salva}
             disabled={inCorso !== null}
-            className="flex items-center justify-center gap-2 rounded-2xl border border-white/15 px-5 py-4 text-base font-semibold text-white/85 transition active:scale-[0.98] disabled:opacity-60"
+            className="flex items-center justify-center gap-2 rounded-card border border-white/15 px-5 py-4 text-body font-semibold text-white/85 transition active:scale-[0.98] disabled:opacity-60"
           >
             <Download size={18} />
             Salva
@@ -223,7 +223,7 @@ export function TriumphScreen({ data, onClose }: TriumphScreenProps) {
               initial={{ opacity: 0, y: 6 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0 }}
-              className={`mt-4 flex items-center gap-2 text-sm font-semibold ${
+              className={`mt-4 flex items-center gap-2 text-body font-semibold ${
                 esito === "errore" ? "text-red-300" : "text-emerald-300"
               }`}
             >
@@ -236,7 +236,7 @@ export function TriumphScreen({ data, onClose }: TriumphScreenProps) {
         <button
           type="button"
           onClick={onClose}
-          className="mt-8 text-sm font-semibold text-white/50 underline underline-offset-4"
+          className="mt-8 text-body font-semibold text-white/50 underline underline-offset-4"
         >
           Continua la carriera
         </button>

@@ -8,6 +8,7 @@ import {
   HeartHandshake,
   ShieldAlert,
   Sparkles,
+  Star,
   UserCheck,
   UserX,
   XCircle,
@@ -174,7 +175,7 @@ export function CoachMarketMeetingModal({
       <motion.div
         initial={{ opacity: 0, scale: 0.92, y: 20 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
-        className="flex w-full max-w-3xl flex-col overflow-hidden rounded-3xl border border-[var(--surface-border)] bg-[var(--surface)] text-[var(--text-primary)] shadow-2xl my-auto"
+        className="flex w-full max-w-3xl flex-col overflow-hidden rounded-card border border-[var(--surface-border)] bg-[var(--surface)] text-[var(--text-primary)] shadow-2xl my-auto"
       >
         {/* Header Meeting col Mister */}
         <div
@@ -188,7 +189,7 @@ export function CoachMarketMeetingModal({
         >
           <div className="flex items-center gap-3">
             <span
-              className={`flex h-11 w-11 items-center justify-center rounded-2xl text-lg font-extrabold shadow-sm ${
+              className={`flex h-11 w-11 items-center justify-center rounded-card text-title font-extrabold shadow-sm ${
                 coachResigned
                   ? "bg-rose-500 text-white"
                   : fulfilledCount === totalPromises
@@ -199,21 +200,21 @@ export function CoachMarketMeetingModal({
               {coachResigned ? <UserX size={24} /> : coach?.name[0] ?? "M"}
             </span>
             <div>
-              <p className="text-[11px] font-extrabold uppercase tracking-widest text-[var(--text-secondary)]">
+              <p className="text-micro font-extrabold uppercase tracking-widest text-[var(--text-secondary)]">
                 Vertice di Chiusura Mercato
               </p>
-              <h2 className="text-lg font-extrabold leading-tight">
+              <h2 className="text-title font-extrabold leading-tight">
                 Meeting con {coach?.name ?? "l'Allenatore"}
               </h2>
             </div>
           </div>
 
           <div className="text-right">
-            <span className="block text-xs font-bold text-[var(--text-secondary)] uppercase tracking-wider">
+            <span className="block text-label font-bold text-[var(--text-secondary)] uppercase tracking-wider">
               Esito Promesse
             </span>
             <span
-              className={`text-sm font-extrabold ${
+              className={`text-body font-extrabold ${
                 coachResigned
                   ? "text-rose-400"
                   : fulfilledCount === totalPromises
@@ -229,22 +230,22 @@ export function CoachMarketMeetingModal({
         {/* Corpo del Meeting */}
         <div className="flex flex-col gap-6 p-6 overflow-y-auto max-h-[75vh]">
           {/* Sezione 1: Dialogo e Morale Mister */}
-          <div className="flex flex-col gap-3 rounded-2xl border border-[var(--surface-border)] bg-[var(--surface-raised)] p-4">
+          <div className="flex flex-col gap-3 rounded-card border border-[var(--surface-border)] bg-[var(--surface-raised)] p-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 {coach?.nation && <NationFlag nation={coach.nation} />}
-                <span className="text-xs font-extrabold text-[var(--brand)] uppercase tracking-wider">
+                <span className="text-micro font-extrabold text-[var(--brand)] uppercase tracking-wider">
                   Dichiarazione dell'Allenatore
                 </span>
               </div>
 
               {/* Indicatore Sintonia */}
-              <div className="flex items-center gap-2 text-xs font-extrabold">
+              <div className="flex items-center gap-2 text-label font-extrabold">
                 <HeartHandshake size={16} className="text-[var(--brand)]" />
                 <span>Sintonia:</span>
                 <span className="tabular-nums">{newHarmony}/100</span>
                 <span
-                  className={`rounded-md px-1.5 py-0.5 text-[10px] ${
+                  className={`rounded-control px-1.5 py-0.5 text-label ${
                     harmonyDelta >= 0 ? "bg-emerald-500/20 text-emerald-400" : "bg-rose-500/20 text-rose-400"
                   }`}
                 >
@@ -253,12 +254,12 @@ export function CoachMarketMeetingModal({
               </div>
             </div>
 
-            <p className="text-sm leading-relaxed italic text-[var(--text-primary)]">
+            <p className="text-body leading-relaxed italic text-[var(--text-primary)]">
               «{coachQuote}»
             </p>
 
             {coachResigned && (
-              <div className="mt-2 flex items-center gap-2 rounded-xl border border-rose-500/40 bg-rose-500/10 p-3 text-xs text-rose-400 font-bold">
+              <div className="mt-2 flex items-center gap-2 rounded-control border border-rose-500/40 bg-rose-500/10 p-3 text-label text-rose-400 font-bold">
                 <ShieldAlert size={18} className="shrink-0" />
                 <span>{summaryMessage}</span>
               </div>
@@ -267,18 +268,18 @@ export function CoachMarketMeetingModal({
 
           {/* Sezione 2: Richiesta Bilaterale del DS al Mister */}
           {!coachResigned && (
-            <div className="flex flex-col gap-3 rounded-2xl border border-[var(--brand)]/40 bg-[var(--brand)]/5 p-4">
+            <div className="flex flex-col gap-3 rounded-card border border-[var(--brand)]/40 bg-[var(--brand)]/5 p-4">
               <div className="flex items-center justify-between">
-                <h3 className="flex items-center gap-2 text-xs font-extrabold uppercase tracking-wider text-[var(--brand)]">
+                <h3 className="flex items-center gap-2 text-micro font-extrabold uppercase tracking-wider text-[var(--brand)]">
                   <Crown size={15} />
                   Richiesta Bilaterale del DS: Titolarità Garantita
                 </h3>
-                <span className="text-[10px] font-bold text-[var(--text-secondary)]">
+                <span className="text-label font-bold text-[var(--text-secondary)]">
                   Direttiva Societaria
                 </span>
               </div>
 
-              <p className="text-xs text-[var(--text-secondary)]">
+              <p className="text-label text-[var(--text-secondary)]">
                 Tocca una casella del modulo, poi il nome in rosa: se il mister acconsente, sarà
                 lui il titolare fisso lì. Un giocatore può essere garantito in un solo ruolo alla
                 volta — sceglierne un altro sposta la garanzia, non la aggiunge.
@@ -323,11 +324,11 @@ export function CoachMarketMeetingModal({
 
               {selectedRole && (
                 <div className="flex flex-col gap-2">
-                  <p className="text-[11px] font-bold text-[var(--text-secondary)]">
+                  <p className="text-label font-bold text-[var(--text-secondary)]">
                     Chi schierare come {ROLE_LABELS[selectedRole]}:
                   </p>
                   {idoneiPerRuolo.length === 0 ? (
-                    <p className="rounded-xl border border-dashed border-[var(--surface-border)] p-3 text-center text-xs text-[var(--text-secondary)]">
+                    <p className="rounded-control border border-dashed border-[var(--surface-border)] p-3 text-center text-label text-[var(--text-secondary)]">
                       Nessuno idoneo in rosa per questo ruolo.
                     </p>
                   ) : (
@@ -346,18 +347,18 @@ export function CoachMarketMeetingModal({
                               setSelectedPlayerId(r.playerId);
                               setDsDemandResponse(null);
                             }}
-                            className={`flex shrink-0 flex-col items-center gap-1 rounded-xl border px-3 py-2 text-center transition-colors ${
+                            className={`flex shrink-0 flex-col items-center gap-1 rounded-control border px-3 py-2 text-center transition-colors ${
                               isSelected
                                 ? "border-[var(--brand)] bg-[var(--brand)]/10"
                                 : "border-[var(--surface-border)] bg-[var(--surface-raised)]"
                             }`}
                           >
-                            <span className="flex items-center gap-1 text-xs font-extrabold">
+                            <span className="flex items-center gap-1 text-label font-extrabold">
                               {pl?.nation && <NationFlag nation={pl.nation} />}
                               {pl?.name ?? r.playerId}
-                              {isGuaranteed && <span className="text-[#f5c518]">★</span>}
+                              {isGuaranteed && <Star size={12} className="shrink-0 text-[var(--gold)]" fill="currentColor" />}
                             </span>
-                            <span className="text-[10px] font-semibold text-[var(--text-secondary)] tabular-nums">
+                            <span className="text-label font-semibold text-[var(--text-secondary)] tabular-nums">
                               Overall {r.overall}
                             </span>
                           </button>
@@ -372,7 +373,7 @@ export function CoachMarketMeetingModal({
                 type="button"
                 onClick={handleDsDemand}
                 disabled={!selectedRole || idoneiPerRuolo.length === 0 || !selectedPlayerId}
-                className="w-full rounded-xl bg-[var(--brand)] px-4 py-2.5 text-xs font-extrabold text-[var(--brand-contrast)] transition-transform active:scale-95 disabled:opacity-50"
+                className="w-full rounded-control bg-[var(--brand)] px-4 py-2.5 text-label font-extrabold text-[var(--brand-contrast)] transition-transform active:scale-95 disabled:opacity-50"
               >
                 Chiedi Titolarità Garantita
               </button>
@@ -381,7 +382,7 @@ export function CoachMarketMeetingModal({
                 <motion.div
                   initial={{ opacity: 0, y: 5 }}
                   animate={{ opacity: 1, y: 0 }}
-                  className={`mt-2 flex items-start gap-2.5 rounded-xl border p-3 text-xs ${
+                  className={`mt-2 flex items-start gap-2.5 rounded-control border p-3 text-label ${
                     demandSuccess
                       ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-300 font-semibold"
                       : "border-rose-500/40 bg-rose-500/10 text-rose-300 font-semibold"
@@ -401,7 +402,7 @@ export function CoachMarketMeetingModal({
           {/* Sezione 3: Stato delle Promesse Concordate */}
           {promises.length > 0 && (
             <div className="flex flex-col gap-2">
-              <h3 className="flex items-center gap-2 text-xs font-extrabold uppercase tracking-wider text-[var(--text-secondary)]">
+              <h3 className="flex items-center gap-2 text-micro font-extrabold uppercase tracking-wider text-[var(--text-secondary)]">
                 <Sparkles size={14} className="text-[var(--brand)]" />
                 Verifica Promesse Contrattuali Concordate
               </h3>
@@ -410,7 +411,7 @@ export function CoachMarketMeetingModal({
                 {promises.map((p) => (
                   <div
                     key={p.id}
-                    className={`flex items-center justify-between rounded-xl border p-3 text-xs ${
+                    className={`flex items-center justify-between rounded-control border p-3 text-label ${
                       p.fulfilled
                         ? "border-emerald-500/30 bg-emerald-500/5"
                         : "border-rose-500/30 bg-rose-500/5"
@@ -426,7 +427,7 @@ export function CoachMarketMeetingModal({
                     </div>
 
                     <span
-                      className={`text-[11px] font-extrabold ${
+                      className={`text-label font-extrabold ${
                         p.fulfilled ? "text-emerald-400" : "text-rose-400"
                       }`}
                     >
@@ -440,28 +441,28 @@ export function CoachMarketMeetingModal({
 
           {/* Sezione 4: Riassunto Mercato (In Entrata ed In Uscita) */}
           <div className="flex flex-col gap-3">
-            <h3 className="text-xs font-extrabold uppercase tracking-wider text-[var(--text-secondary)]">
+            <h3 className="text-micro font-extrabold uppercase tracking-wider text-[var(--text-secondary)]">
               Riassunto Operazioni di Mercato
             </h3>
 
             <div className="grid gap-4 sm:grid-cols-2">
               {/* Acquisti in Entrata */}
-              <div className="flex flex-col gap-2 rounded-2xl border border-emerald-500/30 bg-emerald-500/5 p-3.5">
+              <div className="flex flex-col gap-2 rounded-card border border-emerald-500/30 bg-emerald-500/5 p-3.5">
                 <div className="flex items-center justify-between border-b border-emerald-500/20 pb-2">
-                  <span className="flex items-center gap-1.5 text-xs font-extrabold text-emerald-400 uppercase tracking-wider">
+                  <span className="flex items-center gap-1.5 text-micro font-extrabold text-emerald-400 uppercase tracking-wider">
                     <ArrowDownLeft size={16} /> Entrate ({inboundDeals.length})
                   </span>
-                  <span className="text-xs font-extrabold text-emerald-400">{euro(totalSpent)}</span>
+                  <span className="text-label font-extrabold text-emerald-400">{euro(totalSpent)}</span>
                 </div>
 
                 {inboundDeals.length === 0 ? (
-                  <p className="py-4 text-center text-xs text-[var(--text-secondary)]">
+                  <p className="py-4 text-center text-label text-[var(--text-secondary)]">
                     Nessun acquisto concluso in questa sessione.
                   </p>
                 ) : (
                   <ul className="flex flex-col gap-1.5">
                     {inboundDeals.map((d, i) => (
-                      <li key={i} className="flex items-center justify-between text-xs font-medium">
+                      <li key={i} className="flex items-center justify-between text-label font-medium">
                         <span className="truncate font-bold">{d.playerName}</span>
                         <span className="shrink-0 font-extrabold text-emerald-400">{euro(d.amount)}</span>
                       </li>
@@ -471,22 +472,22 @@ export function CoachMarketMeetingModal({
               </div>
 
               {/* Cessioni ed Uscite */}
-              <div className="flex flex-col gap-2 rounded-2xl border border-blue-500/30 bg-blue-500/5 p-3.5">
+              <div className="flex flex-col gap-2 rounded-card border border-blue-500/30 bg-blue-500/5 p-3.5">
                 <div className="flex items-center justify-between border-b border-blue-500/20 pb-2">
-                  <span className="flex items-center gap-1.5 text-xs font-extrabold text-blue-400 uppercase tracking-wider">
+                  <span className="flex items-center gap-1.5 text-micro font-extrabold text-blue-400 uppercase tracking-wider">
                     <ArrowUpRight size={16} /> Uscite ({outboundDeals.length})
                   </span>
-                  <span className="text-xs font-extrabold text-blue-400">{euro(totalEarned)}</span>
+                  <span className="text-label font-extrabold text-blue-400">{euro(totalEarned)}</span>
                 </div>
 
                 {outboundDeals.length === 0 ? (
-                  <p className="py-4 text-center text-xs text-[var(--text-secondary)]">
+                  <p className="py-4 text-center text-label text-[var(--text-secondary)]">
                     Nessuna cessione effettuata in questa sessione.
                   </p>
                 ) : (
                   <ul className="flex flex-col gap-1.5">
                     {outboundDeals.map((d, i) => (
-                      <li key={i} className="flex items-center justify-between text-xs font-medium">
+                      <li key={i} className="flex items-center justify-between text-label font-medium">
                         <span className="truncate font-bold">{d.playerName}</span>
                         <span className="shrink-0 font-extrabold text-blue-400">{euro(d.amount)}</span>
                       </li>
@@ -497,10 +498,10 @@ export function CoachMarketMeetingModal({
             </div>
 
             {/* Saldo Netto */}
-            <div className="flex items-center justify-between rounded-xl border border-[var(--surface-border)] bg-[var(--surface-raised)] px-4 py-2.5 text-xs font-bold">
+            <div className="flex items-center justify-between rounded-control border border-[var(--surface-border)] bg-[var(--surface-raised)] px-4 py-2.5 text-label font-bold">
               <span>Saldo Netto Mercato:</span>
               <span
-                className={`text-sm font-extrabold ${
+                className={`text-body font-extrabold ${
                   netSpend > 0 ? "text-rose-400" : netSpend < 0 ? "text-emerald-400" : "text-[var(--text-primary)]"
                 }`}
               >
@@ -515,7 +516,7 @@ export function CoachMarketMeetingModal({
           <button
             type="button"
             onClick={onClose}
-            className={`rounded-full px-6 py-3 text-sm font-extrabold transition-transform active:scale-95 ${
+            className={`rounded-full px-6 py-3 text-body font-extrabold transition-transform active:scale-95 ${
               coachResigned
                 ? "bg-rose-500 text-white hover:bg-rose-600"
                 : "bg-[var(--brand)] text-[var(--brand-contrast)] hover:opacity-90"

@@ -8,7 +8,6 @@ export type LiveCoachPromise = CoachPromise & { liveFulfilled?: boolean };
 
 interface CoachPromisesPanelProps {
   promises: LiveCoachPromise[];
-  coachName: string;
   /**
    * Apre la scelta di un'alternativa **dal database** per una promessa nominata e non ancora
    * soddisfatta — a mercato aperto, senza aspettare la prossima negoziazione stagionale.
@@ -16,7 +15,7 @@ interface CoachPromisesPanelProps {
   onProposeAlternative?: (promise: LiveCoachPromise) => void;
 }
 
-export function CoachPromisesPanel({ promises, coachName, onProposeAlternative }: CoachPromisesPanelProps) {
+export function CoachPromisesPanel({ promises, onProposeAlternative }: CoachPromisesPanelProps) {
   const [expanded, setExpanded] = useState(false);
 
   if (!promises || promises.length === 0) return null;
@@ -28,7 +27,7 @@ export function CoachPromisesPanel({ promises, coachName, onProposeAlternative }
   const totalCount = promises.length;
 
   return (
-    <div className="overflow-hidden rounded-2xl border border-[var(--brand)]/30 bg-[var(--brand)]/5 shadow-sm transition-colors hover:border-[var(--brand)]/50">
+    <div className="overflow-hidden rounded-card border border-[var(--brand)]/30 bg-[var(--brand)]/5 shadow-sm transition-colors hover:border-[var(--brand)]/50">
       {/* Header compatto ed espandibile al click */}
       <button
         type="button"
@@ -36,14 +35,14 @@ export function CoachPromisesPanel({ promises, coachName, onProposeAlternative }
         className="flex w-full items-center justify-between px-4 py-3 text-left transition-colors"
       >
         <div className="flex items-center gap-2.5 min-w-0">
-          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-[var(--brand)]/15 text-[var(--brand)]">
+          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-control bg-[var(--brand)]/15 text-[var(--brand)]">
             <Sparkles size={15} />
           </span>
           <div className="min-w-0">
-            <h3 className="truncate text-xs font-extrabold text-[var(--brand)] uppercase tracking-wider">
-              Promesse Contrattuali · {coachName}
-            </h3>
-            <p className="text-[11px] text-[var(--text-secondary)] font-medium">
+            {/* Il nome del mister toglieva spazio senza aggiungere nulla — in questa finestra
+                ce n'è uno solo — e faceva perdere 80px al titolo su 267 necessari. */}
+            <h3 className="text-micro text-[var(--brand)] uppercase">Promesse al mister</h3>
+            <p className="text-label text-[var(--text-secondary)] font-medium">
               {fulfilledCount} su {totalCount} promesse già mantenute
             </p>
           </div>
@@ -51,7 +50,7 @@ export function CoachPromisesPanel({ promises, coachName, onProposeAlternative }
 
         <div className="flex items-center gap-3 shrink-0">
           <span
-            className={`rounded-full px-2.5 py-0.5 text-[10px] font-extrabold uppercase tracking-wider ${
+            className={`rounded-full px-2.5 py-0.5 text-label font-extrabold uppercase tracking-wider ${
               fulfilledCount === totalCount
                 ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
                 : "bg-amber-500/20 text-amber-400 border border-amber-500/30"
@@ -80,7 +79,7 @@ export function CoachPromisesPanel({ promises, coachName, onProposeAlternative }
             transition={{ duration: 0.25, ease: "easeInOut" }}
             className="border-t border-[var(--brand)]/20 px-4 py-3"
           >
-            <p className="mb-2 text-[10px] font-extrabold uppercase tracking-widest text-[var(--text-secondary)]">
+            <p className="mb-2 text-micro font-extrabold uppercase tracking-widest text-[var(--text-secondary)]">
               Dettaglio Accordi da Rispettare Entro la Fine del Mercato:
             </p>
             <div className="flex flex-col gap-2">
@@ -92,7 +91,7 @@ export function CoachPromisesPanel({ promises, coachName, onProposeAlternative }
                 return (
                   <div
                     key={p.id}
-                    className="flex flex-col gap-2 rounded-xl border border-[var(--surface-border)] bg-[var(--surface-raised)] px-3 py-2.5 text-xs shadow-xs"
+                    className="flex flex-col gap-2 rounded-control border border-[var(--surface-border)] bg-[var(--surface-raised)] px-3 py-2.5 text-label shadow-xs"
                   >
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
@@ -104,11 +103,11 @@ export function CoachPromisesPanel({ promises, coachName, onProposeAlternative }
                         <span className="font-semibold text-[var(--text-primary)]">{p.description}</span>
                       </div>
                       {ok ? (
-                        <span className="flex items-center gap-1.5 text-emerald-400 font-extrabold text-[11px]">
+                        <span className="flex items-center gap-1.5 text-emerald-400 font-extrabold text-label">
                           <CheckCircle2 size={14} /> Mantenuta
                         </span>
                       ) : (
-                        <span className="flex items-center gap-1.5 text-amber-400 font-extrabold text-[11px]">
+                        <span className="flex items-center gap-1.5 text-amber-400 font-extrabold text-label">
                           <Clock size={14} /> In Corso
                         </span>
                       )}
@@ -117,7 +116,7 @@ export function CoachPromisesPanel({ promises, coachName, onProposeAlternative }
                       <button
                         type="button"
                         onClick={() => onProposeAlternative!(p)}
-                        className="flex items-center justify-center gap-1.5 self-start rounded-full border border-[var(--brand)]/40 px-2.5 py-1 text-[10px] font-bold text-[var(--brand)] transition-transform active:scale-95"
+                        className="flex items-center justify-center gap-1.5 self-start rounded-full border border-[var(--brand)]/40 px-2.5 py-1 text-label font-bold text-[var(--brand)] transition-transform active:scale-95"
                       >
                         <Repeat size={11} /> Proponi un'alternativa
                       </button>

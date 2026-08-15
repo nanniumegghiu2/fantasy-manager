@@ -27,7 +27,7 @@ export function CoachDepartureDialog({
         initial={{ scale: 0.9, y: 20, opacity: 0 }}
         animate={{ scale: 1, y: 0, opacity: 1 }}
         transition={{ type: "spring", stiffness: 340, damping: 26 }}
-        className="w-full max-w-sm overflow-hidden rounded-3xl border border-[var(--surface-border)] bg-[var(--surface)]"
+        className="w-full max-w-sm overflow-hidden rounded-card border border-[var(--surface-border)] bg-[var(--surface)]"
       >
         <div className="flex flex-col items-center gap-2 px-6 py-6 text-center" style={{ backgroundColor: "#ff4d4d18" }}>
           <motion.span
@@ -39,15 +39,15 @@ export function CoachDepartureDialog({
           >
             <UserX size={26} />
           </motion.span>
-          <p className="text-[10px] font-bold tracking-widest text-[var(--text-secondary)] uppercase">
+          <p className="text-micro font-bold tracking-widest text-[var(--text-secondary)] uppercase">
             Panchina persa
           </p>
-          <h2 className="text-xl leading-tight font-extrabold" style={{ color: "#ff4d4d" }}>
+          <h2 className="text-title leading-tight font-extrabold" style={{ color: "#ff4d4d" }}>
             Il mister se n'è andato
           </h2>
         </div>
 
-        <p className="px-6 py-5 text-center text-sm leading-relaxed">
+        <p className="px-6 py-5 text-center text-body leading-relaxed">
           Il rapporto con {coachName} si era rotto: il {clubName} lo ha convinto a firmare per loro.
           Serve un nuovo allenatore prima di riaprire il mercato.
         </p>
@@ -56,7 +56,7 @@ export function CoachDepartureDialog({
           <button
             type="button"
             onClick={onClose}
-            className="w-full rounded-2xl bg-[var(--brand)] py-3.5 text-sm font-extrabold text-[var(--brand-contrast)] transition-transform active:scale-[0.98]"
+            className="w-full rounded-card bg-[var(--brand)] py-3.5 text-body font-extrabold text-[var(--brand-contrast)] transition-transform active:scale-[0.98]"
           >
             Cerchiamo un sostituto
           </button>

@@ -96,7 +96,7 @@ export function SeasonEndOverlay({
         initial={{ scale: 0.85, y: 24, opacity: 0 }}
         animate={{ scale: 1, y: 0, opacity: 1 }}
         transition={{ type: "spring", stiffness: 300, damping: 24 }}
-        className={`relative z-10 w-full max-w-sm overflow-hidden rounded-3xl border ${
+        className={`relative z-10 w-full max-w-sm overflow-hidden rounded-card border ${
           festeggia
             ? "border-[#f5c518] shadow-[0_0_50px_rgba(245,197,24,0.35)]"
             : "border-[var(--surface-border)]"
@@ -110,13 +110,28 @@ export function SeasonEndOverlay({
             <motion.div
               initial={{ opacity: 0, y: -10 }}
               animate={{ opacity: 1, y: 0 }}
-              className="mb-1 rounded-full bg-gradient-to-r from-[#f5c518] via-[#ffe066] to-[#f5c518] px-3.5 py-1 text-[11px] font-black tracking-widest text-black shadow-md uppercase"
+              className="mb-1 flex items-center gap-1.5 rounded-full bg-gradient-to-r from-[#f5c518] via-[#ffe066] to-[#f5c518] px-3.5 py-1 text-micro font-black tracking-widest text-black uppercase shadow-md"
             >
-              {vintoCampionato && vintaCoppa
-                ? "👑🏆 DOPPIETTA STORICA!"
-                : vintoCampionato
-                  ? "🏆 CAMPIONI D'ITALIA!"
-                  : "👑 VINCITORI DELLA CORONA!"}
+              {/* Le coppe disegnate, non le emoji: 👑🏆 si rendono con font di sistema diversi
+                  su Android e iOS, quindi il momento più celebrativo della carriera cambiava
+                  aspetto da telefono a telefono (e § 8 le vieta comunque). */}
+              {vintoCampionato && vintaCoppa ? (
+                <>
+                  <Crown size={13} />
+                  <Trophy size={13} />
+                  Doppietta storica
+                </>
+              ) : vintoCampionato ? (
+                <>
+                  <Trophy size={13} />
+                  Campioni d'Italia
+                </>
+              ) : (
+                <>
+                  <Crown size={13} />
+                  Vincitori della Corona
+                </>
+              )}
             </motion.div>
           )}
 
@@ -129,17 +144,17 @@ export function SeasonEndOverlay({
           >
             <Icona size={34} />
           </motion.span>
-          <p className="text-[11px] font-bold tracking-widest text-[var(--text-secondary)] uppercase">
+          <p className="text-micro font-bold tracking-widest text-[var(--text-secondary)] uppercase">
             Stagione {summary.season}
           </p>
-          <h2 className="text-2xl leading-tight font-extrabold" style={{ color: tono }}>
+          <h2 className="text-display leading-tight font-extrabold" style={{ color: tono }}>
             {titolo}
           </h2>
-          <p className="text-sm font-semibold">
+          <p className="text-body font-semibold">
             {ordinale(summary.position)} posto · {summary.points} punti
           </p>
           {summary.cupOutcome && (
-            <p className="flex items-center gap-1.5 text-xs font-semibold text-[#c9a10b]">
+            <p className="flex items-center gap-1.5 text-label font-semibold text-[#c9a10b]">
               <Crown size={13} />
               {vintaCoppa
                 ? "Corona Continentale vinta"
@@ -164,10 +179,10 @@ export function SeasonEndOverlay({
         {/* Il resoconto completo: da qui si riparte per la stagione nuova, non solo il
             risultato sportivo — obiettivo, umore dello spogliatoio, mercato, rapporto col
             mister. */}
-        <div className="flex flex-col gap-2 px-4 py-3 text-xs">
+        <div className="flex flex-col gap-2 px-4 py-3 text-label">
           {summary.objective && (
             <div
-              className="flex items-center gap-2.5 rounded-xl border p-2.5"
+              className="flex items-center gap-2.5 rounded-control border p-2.5"
               style={{
                 borderColor: summary.objective.met ? "#3ddc6b40" : "#ff8a3d40",
                 backgroundColor: summary.objective.met ? "#3ddc6b12" : "#ff8a3d12",
@@ -184,7 +199,7 @@ export function SeasonEndOverlay({
           )}
 
           <div className="grid grid-cols-2 gap-2">
-            <div className="flex items-center gap-2 rounded-xl border border-[var(--surface-border)] p-2.5">
+            <div className="flex items-center gap-2 rounded-control border border-[var(--surface-border)] p-2.5">
               <Smile size={15} className="shrink-0 text-[var(--text-secondary)]" />
               <span>
                 Morale medio <strong className="tabular-nums">{summary.avgMorale}</strong>
@@ -193,7 +208,7 @@ export function SeasonEndOverlay({
                 )}
               </span>
             </div>
-            <div className="flex items-center gap-2 rounded-xl border border-[var(--surface-border)] p-2.5">
+            <div className="flex items-center gap-2 rounded-control border border-[var(--surface-border)] p-2.5">
               <Wallet size={15} className="shrink-0 text-[var(--text-secondary)]" />
               <span>
                 Saldo mercato{" "}
@@ -205,7 +220,7 @@ export function SeasonEndOverlay({
             </div>
           </div>
 
-          <div className="flex items-center gap-2 rounded-xl border border-[var(--surface-border)] p-2.5">
+          <div className="flex items-center gap-2 rounded-control border border-[var(--surface-border)] p-2.5">
             <Handshake size={15} className="shrink-0 text-[var(--text-secondary)]" />
             <span>
               Sintonia col mister{" "}
@@ -218,7 +233,7 @@ export function SeasonEndOverlay({
           </div>
 
           {summary.standoffQueue.length > 0 && (
-            <div className="flex items-start gap-2 rounded-xl border border-[#ff4d4d]/30 bg-[#ff4d4d]/5 p-2.5">
+            <div className="flex items-start gap-2 rounded-control border border-[#ff4d4d]/30 bg-[#ff4d4d]/5 p-2.5">
               <MessagesSquare size={15} className="mt-0.5 shrink-0 text-[#ff4d4d]" />
               <span>
                 {summary.standoffQueue.length === 1
@@ -233,7 +248,7 @@ export function SeasonEndOverlay({
         </div>
 
         {finita && (
-          <p className="px-6 pt-4 text-center text-sm leading-relaxed text-[var(--text-secondary)]">
+          <p className="px-6 pt-4 text-center text-body leading-relaxed text-[var(--text-secondary)]">
             {state.ending === "retrocessione"
               ? "La retrocessione chiude la carriera: la società ha scelto un'altra strada."
               : `Dieci stagioni completate. ${state.history.filter((h) => h.position === 1).length} titoli in bacheca.`}
@@ -245,9 +260,9 @@ export function SeasonEndOverlay({
             <button
               type="button"
               onClick={onContinue}
-              className="w-full rounded-2xl bg-[var(--brand)] py-3.5 text-sm font-extrabold text-[var(--brand-contrast)] transition-transform active:scale-[0.98]"
+              className="w-full rounded-card bg-[var(--brand)] py-3.5 text-body font-extrabold text-[var(--brand-contrast)] transition-transform active:scale-[0.98]"
             >
-              Analizza la Rosa (Report DS) ➔
+              Guarda come è cresciuta la rosa
             </button>
           )}
           {/**
@@ -271,7 +286,7 @@ export function SeasonEndOverlay({
                 const esito = await shareTriumph(shareData, "storia");
                 setCondivisione(esito === "errore" || esito === "annullato" ? "errore" : "fatto");
               }}
-              className="flex w-full items-center justify-center gap-2 rounded-2xl border py-3 text-sm font-extrabold transition-transform active:scale-[0.98]"
+              className="flex w-full items-center justify-center gap-2 rounded-card border py-3 text-body font-extrabold transition-transform active:scale-[0.98]"
               style={{ borderColor: "#f5c51866", backgroundColor: "#f5c51814", color: "#f5c518" }}
             >
               {condivisione === "in-corso" ? (
@@ -291,7 +306,7 @@ export function SeasonEndOverlay({
           <button
             type="button"
             onClick={onExit}
-            className="flex w-full items-center justify-center gap-2 rounded-2xl border border-[var(--surface-border)] py-3 text-sm font-bold"
+            className="flex w-full items-center justify-center gap-2 rounded-card border border-[var(--surface-border)] py-3 text-body font-bold"
           >
             <Home size={15} />
             {finita ? "Torna alla home" : "Riprendi più tardi"}
@@ -305,8 +320,8 @@ export function SeasonEndOverlay({
 function Numero({ label, value }: { label: string; value: number | string }) {
   return (
     <div className="px-2 py-3 text-center">
-      <p className="text-lg leading-none font-extrabold tabular-nums">{value}</p>
-      <p className="mt-1 text-[10px] font-semibold tracking-wide text-[var(--text-secondary)] uppercase">
+      <p className="text-title leading-none font-extrabold tabular-nums">{value}</p>
+      <p className="mt-1 text-micro font-semibold tracking-wide text-[var(--text-secondary)] uppercase">
         {label}
       </p>
     </div>

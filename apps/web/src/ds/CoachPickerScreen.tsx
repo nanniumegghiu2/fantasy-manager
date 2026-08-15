@@ -31,7 +31,7 @@ function StyleBar({
   return (
     <div className="flex items-center gap-2">
       <Icon size={13} className="shrink-0 text-[var(--text-secondary)]" />
-      <span className="w-16 shrink-0 text-[10px] font-bold tracking-wide text-[var(--text-secondary)] uppercase">
+      <span className="w-16 shrink-0 text-micro font-bold tracking-wide text-[var(--text-secondary)] uppercase">
         {label}
       </span>
       <span className="relative h-1.5 flex-1 overflow-hidden rounded-full bg-[var(--surface)]">
@@ -45,7 +45,7 @@ function StyleBar({
           }}
         />
       </span>
-      <span className="w-7 shrink-0 text-right text-[11px] font-bold tabular-nums">
+      <span className="w-7 shrink-0 text-right text-label font-bold tabular-nums">
         {value > 0 ? `+${value}` : value}
       </span>
     </div>
@@ -77,7 +77,7 @@ function CoachCard({
       disabled={!affordable}
       onClick={onSelect}
       whileTap={affordable ? { scale: 0.985 } : undefined}
-      className={`flex w-full flex-col gap-3 rounded-2xl border p-4 text-left transition-colors relative ${
+      className={`flex w-full flex-col gap-3 rounded-card border p-4 text-left transition-colors relative ${
         selected
           ? "border-[var(--brand)] bg-[var(--brand)]/10"
           : isDefault
@@ -86,25 +86,25 @@ function CoachCard({
       } ${affordable ? "" : "cursor-not-allowed opacity-45"}`}
     >
       {isDefault && (
-        <span className="absolute -top-2.5 right-4 rounded-full bg-emerald-500 px-2.5 py-0.5 text-[10px] font-extrabold text-black uppercase tracking-wider shadow-sm flex items-center gap-1">
+        <span className="absolute -top-2.5 right-4 rounded-full bg-emerald-500 px-2.5 py-0.5 text-micro font-extrabold text-black uppercase tracking-wider shadow-sm flex items-center gap-1">
           <UserCheck size={12} /> Mister Reale (€0)
         </span>
       )}
 
       <div className="flex items-start gap-3">
-        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[var(--surface)] text-sm font-extrabold">
+        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-control bg-[var(--surface)] text-body font-extrabold">
           {formation?.name ?? coach.formationId}
         </span>
         <div className="min-w-0 flex-1">
-          <p className="truncate text-[15px] leading-tight font-extrabold">{coach.name}</p>
-          <p className="mt-0.5 flex items-center gap-1.5 text-[11px] text-[var(--text-secondary)]">
+          <p className="truncate text-body leading-tight font-extrabold">{coach.name}</p>
+          <p className="mt-0.5 flex items-center gap-1.5 text-label text-[var(--text-secondary)]">
             <NationFlag nation={coach.nation} />
             {coach.nation} {coach.tacticalPhilosophy ? `· ${coach.tacticalPhilosophy}` : ""}
           </p>
         </div>
         <span className="shrink-0 text-right">
-          <span className="block text-sm font-extrabold">{isDefault ? "GRATUITO" : euro(cost)}</span>
-          <span className="block text-[10px] font-semibold tracking-wide text-[var(--text-secondary)] uppercase">
+          <span className="block text-body font-extrabold">{isDefault ? "GRATUITO" : euro(cost)}</span>
+          <span className="block text-micro font-semibold tracking-wide text-[var(--text-secondary)] uppercase">
             {isDefault ? "di default" : buyoutFee > 0 ? "ingaggio + riscatto" : "ingaggio"}
           </span>
         </span>
@@ -116,7 +116,7 @@ function CoachCard({
       </div>
 
       <div className="flex items-center justify-between">
-        <p className="flex items-center gap-1.5 text-[11px] font-semibold text-[var(--text-secondary)]">
+        <p className="flex items-center gap-1.5 text-label font-semibold text-[var(--text-secondary)]">
           <Sprout size={13} className="text-[#3ddc6b]" />
           {coach.development >= 1.5
             ? "Eccellente coi giovani"
@@ -127,7 +127,7 @@ function CoachCard({
                 : "Preferisce i giocatori pronti"}
         </p>
 
-        <span className="flex items-center gap-1 text-[11px] font-bold text-[var(--brand)]">
+        <span className="flex items-center gap-1 text-label font-bold text-[var(--brand)]">
           <MessageSquare size={13} /> Tratta in Chat
         </span>
       </div>
@@ -240,14 +240,14 @@ export function CoachPickerScreen({
             <ArrowLeft size={17} />
           </button>
           <div className="min-w-0 flex-1">
-            <p className="text-[11px] font-bold tracking-widest text-[var(--text-secondary)] uppercase">
+            <p className="text-micro font-bold tracking-widest text-[var(--text-secondary)] uppercase">
               {clubName} · Passo 2 di 2
             </p>
-            <h1 className="truncate text-lg leading-tight font-extrabold">Scelta & Mercato Allenatori</h1>
+            <h1 className="truncate text-title leading-tight font-extrabold">Scelta & Mercato Allenatori</h1>
           </div>
           <span className="shrink-0 text-right">
-            <span className="block text-sm font-extrabold">{euro(budget)}</span>
-            <span className="block text-[10px] font-semibold tracking-wide text-[var(--text-secondary)] uppercase">
+            <span className="block text-body font-extrabold">{euro(budget)}</span>
+            <span className="block text-micro font-semibold tracking-wide text-[var(--text-secondary)] uppercase">
               budget
             </span>
           </span>
@@ -256,7 +256,7 @@ export function CoachPickerScreen({
       </header>
 
       <main className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-4 px-4 py-4 pb-28">
-        <p className="text-sm leading-relaxed text-[var(--text-secondary)]">
+        <p className="text-body leading-relaxed text-[var(--text-secondary)]">
           Puoi confermare il tecnico di <strong>{clubName}</strong>, oppure cercarne un altro fra
           oltre cento allenatori: svincolati o sotto contratto, questi ultimi pagando una penale al
           loro club. <strong>Le richieste economiche e tecniche si scoprono al tavolo</strong>, non
@@ -276,7 +276,7 @@ export function CoachPickerScreen({
         <button
           type="button"
           onClick={() => setVista("ricerca")}
-          className="flex items-center justify-center gap-2 rounded-2xl border border-[var(--brand)]/60 bg-[var(--brand)]/10 py-3.5 text-sm font-extrabold text-[var(--brand)] transition-transform active:scale-98"
+          className="flex items-center justify-center gap-2 rounded-card border border-[var(--brand)]/60 bg-[var(--brand)]/10 py-3.5 text-body font-extrabold text-[var(--brand)] transition-transform active:scale-98"
         >
           <Search size={16} /> Cerca nel mercato allenatori
         </button>

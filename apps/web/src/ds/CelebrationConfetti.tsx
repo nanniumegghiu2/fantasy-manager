@@ -86,7 +86,7 @@ export function CelebrationConfetti() {
             <Crown size={p.size} className="fill-current drop-shadow-[0_0_10px_rgba(255,215,0,0.9)]" />
           ) : (
             <span
-              className="block rounded-sm drop-shadow-md"
+              className="block rounded-control drop-shadow-md"
               style={{
                 width: `${p.size}px`,
                 height: `${p.size * 1.6}px`,

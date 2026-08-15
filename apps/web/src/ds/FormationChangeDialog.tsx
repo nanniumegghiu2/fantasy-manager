@@ -40,44 +40,44 @@ export function FormationChangeDialog({
         animate={{ y: 0 }}
         exit={{ y: "100%" }}
         transition={{ type: "spring", stiffness: 320, damping: 32 }}
-        className="flex w-full max-w-md flex-col overflow-hidden rounded-t-3xl border border-[var(--surface-border)] bg-[var(--surface)] sm:rounded-3xl"
+        className="flex w-full max-w-md flex-col overflow-hidden rounded-t-3xl border border-[var(--surface-border)] bg-[var(--surface)] sm:rounded-card"
       >
         <header className="flex items-start gap-3 border-b border-[var(--surface-border)] p-4">
           <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--brand)]/15 text-[var(--brand)]">
             <ClipboardList size={19} />
           </span>
           <div className="min-w-0">
-            <p className="text-[10px] font-extrabold tracking-widest text-[var(--text-secondary)] uppercase">
+            <p className="text-micro font-extrabold tracking-widest text-[var(--text-secondary)] uppercase">
               Richiesta del mister
             </p>
-            <p className="text-base leading-tight font-extrabold">Vuole cambiare sistema</p>
+            <p className="text-body leading-tight font-extrabold">Vuole cambiare sistema</p>
           </div>
         </header>
 
         <div className="flex flex-col gap-3 p-4">
-          <p className="rounded-2xl bg-[var(--surface-raised)] p-3 text-[12px] leading-relaxed">
+          <p className="rounded-card bg-[var(--surface-raised)] p-3 text-label leading-relaxed">
             «{request.message}»
-            <span className="mt-1 block text-[11px] font-bold text-[var(--text-secondary)]">
+            <span className="mt-1 block text-label font-bold text-[var(--text-secondary)]">
               — {coach.name}
             </span>
           </p>
 
-          <div className="flex items-center justify-center gap-3 rounded-2xl border border-[var(--surface-border)] p-3">
+          <div className="flex items-center justify-center gap-3 rounded-card border border-[var(--surface-border)] p-3">
             <span className="text-center">
-              <span className="block text-lg font-extrabold">{currentFormationId}</span>
-              <span className="block text-[10px] text-[var(--text-secondary)]">adesso</span>
+              <span className="block text-title font-extrabold">{currentFormationId}</span>
+              <span className="block text-label text-[var(--text-secondary)]">adesso</span>
             </span>
             <span className="text-[var(--text-secondary)]">→</span>
             <span className="text-center">
-              <span className="block text-lg font-extrabold text-[var(--brand)]">
+              <span className="block text-title font-extrabold text-[var(--brand)]">
                 {request.formationId}
               </span>
-              <span className="block text-[10px] text-[var(--text-secondary)]">la sua idea</span>
+              <span className="block text-label text-[var(--text-secondary)]">la sua idea</span>
             </span>
           </div>
 
           {resignRisk && (
-            <p className="flex items-start gap-2 rounded-xl bg-[#ff4d4d]/15 px-3 py-2 text-[11px] font-bold text-[#ff4d4d]">
+            <p className="flex items-start gap-2 rounded-control bg-[#ff4d4d]/15 px-3 py-2 text-label font-bold text-[#ff4d4d]">
               <AlertTriangle size={13} className="mt-0.5 shrink-0" />
               La sintonia è già bassa ({harmony}): un rifiuto adesso lo porterebbe alle dimissioni.
             </p>
@@ -88,14 +88,14 @@ export function FormationChangeDialog({
           <button
             type="button"
             onClick={() => onAnswer(true)}
-            className="min-h-12 w-full rounded-2xl bg-[var(--brand)] text-sm font-extrabold text-[var(--brand-contrast)] transition-transform active:scale-[0.98]"
+            className="min-h-12 w-full rounded-card bg-[var(--brand)] text-body font-extrabold text-[var(--brand-contrast)] transition-transform active:scale-[0.98]"
           >
             Va bene, si cambia
           </button>
           <button
             type="button"
             onClick={() => onAnswer(false)}
-            className="min-h-12 w-full rounded-2xl border text-sm font-extrabold transition-transform active:scale-[0.98]"
+            className="min-h-12 w-full rounded-card border text-body font-extrabold transition-transform active:scale-[0.98]"
             style={{
               borderColor: resignRisk ? "#ff4d4d66" : "var(--surface-border)",
               color: resignRisk ? "#ff4d4d" : "var(--text-secondary)",

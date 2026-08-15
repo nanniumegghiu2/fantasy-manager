@@ -107,10 +107,12 @@ import { MarketPanel } from "./MarketPanel";
 import { NegotiationChat } from "./NegotiationChat";
 import type { DsWorldData } from "./useDsWorld";
 import { MiniStandings } from "./MiniStandings";
+import { NextTaskCard } from "./NextTaskCard";
 import { SeasonEndOverlay } from "./SeasonEndOverlay";
 import { SeasonSquadReportModal } from "./SeasonSquadReportModal";
 import { SquadPanel } from "./SquadPanel";
 import { WeekReportCard } from "./WeekReportCard";
+import { Button, TabBar } from "./ui";
 import {
   COMPETITION_ACCENT,
   OUTCOME_COLOR,
@@ -821,114 +823,144 @@ export function CareerScreen({
 
   return (
     <div className="flex min-h-svh flex-col bg-[var(--surface)] text-[var(--text-primary)]">
-      <header className="sticky top-0 z-10 border-b border-[var(--surface-border)] bg-[var(--surface)]/95 backdrop-blur">
-        <div className="mx-auto w-full max-w-3xl px-4 py-3">
-          <div className="flex items-center gap-3">
+      {/* **La testata, ristrutturata.**
+
+          Prima impilava club, stagione, mister, modulo e sintonia in **una riga di 200px**, e
+          la misura diceva che ne servivano 245: si leggeva «Stagione 1/10 · Nuri Şahin
+          (4-2-3-1) · Si…». Non era un problema di font — era una riga che faceva il lavoro di
+          quattro. Ora sono due livelli: identità sopra, contesto come pastiglie sotto, che
+          vanno a capo invece di tagliarsi. */}
+      <header className="sticky top-0 z-10 border-b border-[var(--surface-border)] bg-[var(--surface)]/95 pt-safe backdrop-blur">
+        <div className="mx-auto w-full max-w-3xl px-4 py-2.5">
+          <div className="flex items-center gap-2">
             <button
               type="button"
               onClick={onExit}
               aria-label="Torna alla home"
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[var(--surface-border)] transition-colors hover:border-[var(--brand)]"
+              className="-ml-2 flex h-tap w-tap shrink-0 items-center justify-center rounded-full text-[var(--text-secondary)] transition-colors hover:bg-[var(--surface-raised)]"
             >
-              <ArrowLeft size={17} />
+              <ArrowLeft size={20} />
             </button>
 
             <div className="min-w-0 flex-1">
-              <p className="truncate text-base leading-tight font-extrabold">{world.clubName}</p>
-              <p className="truncate text-[11px] text-[var(--text-secondary)]">
-                Stagione {state.season}/{CAREER_SEASONS}
-                {coach ? ` · ${coach.name} (${coach.formationId})` : ""}
-                {coach ? ` · Sintonia ${state.coachHarmony ?? 75}%` : ""}
-              </p>
-            </div>
-
-            <div className="shrink-0 text-right">
-              {/* **Le casse sono due, e in testata si vedevano solo i soldi del mercato.**
-                  Il margine ingaggi decide se un rinnovo o un parametro zero sono possibili
-                  quanto il budget decide se lo è un cartellino: tenerne uno nascosto dietro una
-                  scheda faceva sembrare il sistema più opaco di quanto sia. */}
-              <p className="flex items-center justify-end gap-1 text-sm font-extrabold">
-                <Wallet size={14} />
-                {euro(state.budget)}
-              </p>
-              <p
-                className="flex items-center justify-end gap-1 text-[10px] font-bold"
-                title="Margine ancora disponibile per nuovi ingaggi"
-                style={{ color: finanze.wageRoom < 0 ? "#ff4d4d" : "var(--text-secondary)" }}
-              >
-                <Users size={10} />
-                {euro(finanze.wageRoom)}
-              </p>
-              <p className="flex items-center justify-end gap-1 text-[10px] font-semibold text-[var(--text-secondary)]">
-                {saveEnabled ? (
-                  <>
-                    <Cloud size={11} className={saving ? "animate-pulse" : undefined} />
-                    {saving ? "salvataggio…" : "salvata"}
-                  </>
+              <p className="truncate text-title leading-tight">{world.clubName}</p>
+              <p className="text-label text-[var(--text-secondary)]">
+                <span className="num">
+                  Stagione {state.season}/{CAREER_SEASONS}
+                </span>
+                {" · "}
+                {/* A settimana zero «0ª di 34» non vuol dire niente: il campionato non è
+                    cominciato, e va detto così. */}
+                {state.week < 1 ? (
+                  "non cominciata"
                 ) : (
-                  <>
-                    <CloudOff size={11} />
-                    non salvata
-                  </>
+                  <span className="num">
+                    {Math.min(state.week, settimane)}ª di {settimane}
+                  </span>
                 )}
               </p>
             </div>
+
+            {/* **Le due casse.** Il margine ingaggi decide se un rinnovo è possibile quanto il
+                budget decide se lo è un cartellino: nasconderne uno faceva sembrare il sistema
+                più opaco di quanto sia. Toccarle apre le finanze per intero. */}
+            <div className="shrink-0 text-right">
+              <p className="num flex items-center justify-end gap-1 text-title">
+                <Wallet size={15} className="text-[var(--text-secondary)]" />
+                {euro(state.budget)}
+              </p>
+              <p
+                className="num flex items-center justify-end gap-1 text-label font-bold"
+                title="Margine ancora disponibile per nuovi ingaggi"
+                style={{
+                  color: finanze.wageRoom < 0 ? "var(--danger)" : "var(--text-secondary)",
+                }}
+              >
+                <Users size={11} />
+                {euro(finanze.wageRoom)}
+              </p>
+            </div>
           </div>
 
-          <div className="mt-2.5 flex items-center gap-2.5">
-            <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-[var(--surface-raised)]">
-              <motion.span
-                className="block h-full rounded-full bg-[var(--brand)]"
-                animate={{ width: `${progresso}%` }}
-                transition={{ duration: 0.3, ease: "easeOut" }}
-              />
-            </span>
-            <span className="shrink-0 text-[11px] font-bold tabular-nums">
-              {Math.min(state.week, settimane)}/{settimane}
-            </span>
+          {/* Il contesto come pastiglie: vanno a capo, quindi nessuna di queste informazioni
+              può più sparire per mancanza di spazio. */}
+          <div className="mt-2 flex flex-wrap items-center gap-1.5">
             {nostraRiga && (
-              <span className="shrink-0 rounded-full bg-[var(--surface-raised)] px-2.5 py-0.5 text-[11px] font-extrabold">
+              <span className="num rounded-full bg-[var(--brand)]/12 px-2 py-0.5 text-label font-extrabold text-[var(--brand)]">
                 {ordinale(nostraRiga.position)} · {nostraRiga.points} pt
               </span>
             )}
+            {coach && (
+              <span className="rounded-full bg-[var(--surface-raised)] px-2 py-0.5 text-label font-bold">
+                {coach.name}
+              </span>
+            )}
+            {coach && (
+              <span className="num rounded-full bg-[var(--surface-raised)] px-2 py-0.5 text-label font-bold text-[var(--text-secondary)]">
+                {state.coachFormationId ?? coach.formationId}
+              </span>
+            )}
+            {coach && (
+              <span
+                className="num rounded-full px-2 py-0.5 text-label font-bold"
+                title="Sintonia col mister"
+                style={{
+                  backgroundColor:
+                    (state.coachHarmony ?? 75) < 45
+                      ? "color-mix(in srgb, var(--danger) 14%, transparent)"
+                      : "var(--surface-raised)",
+                  color:
+                    (state.coachHarmony ?? 75) < 45 ? "var(--danger)" : "var(--text-secondary)",
+                }}
+              >
+                Sintonia {state.coachHarmony ?? 75}%
+              </span>
+            )}
+            <span className="ml-auto flex items-center gap-1 text-label text-[var(--text-secondary)]">
+              {saveEnabled ? (
+                <>
+                  <Cloud size={12} className={saving ? "animate-pulse" : undefined} />
+                  {saving ? "salvataggio…" : "salvata"}
+                </>
+              ) : (
+                <>
+                  <CloudOff size={12} />
+                  non salvata
+                </>
+              )}
+            </span>
           </div>
+
+          <span className="mt-2 flex h-1 overflow-hidden rounded-full bg-[var(--surface-raised)]">
+            <motion.span
+              className="block h-full rounded-full bg-[var(--brand)]"
+              animate={{ width: `${progresso}%` }}
+              transition={{ duration: 0.3, ease: "easeOut" }}
+            />
+          </span>
         </div>
       </header>
 
-      <nav className="border-b border-[var(--surface-border)]">
-        <div className="mx-auto flex w-full max-w-3xl gap-1 overflow-x-auto px-3 py-2">
-          {TABS.map(({ key, label, icon: Icon }) => (
-            <button
-              key={key}
-              type="button"
-              onClick={() => setTab(key)}
-              className={`relative shrink-0 rounded-full px-3.5 py-1.5 text-xs font-bold whitespace-nowrap transition-colors ${
-                tab === key ? "text-[var(--brand-contrast)]" : "text-[var(--text-secondary)]"
-              }`}
-            >
-              {tab === key && (
-                <motion.span
-                  layoutId="ds-tab"
-                  className="absolute inset-0 rounded-full bg-[var(--brand)]"
-                  transition={{ type: "spring", stiffness: 420, damping: 34 }}
-                />
-              )}
-              <span className="relative flex items-center gap-1.5">
-                <Icon size={13} />
-                {label}
-              </span>
-            </button>
-          ))}
-        </div>
-      </nav>
-
-      <main className="mx-auto w-full max-w-3xl flex-1 px-4 py-4 pb-32">
+      {/* Le schede sono scese in fondo (`TabBar`): erano alte 28px, «Coppe» arrivava tagliata
+          al bordo e «Storico» non si vedeva affatto. Lo spazio in fondo lascia posto alla barra
+          più l'azione contestuale. */}
+      <main className="mx-auto w-full max-w-3xl flex-1 px-4 py-4 pb-[13rem]">
         {tab === "stagione" && (
           /* Due colonne su schermo largo: i risultati scorrono a sinistra, la classifica resta
              ferma a destra. Su telefono la classifica sta sopra, compatta, perché è il dato che
              si vuole sotto controllo mentre le giornate passano. */
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
             <div className="order-2 min-w-0 flex-1 lg:order-1">
+              {/* **«E adesso cosa faccio?»** — la domanda a cui nessuna schermata rispondeva, ed
+                  è la causa dello spaesamento dei giocatori nuovi. Sta in cima alla scheda
+                  Stagione perché è la prima cosa che si guarda arrivando. */}
+              <NextTaskCard
+                state={state}
+                world={world}
+                standings={standings}
+                onApriMercato={inCorso && !bloccato ? corri : undefined}
+                onVaiRosa={() => setTab("rosa")}
+              />
               <AnimatePresence>
                 {notizia && (
                   <motion.p
@@ -936,7 +968,7 @@ export function CareerScreen({
                     initial={{ opacity: 0, y: -6 }}
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0 }}
-                    className="mb-3 rounded-2xl border border-[var(--brand)]/30 bg-[var(--brand)]/8 px-3.5 py-2.5 text-xs leading-relaxed text-[var(--text-primary)]"
+                    className="mb-3 rounded-card border border-[var(--brand)]/30 bg-[var(--brand)]/8 px-3.5 py-2.5 text-label leading-relaxed text-[var(--text-primary)]"
                   >
                     {notizia}
                   </motion.p>
@@ -951,7 +983,7 @@ export function CareerScreen({
 
               {results.length > 0 && (
                 <section className="mt-4">
-                  <h2 className="mb-2 text-[10px] font-bold tracking-widest text-[var(--text-secondary)] uppercase">
+                  <h2 className="mb-2 text-micro font-bold tracking-widest text-[var(--text-secondary)] uppercase">
                     Come è andata
                   </h2>
                   <ul className="flex flex-col gap-1">
@@ -969,7 +1001,7 @@ export function CareerScreen({
                             initial={{ opacity: 0, x: -14 }}
                             animate={{ opacity: 1, x: 0 }}
                             transition={{ duration: 0.2 }}
-                            className="flex items-center gap-2.5 rounded-xl border border-l-3 border-[var(--surface-border)] bg-[var(--surface-raised)] px-3 py-2 text-sm"
+                            className="flex items-center gap-2.5 rounded-control border border-l-3 border-[var(--surface-border)] bg-[var(--surface-raised)] px-3 py-2 text-body"
                             style={
                               r.competizione
                                 ? { borderLeftColor: COMPETITION_ACCENT[r.competizione] }
@@ -977,7 +1009,7 @@ export function CareerScreen({
                             }
                           >
                             <span
-                              className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[11px] font-extrabold"
+                              className="flex h-6 w-6 shrink-0 items-center justify-center rounded-control text-label font-extrabold"
                               style={{
                                 backgroundColor: `${OUTCOME_COLOR[esito]}22`,
                                 color: OUTCOME_COLOR[esito],
@@ -1005,7 +1037,7 @@ export function CareerScreen({
                             <span className="shrink-0 font-bold tabular-nums">
                               {r.gf}-{r.ga}
                               {r.passatoAiRigori !== undefined && (
-                                <span className="ml-1 text-[10px] font-semibold text-[var(--text-secondary)]">
+                                <span className="ml-1 text-label font-semibold text-[var(--text-secondary)]">
                                   dcr
                                 </span>
                               )}
@@ -1058,7 +1090,7 @@ export function CareerScreen({
               onOpenClub={(id, name) => setClubVisto({ id, name })}
             />
           ) : (
-            <p className="py-10 text-center text-sm text-[var(--text-secondary)]">
+            <p className="py-10 text-center text-body text-[var(--text-secondary)]">
               La classifica compare dopo la prima giornata.
             </p>
           ))}
@@ -1072,7 +1104,7 @@ export function CareerScreen({
                     key={key}
                     type="button"
                     onClick={() => setCoppa(key)}
-                    className={`relative min-h-9 flex-1 rounded-full px-3 py-1.5 text-xs font-bold transition-colors ${
+                    className={`relative min-h-9 flex-1 rounded-full px-3 py-1.5 text-label font-bold transition-colors ${
                       coppaAttiva === key ? "text-[var(--brand-contrast)]" : "text-[var(--text-secondary)]"
                     }`}
                   >
@@ -1093,10 +1125,10 @@ export function CareerScreen({
             )}
 
             {coppeDisponibili.length === 0 ? (
-              <div className="flex flex-col items-center gap-2 rounded-2xl border border-dashed border-[var(--surface-border)] px-4 py-10 text-center">
+              <div className="flex flex-col items-center gap-2 rounded-card border border-dashed border-[var(--surface-border)] px-4 py-10 text-center">
                 <Trophy size={22} className="text-[var(--text-secondary)]" />
-                <p className="text-sm font-semibold">Quest'anno niente coppe</p>
-                <p className="max-w-xs text-xs leading-relaxed text-[var(--text-secondary)]">
+                <p className="text-body font-semibold">Quest'anno niente coppe</p>
+                <p className="max-w-xs text-label leading-relaxed text-[var(--text-secondary)]">
                   Alla Corona ci si qualifica arrivando fra le prime quattro del campionato.
                 </p>
               </div>
@@ -1113,16 +1145,16 @@ export function CareerScreen({
             {[...state.history].reverse().map((summary) => (
               <li
                 key={summary.season}
-                className="flex items-center gap-3 rounded-2xl border border-[var(--surface-border)] bg-[var(--surface-raised)] p-3"
+                className="flex items-center gap-3 rounded-card border border-[var(--surface-border)] bg-[var(--surface-raised)] p-3"
               >
-                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[var(--surface)] text-sm font-extrabold">
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-control bg-[var(--surface)] text-body font-extrabold">
                   {summary.season}
                 </span>
                 <div className="min-w-0 flex-1">
-                  <p className="text-sm font-bold">
+                  <p className="text-body font-bold">
                     {ordinale(summary.position)} posto · {summary.points} punti
                   </p>
-                  <p className="text-[11px] text-[var(--text-secondary)]">
+                  <p className="text-label text-[var(--text-secondary)]">
                     {summary.goalsFor} fatti · {summary.goalsAgainst} subiti
                   </p>
                   {/* Il cammino nelle coppe come etichette e non come coda di testo: erano una
@@ -1132,7 +1164,7 @@ export function CareerScreen({
                     <div className="mt-1 flex flex-wrap gap-1">
                       {summary.cupOutcome && (
                         <span
-                          className="rounded-full px-1.5 py-px text-[10px] font-bold"
+                          className="rounded-full px-1.5 py-px text-label font-bold"
                           style={{
                             backgroundColor: `${COMPETITION_ACCENT.corona}1f`,
                             color: COMPETITION_ACCENT.corona,
@@ -1143,7 +1175,7 @@ export function CareerScreen({
                       )}
                       {summary.nationalCupOutcome && summary.nationalCupOutcome !== "assente" && (
                         <span
-                          className="rounded-full px-1.5 py-px text-[10px] font-bold"
+                          className="rounded-full px-1.5 py-px text-label font-bold"
                           style={{
                             backgroundColor: `${COMPETITION_ACCENT.tricolore}1f`,
                             color: COMPETITION_ACCENT.tricolore,
@@ -1159,7 +1191,7 @@ export function CareerScreen({
               </li>
             ))}
             {state.history.length === 0 && (
-              <p className="py-10 text-center text-sm text-[var(--text-secondary)]">
+              <p className="py-10 text-center text-body text-[var(--text-secondary)]">
                 La prima stagione è ancora in corso.
               </p>
             )}
@@ -1167,32 +1199,30 @@ export function CareerScreen({
         )}
       </main>
 
-      {inCorso && !bloccato && (
-        <div className="fixed inset-x-0 bottom-0 z-20 border-t border-[var(--surface-border)] bg-[var(--surface)]/95 backdrop-blur">
-          <div className="mx-auto w-full max-w-3xl px-4 py-3">
-            {correndo ? (
-              <button
-                type="button"
-                onClick={salta}
-                className="flex w-full items-center justify-center gap-2.5 rounded-2xl border border-[var(--surface-border)] py-4 text-base font-extrabold transition-transform active:scale-[0.98]"
-              >
+      {/* **La navigazione dove sta il pollice**, con l'azione del momento subito sopra.
+
+          La safe area vive dentro `TabBar`: era gestita in 1 overlay su 19, quindi il pulsante
+          principale dell'intera modalità finiva sotto la barra gestuale di iPhone. */}
+      <TabBar
+        items={TABS}
+        value={tab}
+        onChange={setTab}
+        action={
+          inCorso && !bloccato ? (
+            correndo ? (
+              <Button variant="secondary" size="lg" block onClick={salta}>
                 Salta al risultato
-              </button>
+              </Button>
             ) : (
-              <button
-                type="button"
-                onClick={corri}
-                className="flex w-full items-center justify-center gap-2.5 rounded-2xl bg-[var(--brand)] py-4 text-base font-extrabold text-[var(--brand-contrast)] transition-transform active:scale-[0.98]"
-              >
-                <FastForward size={19} />
+              <Button variant="primary" size="lg" block icon={FastForward} onClick={corri}>
                 {state.phase === "mercato_estivo"
                   ? "Apri il mercato estivo"
                   : "Gioca fino al mercato"}
-              </button>
-            )}
-          </div>
-        </div>
-      )}
+              </Button>
+            )
+          ) : undefined
+        }
+      />
 
       {/* Le sovraimpressioni aspettano che i risultati abbiano finito di scorrere: aprirsi
           sopra la corsa significherebbe non farla vedere mai. */}

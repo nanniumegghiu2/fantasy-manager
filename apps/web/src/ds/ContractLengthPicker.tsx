@@ -23,9 +23,9 @@ export function ContractLengthPicker({
   const annuo = coachWageFor(coach, seasons);
 
   return (
-    <div className="rounded-2xl border border-[var(--surface-border)] bg-[var(--surface-raised)] p-3">
+    <div className="rounded-card border border-[var(--surface-border)] bg-[var(--surface-raised)] p-3">
       <div className="flex items-center justify-between">
-        <p className="text-[10px] font-extrabold tracking-widest text-[var(--text-secondary)] uppercase">
+        <p className="text-micro font-extrabold tracking-widest text-[var(--text-secondary)] uppercase">
           Durata del contratto
         </p>
         <div className="flex items-center gap-2">
@@ -34,11 +34,11 @@ export function ContractLengthPicker({
             aria-label="Riduci la durata"
             disabled={seasons <= min}
             onClick={() => onChange(Math.max(min, seasons - 1))}
-            className="flex h-7 w-7 items-center justify-center rounded-lg border border-[var(--surface-border)] disabled:opacity-40"
+            className="flex h-7 w-7 items-center justify-center rounded-control border border-[var(--surface-border)] disabled:opacity-40"
           >
             <Minus size={13} />
           </button>
-          <span className="w-16 text-center text-sm font-extrabold tabular-nums">
+          <span className="w-16 text-center text-body font-extrabold tabular-nums">
             {seasons} {seasons === 1 ? "anno" : "anni"}
           </span>
           <button
@@ -46,17 +46,17 @@ export function ContractLengthPicker({
             aria-label="Aumenta la durata"
             disabled={seasons >= max}
             onClick={() => onChange(Math.min(max, seasons + 1))}
-            className="flex h-7 w-7 items-center justify-center rounded-lg border border-[var(--surface-border)] disabled:opacity-40"
+            className="flex h-7 w-7 items-center justify-center rounded-control border border-[var(--surface-border)] disabled:opacity-40"
           >
             <Plus size={13} />
           </button>
         </div>
       </div>
 
-      <p className="mt-2 text-[12px] font-bold text-[var(--brand)]">
+      <p className="mt-2 text-label font-bold text-[var(--brand)]">
         {formatContractTotal(annuo, seasons)}
       </p>
-      <p className="mt-1 text-[11px] leading-snug text-[var(--text-secondary)]">
+      <p className="mt-1 text-label leading-snug text-[var(--text-secondary)]">
         {seasons >= 4
           ? "Contratto lungo: si accontenta di meno all'anno, ma esonerarlo costerà caro e nessuno potrà portartelo via."
           : seasons <= 1

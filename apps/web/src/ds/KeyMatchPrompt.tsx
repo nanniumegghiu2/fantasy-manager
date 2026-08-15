@@ -33,7 +33,7 @@ export function KeyMatchPrompt({
         initial={{ scale: 0.92, y: 18, opacity: 0 }}
         animate={{ scale: 1, y: 0, opacity: 1 }}
         transition={{ type: "spring", stiffness: 340, damping: 26 }}
-        className="w-full max-w-sm overflow-hidden rounded-3xl border border-[var(--surface-border)] bg-[var(--surface)]"
+        className="w-full max-w-sm overflow-hidden rounded-card border border-[var(--surface-border)] bg-[var(--surface)]"
       >
         <div className="flex flex-col items-center gap-2 bg-[var(--accent)]/12 px-6 py-6 text-center">
           <motion.span
@@ -44,18 +44,18 @@ export function KeyMatchPrompt({
           >
             <Flame size={26} />
           </motion.span>
-          <p className="text-[10px] font-bold tracking-widest text-[var(--text-secondary)] uppercase">
+          <p className="text-micro font-bold tracking-widest text-[var(--text-secondary)] uppercase">
             Partita decisiva
           </p>
-          <h2 className="text-xl leading-tight font-extrabold">contro {opponent}</h2>
-          <p className="text-sm leading-relaxed text-[var(--text-secondary)]">{reason}</p>
+          <h2 className="text-title leading-tight font-extrabold">contro {opponent}</h2>
+          <p className="text-body leading-relaxed text-[var(--text-secondary)]">{reason}</p>
         </div>
 
         <div className="flex flex-col gap-2 p-4">
           <button
             type="button"
             onClick={onWatch}
-            className="flex w-full items-center justify-center gap-2 rounded-2xl bg-[var(--brand)] py-3.5 text-sm font-extrabold text-[var(--brand-contrast)] transition-transform active:scale-[0.98]"
+            className="flex w-full items-center justify-center gap-2 rounded-card bg-[var(--brand)] py-3.5 text-body font-extrabold text-[var(--brand-contrast)] transition-transform active:scale-[0.98]"
           >
             <Eye size={17} />
             Guarda le azioni
@@ -63,7 +63,7 @@ export function KeyMatchPrompt({
           <button
             type="button"
             onClick={onSkip}
-            className="flex w-full items-center justify-center gap-2 rounded-2xl border border-[var(--surface-border)] py-3 text-sm font-bold"
+            className="flex w-full items-center justify-center gap-2 rounded-card border border-[var(--surface-border)] py-3 text-body font-bold"
           >
             <FastForward size={16} />
             Vai al risultato

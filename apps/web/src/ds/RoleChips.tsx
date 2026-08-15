@@ -38,7 +38,7 @@ export function RoleChips({
     <span className="flex flex-wrap items-center gap-1">
       <span
         title={ROLE_LABELS[role]}
-        className={`rounded px-1.5 py-0.5 text-[10px] leading-none font-extrabold ${
+        className={`rounded px-1.5 py-0.5 text-label leading-none font-extrabold ${
           highlight && !highlight.has(role) ? "opacity-50" : ""
         }`}
         style={{ backgroundColor: "var(--surface)", color: "var(--text-primary)" }}
@@ -49,7 +49,7 @@ export function RoleChips({
         <span
           key={r}
           title={`${ROLE_LABELS[r]} (ruolo secondario)`}
-          className={`rounded border border-dashed border-[var(--surface-border)] px-1.5 py-0.5 text-[10px] leading-none font-semibold text-[var(--text-secondary)] ${
+          className={`rounded border border-dashed border-[var(--surface-border)] px-1.5 py-0.5 text-label leading-none font-semibold text-[var(--text-secondary)] ${
             highlight && !highlight.has(r) ? "opacity-45" : ""
           }`}
         >

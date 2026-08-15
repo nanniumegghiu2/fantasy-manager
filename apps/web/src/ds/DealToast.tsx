@@ -48,7 +48,7 @@ export function DealToast({ deal }: { deal: Deal | null }) {
           className="pointer-events-none absolute inset-x-3 top-3 z-10"
         >
           <div
-            className="flex items-center gap-3 rounded-2xl border px-3.5 py-3 shadow-lg backdrop-blur"
+            className="flex items-center gap-3 rounded-card border px-3.5 py-3 shadow-lg backdrop-blur"
             style={{
               borderColor: `${STILE[deal.kind].colore}66`,
               backgroundColor: "var(--surface-raised)",
@@ -72,12 +72,12 @@ export function DealToast({ deal }: { deal: Deal | null }) {
 
             <div className="min-w-0 flex-1">
               <p
-                className="text-[10px] font-bold tracking-widest uppercase"
+                className="text-micro font-bold tracking-widest uppercase"
                 style={{ color: STILE[deal.kind].colore }}
               >
                 {STILE[deal.kind].titolo}
               </p>
-              <p className="truncate text-[13px] leading-tight font-semibold">{deal.message}</p>
+              <p className="truncate text-label leading-tight font-semibold">{deal.message}</p>
             </div>
 
             {deal.delta !== undefined && deal.delta !== 0 && (
@@ -85,7 +85,7 @@ export function DealToast({ deal }: { deal: Deal | null }) {
                 initial={{ opacity: 0, x: 10 }}
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ delay: 0.14 }}
-                className="shrink-0 text-sm font-extrabold tabular-nums"
+                className="shrink-0 text-body font-extrabold tabular-nums"
                 style={{ color: deal.delta > 0 ? "#3ddc6b" : "#ff8a3d" }}
               >
                 {deal.delta > 0 ? "+" : "−"}

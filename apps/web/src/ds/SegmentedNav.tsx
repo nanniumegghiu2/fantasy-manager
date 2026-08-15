@@ -49,8 +49,8 @@ export function SegmentedNav<T extends string>({
   return (
     <nav
       role="tablist"
-      className={`flex gap-1 rounded-2xl bg-[var(--surface-raised)] p-1 ${
-        grande ? "" : "text-[11px]"
+      className={`flex gap-1 rounded-card bg-[var(--surface-raised)] p-1 ${
+        grande ? "" : "text-label"
       } ${className}`}
     >
       {items.map(({ key, label, icon: Icon, count, badge }) => {
@@ -62,41 +62,56 @@ export function SegmentedNav<T extends string>({
             role="tab"
             aria-selected={attivo}
             onClick={() => onChange(key)}
-            className={`relative min-w-0 flex-1 rounded-xl font-extrabold transition-colors ${
-              grande ? "px-2 py-2.5 text-[11px]" : "px-2 py-1.5 text-[10px]"
+            className={`relative min-w-0 flex-1 rounded-control font-extrabold transition-colors ${
+              grande ? "min-h-tap px-1 py-1.5" : "px-2 py-1.5 text-label"
             } ${attivo ? "text-[var(--brand-contrast)]" : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"}`}
           >
             {attivo && (
               <motion.span
                 layoutId={layoutId}
-                className="absolute inset-0 rounded-xl bg-[var(--brand)] shadow-sm"
+                className="absolute inset-0 rounded-control bg-[var(--brand)] shadow-sm"
                 transition={{ type: "spring", stiffness: 420, damping: 34 }}
               />
             )}
-            <span className="relative flex items-center justify-center gap-1.5">
-              <Icon size={grande ? 14 : 12} className="shrink-0" />
-              <span className="truncate">{label}</span>
+            {/* ⚠️ **Icona sopra, etichetta sotto** nella misura grande.
 
-              {count !== undefined && count > 0 && (
-                <span
-                  className={`shrink-0 rounded-full px-1.5 text-[9px] tabular-nums ${
-                    attivo ? "bg-black/20" : "bg-[var(--surface)] text-[var(--text-secondary)]"
-                  }`}
-                >
-                  {count}
-                </span>
-              )}
+                Affiancate, cinque voci `flex-1` su 360px lasciavano 26px per la parola e quattro
+                etichette su cinque risultavano illeggibili («Fi…», «M…», «N…», e *Offerte* con
+                3px su 40 necessari). Scendere a quattro voci non è bastato: la misura di
+                controllo trovava ancora «Offerte» a 24px su 47. Impilate, l'etichetta si prende
+                tutta la larghezza della voce (~86px) e ci sta per intero — e la voce arriva a
+                44px di altezza, che è anche la soglia sotto cui il dito sbaglia. */}
+            <span
+              className={`relative flex min-w-0 items-center justify-center ${
+                grande ? "flex-col gap-0.5" : "gap-1.5"
+              }`}
+            >
+              <span className="flex items-center gap-1">
+                <Icon size={grande ? 15 : 12} className="shrink-0" />
 
-              {badge !== undefined && badge > 0 && (
-                <motion.span
-                  // Pulsa finché non la si guarda: è una richiesta in attesa, non una statistica.
-                  animate={{ scale: [1, 1.14, 1] }}
-                  transition={{ duration: 1.8, repeat: Infinity, ease: "easeInOut" }}
-                  className="flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-[#ff4d4d] px-1 text-[9px] font-extrabold text-white shadow-sm"
-                >
-                  {badge}
-                </motion.span>
-              )}
+                {count !== undefined && count > 0 && (
+                  <span
+                    className={`num shrink-0 rounded-full px-1.5 text-micro tracking-normal ${
+                      attivo ? "bg-black/20" : "bg-[var(--surface)] text-[var(--text-secondary)]"
+                    }`}
+                  >
+                    {count}
+                  </span>
+                )}
+
+                {badge !== undefined && badge > 0 && (
+                  <motion.span
+                    // Pulsa finché non la si guarda: è una richiesta in attesa, non una statistica.
+                    animate={{ scale: [1, 1.14, 1] }}
+                    transition={{ duration: 1.8, repeat: Infinity, ease: "easeInOut" }}
+                    className="num flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-[var(--danger)] px-1 text-micro tracking-normal text-white shadow-sm"
+                  >
+                    {badge}
+                  </motion.span>
+                )}
+              </span>
+
+              <span className={grande ? "text-micro tracking-normal" : "truncate"}>{label}</span>
             </span>
           </button>
         );

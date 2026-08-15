@@ -88,15 +88,15 @@ function CoachRow({
       layout
       onClick={onOpen}
       whileTap={{ scale: 0.985 }}
-      className="flex w-full flex-col gap-2.5 rounded-2xl border border-[var(--surface-border)] bg-[var(--surface-raised)] p-3.5 text-left transition-colors hover:border-[var(--brand)]/60"
+      className="flex w-full flex-col gap-2.5 rounded-card border border-[var(--surface-border)] bg-[var(--surface-raised)] p-3.5 text-left transition-colors hover:border-[var(--brand)]/60"
     >
       <div className="flex items-start gap-3">
-        <span className="flex h-10 w-12 shrink-0 items-center justify-center rounded-xl bg-[var(--surface)] text-[11px] font-extrabold tabular-nums">
+        <span className="flex h-10 w-12 shrink-0 items-center justify-center rounded-control bg-[var(--surface)] text-label font-extrabold tabular-nums">
           {coach.formationId}
         </span>
         <div className="min-w-0 flex-1">
-          <p className="truncate text-[15px] leading-tight font-extrabold">{coach.name}</p>
-          <p className="mt-0.5 flex items-center gap-1.5 truncate text-[11px] text-[var(--text-secondary)]">
+          <p className="truncate text-body leading-tight font-extrabold">{coach.name}</p>
+          <p className="mt-0.5 flex items-center gap-1.5 truncate text-label text-[var(--text-secondary)]">
             <NationFlag nation={coach.nation} />
             {coach.tacticalPhilosophy ?? coach.nation}
           </p>
@@ -104,22 +104,22 @@ function CoachRow({
         <Stelle n={coach.reputation} />
       </div>
 
-      <div className="flex flex-wrap items-center gap-1.5 text-[10px] font-bold">
+      <div className="flex flex-wrap items-center gap-1.5 text-label font-bold">
         {isDefault ? (
-          <span className="rounded-lg bg-emerald-500/20 px-2 py-1 text-emerald-400">
+          <span className="rounded-control bg-emerald-500/20 px-2 py-1 text-emerald-400">
             Mister in carica
           </span>
         ) : status === "libero" ? (
-          <span className="flex items-center gap-1 rounded-lg bg-[#5aa9e6]/20 px-2 py-1 text-[#5aa9e6]">
+          <span className="flex items-center gap-1 rounded-control bg-[#5aa9e6]/20 px-2 py-1 text-[#5aa9e6]">
             <Unlock size={11} /> Svincolato
           </span>
         ) : (
-          <span className="flex items-center gap-1 rounded-lg bg-[#ff8a3d]/20 px-2 py-1 text-[#ff8a3d]">
+          <span className="flex items-center gap-1 rounded-control bg-[#ff8a3d]/20 px-2 py-1 text-[#ff8a3d]">
             <Lock size={11} /> Sotto contratto{currentClubName ? ` · ${currentClubName}` : ""}
           </span>
         )}
 
-        <span className="flex items-center gap-1 rounded-lg bg-[var(--surface)] px-2 py-1 text-[var(--text-secondary)]">
+        <span className="flex items-center gap-1 rounded-control bg-[var(--surface)] px-2 py-1 text-[var(--text-secondary)]">
           <Swords size={11} />
           {coach.style.attack > 0 ? `+${coach.style.attack}` : coach.style.attack}
           <Shield size={11} className="ml-1" />
@@ -127,26 +127,26 @@ function CoachRow({
         </span>
 
         {coach.development >= 1.45 && (
-          <span className="flex items-center gap-1 rounded-lg bg-[#3ddc6b]/15 px-2 py-1 text-[#3ddc6b]">
+          <span className="flex items-center gap-1 rounded-control bg-[#3ddc6b]/15 px-2 py-1 text-[#3ddc6b]">
             <Sprout size={11} /> Bravo coi giovani
           </span>
         )}
       </div>
 
       <div className="flex items-center justify-between border-t border-[var(--surface-border)] pt-2">
-        <span className="text-[11px] font-semibold text-[var(--text-secondary)]">
+        <span className="text-label font-semibold text-[var(--text-secondary)]">
           {/* Le pretese economiche NON si mostrano qui: si scoprono in trattativa. */}
           Richieste da scoprire al tavolo
         </span>
         {buyoutFee > 0 ? (
           <span className="text-right">
-            <span className="block text-sm font-extrabold text-[#ff8a3d]">{euro(buyoutFee)}</span>
-            <span className="block text-[9px] font-bold tracking-wide text-[var(--text-secondary)] uppercase">
+            <span className="block text-body font-extrabold text-[#ff8a3d]">{euro(buyoutFee)}</span>
+            <span className="block text-micro font-bold tracking-wide text-[var(--text-secondary)] uppercase">
               penale al club
             </span>
           </span>
         ) : (
-          <span className="text-[11px] font-extrabold text-[var(--brand)]">Tratta →</span>
+          <span className="text-label font-extrabold text-[var(--brand)]">Tratta →</span>
         )}
       </div>
     </motion.button>
@@ -216,25 +216,25 @@ export function CoachSearchScreen({
           </button>
           <div className="min-w-0 flex-1">
             {subtitle && (
-              <p className="truncate text-[11px] font-bold tracking-widest text-[var(--text-secondary)] uppercase">
+              <p className="truncate text-micro font-bold tracking-widest text-[var(--text-secondary)] uppercase">
                 {subtitle}
               </p>
             )}
-            <h1 className="truncate text-lg leading-tight font-extrabold">{title}</h1>
+            <h1 className="truncate text-title leading-tight font-extrabold">{title}</h1>
           </div>
-          <span className="shrink-0 rounded-full bg-[var(--surface-raised)] px-2.5 py-1 text-xs font-extrabold tabular-nums">
+          <span className="shrink-0 rounded-full bg-[var(--surface-raised)] px-2.5 py-1 text-label font-extrabold tabular-nums">
             {risultati.length}
           </span>
         </div>
 
         <div className="mx-auto flex w-full max-w-4xl items-center gap-2 px-4 pb-3">
-          <label className="flex flex-1 items-center gap-2 rounded-xl border border-[var(--surface-border)] bg-[var(--surface-raised)] px-3 py-2">
+          <label className="flex flex-1 items-center gap-2 rounded-control border border-[var(--surface-border)] bg-[var(--surface-raised)] px-3 py-2">
             <Search size={15} className="shrink-0 text-[var(--text-secondary)]" />
             <input
               value={testo}
               onChange={(e) => setTesto(e.target.value)}
               placeholder="Nome, nazione o filosofia"
-              className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-[var(--text-secondary)]"
+              className="min-w-0 flex-1 bg-transparent text-body outline-none placeholder:text-[var(--text-secondary)]"
             />
             {testo && (
               <button type="button" onClick={() => setTesto("")} aria-label="Cancella ricerca">
@@ -246,7 +246,7 @@ export function CoachSearchScreen({
             type="button"
             onClick={() => setFiltriAperti((v) => !v)}
             aria-expanded={filtriAperti}
-            className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border transition-colors ${
+            className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-control border transition-colors ${
               filtriAperti || moduli.length > 0 || stato !== "tutti" || stile !== "tutti" || minRep > 1 || giovani
                 ? "border-[var(--brand)] bg-[var(--brand)]/15 text-[var(--brand)]"
                 : "border-[var(--surface-border)] text-[var(--text-secondary)]"
@@ -259,7 +259,7 @@ export function CoachSearchScreen({
         {filtriAperti && (
           <div className="mx-auto flex w-full max-w-4xl flex-col gap-3 border-t border-[var(--surface-border)] px-4 py-3">
             <div>
-              <p className="mb-1.5 text-[10px] font-extrabold tracking-widest text-[var(--text-secondary)] uppercase">
+              <p className="mb-1.5 text-micro font-extrabold tracking-widest text-[var(--text-secondary)] uppercase">
                 Modulo
               </p>
               <div className="flex flex-wrap gap-1.5">
@@ -268,7 +268,7 @@ export function CoachSearchScreen({
                     key={codice}
                     type="button"
                     onClick={() => toggleModulo(codice)}
-                    className={`rounded-lg px-2.5 py-1.5 text-[11px] font-bold tabular-nums transition-colors ${
+                    className={`rounded-control px-2.5 py-1.5 text-label font-bold tabular-nums transition-colors ${
                       moduli.includes(codice)
                         ? "bg-[var(--brand)] text-[var(--brand-contrast)]"
                         : "bg-[var(--surface-raised)] text-[var(--text-secondary)]"
@@ -282,7 +282,7 @@ export function CoachSearchScreen({
 
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <p className="mb-1.5 text-[10px] font-extrabold tracking-widest text-[var(--text-secondary)] uppercase">
+                <p className="mb-1.5 text-micro font-extrabold tracking-widest text-[var(--text-secondary)] uppercase">
                   Contratto
                 </p>
                 <div className="flex flex-wrap gap-1.5">
@@ -291,7 +291,7 @@ export function CoachSearchScreen({
                       key={s.id}
                       type="button"
                       onClick={() => setStato(s.id)}
-                      className={`rounded-lg px-2.5 py-1.5 text-[11px] font-bold transition-colors ${
+                      className={`rounded-control px-2.5 py-1.5 text-label font-bold transition-colors ${
                         stato === s.id
                           ? "bg-[var(--brand)] text-[var(--brand-contrast)]"
                           : "bg-[var(--surface-raised)] text-[var(--text-secondary)]"
@@ -304,7 +304,7 @@ export function CoachSearchScreen({
               </div>
 
               <div>
-                <p className="mb-1.5 text-[10px] font-extrabold tracking-widest text-[var(--text-secondary)] uppercase">
+                <p className="mb-1.5 text-micro font-extrabold tracking-widest text-[var(--text-secondary)] uppercase">
                   Stile
                 </p>
                 <div className="flex flex-wrap gap-1.5">
@@ -313,7 +313,7 @@ export function CoachSearchScreen({
                       key={s.id}
                       type="button"
                       onClick={() => setStile(s.id)}
-                      className={`rounded-lg px-2.5 py-1.5 text-[11px] font-bold transition-colors ${
+                      className={`rounded-control px-2.5 py-1.5 text-label font-bold transition-colors ${
                         stile === s.id
                           ? "bg-[var(--brand)] text-[var(--brand-contrast)]"
                           : "bg-[var(--surface-raised)] text-[var(--text-secondary)]"
@@ -327,7 +327,7 @@ export function CoachSearchScreen({
             </div>
 
             <div className="flex flex-wrap items-center gap-3">
-              <label className="flex items-center gap-2 text-[11px] font-bold text-[var(--text-secondary)]">
+              <label className="flex items-center gap-2 text-label font-bold text-[var(--text-secondary)]">
                 Reputazione min.
                 <input
                   type="range"
@@ -343,7 +343,7 @@ export function CoachSearchScreen({
               <button
                 type="button"
                 onClick={() => setGiovani((v) => !v)}
-                className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] font-bold transition-colors ${
+                className={`flex items-center gap-1.5 rounded-control px-2.5 py-1.5 text-label font-bold transition-colors ${
                   giovani
                     ? "bg-[#3ddc6b]/20 text-[#3ddc6b]"
                     : "bg-[var(--surface-raised)] text-[var(--text-secondary)]"
@@ -352,12 +352,12 @@ export function CoachSearchScreen({
                 <Sprout size={12} /> Solo chi lancia i giovani
               </button>
 
-              <label className="ml-auto flex items-center gap-2 text-[11px] font-bold text-[var(--text-secondary)]">
+              <label className="ml-auto flex items-center gap-2 text-label font-bold text-[var(--text-secondary)]">
                 Ordina
                 <select
                   value={ordine}
                   onChange={(e) => setOrdine(e.target.value as CoachSortKey)}
-                  className="rounded-lg border border-[var(--surface-border)] bg-[var(--surface-raised)] px-2 py-1 text-[11px] font-bold text-[var(--text-primary)]"
+                  className="rounded-control border border-[var(--surface-border)] bg-[var(--surface-raised)] px-2 py-1 text-label font-bold text-[var(--text-primary)]"
                 >
                   {ORDINI.map((o) => (
                     <option key={o.id} value={o.id}>
@@ -373,7 +373,7 @@ export function CoachSearchScreen({
 
       <main className="mx-auto grid w-full max-w-4xl flex-1 gap-3 px-4 py-4 pb-24 sm:grid-cols-2">
         {risultati.length === 0 && (
-          <p className="col-span-full rounded-2xl border border-dashed border-[var(--surface-border)] p-6 text-center text-sm text-[var(--text-secondary)]">
+          <p className="col-span-full rounded-card border border-dashed border-[var(--surface-border)] p-6 text-center text-body text-[var(--text-secondary)]">
             Nessun tecnico con questi criteri. Allarga i filtri.
           </p>
         )}

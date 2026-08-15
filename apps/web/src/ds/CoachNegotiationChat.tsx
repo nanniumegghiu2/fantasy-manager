@@ -1,6 +1,17 @@
 import { useMemo, useState } from "react";
 import { motion } from "framer-motion";
-import { ArrowLeft, CheckCircle2, HeartHandshake, ShieldAlert, Sparkles } from "lucide-react";
+import {
+  ArrowLeft,
+  Banknote,
+  CheckCircle2,
+  HeartHandshake,
+  Hourglass,
+  Lightbulb,
+  Repeat,
+  ShieldAlert,
+  Sparkles,
+  X,
+} from "lucide-react";
 import {
   derivedRandom,
   generateCoachPromises,
@@ -18,6 +29,17 @@ import {
 import type { Role } from "@app/shared-types";
 import { NationFlag } from "../classic/NationFlag";
 import { euro } from "./format";
+import { Button, Stepper, type Step } from "./ui";
+
+/**
+ * I due passi dell'accordo, nell'ordine in cui si fanno davvero: prima si sente cosa vuole,
+ * poi si parla di soldi e di durata. Erano due schede parallele — vedi il commento sulla
+ * sequenza più sotto.
+ */
+const PASSI: Step[] = [
+  { key: "richieste", label: "Richieste" },
+  { key: "contratto", label: "Ingaggio e durata" },
+];
 
 interface CoachNegotiationChatProps {
   coach: Coach;
@@ -84,9 +106,17 @@ export function CoachNegotiationChat({
 }: CoachNegotiationChatProps) {
   /** Le due schede del meeting: cosa chiede in campo, e cosa chiede per sé. */
   const [scheda, setScheda] = useState<"richieste" | "contratto">("richieste");
+  /** Se il primo passo è stato affrontato: serve allo stepper per dire cosa è già fatto. */
+  const [passoRichiesteFatto, setPassoRichiesteFatto] = useState(false);
   const [durataRinnovo, setDurataRinnovo] = useState(3);
-  /** Finché il rinnovo è dovuto e non si è scelta una durata, l'accordo non si chiude. */
-  const [rinnovoScelto, setRinnovoScelto] = useState(!requiresRenewal);
+  /**
+   * ⚠️ Nasce **già scelta**, e non è un dettaglio: era `!requiresRenewal`, cioè falsa proprio
+   * quando il rinnovo serviva, e da lì veniva il vicolo cieco del primo cancello della carriera
+   * (`docs/piano-ds-mobile.md`, A3). La regola è "si può cambiare idea, non restare bloccati per
+   * omissione": la durata è preselezionata, visibile ed evidenziata, e il passo la mostra col
+   * costo totale prima di firmare — informata, non subita.
+   */
+  const [rinnovoScelto, setRinnovoScelto] = useState(true);
 
 
   // Inizializzazione delle promesse dal catalogo
@@ -166,152 +196,177 @@ export function CoachNegotiationChat({
 
   return (
     <div className="flex min-h-svh flex-col bg-[var(--surface)] text-[var(--text-primary)]">
-      {/* Header Chat con Clima Umano della Trattativa */}
-      <header className="sticky top-0 z-20 border-b border-[var(--surface-border)] bg-[var(--surface)]/95 backdrop-blur">
-        <div className="mx-auto flex w-full max-w-2xl flex-col gap-2 px-4 py-3">
-          <div className="flex items-center gap-3">
+      {/* **Testata compattata.**
+
+          Prima prendeva 250px per dire cinque cose, e due di quelle andavano a capo su 360px:
+          la filosofia tattica col paese in coda, e «ATTEGGIAMENTO DEL MISTER:» su due righe
+          per introdurre una parola sola. Il costo era doppio — spazio rubato alla
+          conversazione, che restava con 500px di vuoto sotto, e nessuna delle cinque
+          informazioni comunque leggibile in un colpo d'occhio.
+
+          Ora: identità su una riga, e le tre informazioni di contesto (atteggiamento, budget,
+          costo) come pastiglie che vanno a capo invece di comprimersi. */}
+      <header className="sticky top-0 z-20 border-b border-[var(--surface-border)] bg-[var(--surface)]/95 pt-safe backdrop-blur">
+        <div className="mx-auto flex w-full max-w-2xl flex-col gap-2 px-4 py-2.5">
+          <div className="flex items-center gap-2">
             <button
               type="button"
               onClick={onCancel}
-              className="flex h-9 w-9 items-center justify-center rounded-full border border-[var(--surface-border)] transition-colors hover:border-[var(--brand)]"
+              aria-label="Torna indietro"
+              className="-ml-2 flex h-tap w-tap shrink-0 items-center justify-center rounded-full text-[var(--text-secondary)] transition-colors hover:bg-[var(--surface-raised)]"
             >
-              <ArrowLeft size={17} />
+              <ArrowLeft size={20} />
             </button>
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2">
-                <h1 className="truncate text-base leading-tight font-extrabold">{coach.name}</h1>
+            <div className="min-w-0 flex-1">
+              <h1 className="flex items-center gap-1.5 text-title leading-tight">
                 <NationFlag nation={coach.nation} />
-              </div>
-              <p className="text-[11px] text-[var(--text-secondary)] font-medium">
-                {coach.tacticalPhilosophy ?? `Modulo ${coach.formationId}`} · {coach.nation}
+                <span className="truncate">{coach.name}</span>
+              </h1>
+              <p className="line-clamp-1 text-label text-[var(--text-secondary)]">
+                {coach.tacticalPhilosophy ?? `Modulo ${coach.formationId}`}
               </p>
             </div>
-            <span className="shrink-0 text-right">
-              <span className="block text-sm font-extrabold">{euro(currentTotalCost)}</span>
-              <span className="block text-[10px] font-semibold text-[var(--text-secondary)] uppercase">
-                {isDefaultCoach && currentTotalCost === 0
-                  ? "Mister Reale (€0)"
-                  : buyoutFee > 0
-                    ? "Ingaggio + Riscatto"
-                    : "Costo Ingaggio"}
-              </span>
-            </span>
           </div>
 
-          {/* Clima Emotivo della Trattativa */}
-          <div className="flex items-center justify-between rounded-xl border border-[var(--surface-border)] bg-[var(--surface)] px-3 py-2 text-xs">
-            <div className="flex items-center gap-2">
-              <HeartHandshake size={16} style={{ color: attitudeTone }} className="shrink-0" />
-              <span className="text-[11px] font-bold text-[var(--text-secondary)] uppercase tracking-wider">
-                Atteggiamento del Mister:
-              </span>
-              <span className="text-[11px] font-extrabold" style={{ color: attitudeTone }}>
-                {attitudeLabel}
-              </span>
-            </div>
-            <span className="text-[10px] text-[var(--text-secondary)] font-semibold">
-              Budget Disp: <strong className="font-extrabold text-[var(--text-primary)]">{euro(budget)}</strong>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span
+              className="flex items-center gap-1 rounded-full px-2 py-0.5 text-label font-bold"
+              style={{ backgroundColor: `${attitudeTone}1f`, color: attitudeTone }}
+            >
+              <HeartHandshake size={12} />
+              {attitudeLabel}
             </span>
+            <span className="num rounded-full bg-[var(--surface-raised)] px-2 py-0.5 text-label font-bold text-[var(--text-secondary)]">
+              Cassa {euro(budget)}
+            </span>
+            {currentTotalCost > 0 && (
+              <span className="num rounded-full bg-[var(--accent)]/15 px-2 py-0.5 text-label font-bold text-[var(--accent)]">
+                {buyoutFee > 0 ? "Ingaggio + riscatto" : "Ingaggio"} {euro(currentTotalCost)}
+              </span>
+            )}
           </div>
         </div>
       </header>
 
-      {/* Le due schede: le richieste tecniche e il suo contratto. Il contratto sta qui e non
-          altrove perché è una **sua** richiesta come le altre — e perché è l'unico posto in cui
-          l'utente passa ogni anno, quindi l'unico in cui la scadenza non può sfuggirgli. */}
+      {/* ⚠️ **Una sequenza, non due schede** — richiesta esplicita dell'utente: *«deve essere
+          una sequenza di azioni, prima le richieste, poi ingaggio e durata di contratto»*.
+
+          Ed è anche il difetto peggiore trovato dalla diagnosi (`docs/piano-ds-mobile.md`, A3).
+          Le due schede presentavano come **paralleli e opzionali** due passi che sono
+          **sequenziali e obbligatori**: una barra a schede dice "guarda dove vuoi", mentre la
+          verità qui è "prima questo, poi quello, e senza il secondo non si chiude". Il prezzo
+          era misurabile — il blocco («scegli la durata») era comunicato da un **pallino rosso
+          di 6px**, e uno script che prova tutte le parole di conferma della lingua italiana non
+          è riuscito a superare questa schermata in tre tentativi.
+
+          Si può tornare indietro su un passo già fatto — cambiare idea è legittimo — ma non
+          saltare avanti: sarebbe di nuovo la barra a schede, con lo stesso difetto. */}
       {contract && (
-        <div className="mx-auto flex w-full max-w-2xl gap-1 px-4 pt-3">
-          {(["richieste", "contratto"] as const).map((key) => (
-            <button
-              key={key}
-              type="button"
-              onClick={() => setScheda(key)}
-              className={`relative min-h-10 flex-1 rounded-full px-3 text-xs font-bold transition-colors ${
-                scheda === key
-                  ? "bg-[var(--brand)] text-[var(--brand-contrast)]"
-                  : "bg-[var(--surface-raised)] text-[var(--text-secondary)]"
-              }`}
-            >
-              {key === "richieste" ? "Richieste" : "Contratto"}
-              {key === "contratto" && requiresRenewal && !rinnovoScelto && (
-                <span className="absolute top-1 right-2 h-1.5 w-1.5 rounded-full bg-[#ff4d4d]" />
-              )}
-            </button>
-          ))}
+        <div className="mx-auto w-full max-w-2xl px-4 pt-3">
+          <Stepper
+            steps={PASSI}
+            current={scheda === "richieste" ? 0 : 1}
+            furthest={rinnovoScelto ? 1 : passoRichiesteFatto ? 1 : 0}
+            onGoTo={(i) => setScheda(i === 0 ? "richieste" : "contratto")}
+          />
         </div>
       )}
 
       {contract && scheda === "contratto" && (
         <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-3 px-4 py-6 pb-44">
-          <section className="rounded-2xl border border-[var(--surface-border)] bg-[var(--surface-raised)] p-4">
-            <p className="text-[10px] font-extrabold tracking-widest text-[var(--text-secondary)] uppercase">
+          <section className="rounded-card border border-[var(--surface-border)] bg-[var(--surface-raised)] p-4">
+            <p className="text-micro font-extrabold tracking-widest text-[var(--text-secondary)] uppercase">
               Contratto in essere
             </p>
             <div className="mt-2 grid grid-cols-2 gap-3">
               <div>
                 <p
-                  className="text-lg leading-none font-extrabold tabular-nums"
+                  className="text-title leading-none font-extrabold tabular-nums"
                   style={{ color: contract.seasonsLeft <= 1 ? "#ff4d4d" : undefined }}
                 >
                   {contract.seasonsLeft <= 0
                     ? "Scaduto"
                     : `${contract.seasonsLeft} ${contract.seasonsLeft === 1 ? "stagione" : "stagioni"}`}
                 </p>
-                <p className="mt-1 text-[10px] text-[var(--text-secondary)]">durata residua</p>
+                <p className="mt-1 text-label text-[var(--text-secondary)]">durata residua</p>
               </div>
               <div>
-                <p className="text-lg leading-none font-extrabold tabular-nums">
+                <p className="text-title leading-none font-extrabold tabular-nums">
                   {euro(contract.wage)}
                 </p>
-                <p className="mt-1 text-[10px] text-[var(--text-secondary)]">ingaggio annuo</p>
+                <p className="mt-1 text-label text-[var(--text-secondary)]">ingaggio annuo</p>
               </div>
             </div>
-            <p className="mt-3 text-[11px] text-[var(--text-secondary)]">
+            <p className="mt-3 text-label text-[var(--text-secondary)]">
               Liberarsene oggi costerebbe <strong>{euro(contract.severance)}</strong> di
               buonuscita · margine ingaggi disponibile <strong>{euro(contract.wageRoom)}</strong>.
             </p>
           </section>
 
           {requiresRenewal ? (
-            <section className="rounded-2xl border border-[#ff4d4d]/40 bg-[#ff4d4d]/8 p-4">
-              <p className="flex items-center gap-2 text-xs font-extrabold text-[#ff4d4d]">
+            <section className="rounded-card border border-[#ff4d4d]/40 bg-[#ff4d4d]/8 p-4">
+              <p className="flex items-center gap-2 text-label font-extrabold text-[#ff4d4d]">
                 <ShieldAlert size={14} /> Vuole il rinnovo, adesso
               </p>
-              <p className="mt-1.5 text-[12px] leading-relaxed">
+              <p className="mt-1.5 text-label leading-relaxed">
                 «Direttore, il mio contratto è agli sgoccioli. Prima di parlare di mercato e di
                 obiettivi voglio sapere se qui ci sarò ancora l'anno prossimo.»
               </p>
 
-              <p className="mt-3 text-[10px] font-bold tracking-widest text-[var(--text-secondary)] uppercase">
-                Durata del rinnovo
+              {/* ⚠️ Erano **cinque bottoni nudi «1 2 3 4 5»**, senza stato selezionato e con lo
+                  stesso stile delle scatole di statistica appena sopra: non sembravano nemmeno
+                  premibili, ed erano l'unica cosa che sbloccava l'intera schermata. Ora ogni
+                  opzione dichiara la sua **conseguenza** — quanto costa in tutto — perché è
+                  quella l'informazione su cui si sceglie, non il numero di anni in sé. */}
+              <p className="mt-3 text-micro text-[var(--text-secondary)] uppercase">
+                Quanto lo leghi al club
               </p>
               <div className="mt-1.5 flex gap-1.5">
-                {[1, 2, 3, 4, 5].map((anni) => (
-                  <button
-                    key={anni}
-                    type="button"
-                    onClick={() => {
-                      setDurataRinnovo(anni);
-                      setRinnovoScelto(true);
-                    }}
-                    className={`min-h-11 flex-1 rounded-xl text-sm font-extrabold transition-colors ${
-                      rinnovoScelto && durataRinnovo === anni
-                        ? "bg-[var(--brand)] text-[var(--brand-contrast)]"
-                        : "bg-[var(--surface-raised)] text-[var(--text-secondary)]"
-                    }`}
-                  >
-                    {anni}
-                  </button>
-                ))}
+                {[1, 2, 3, 4, 5].map((anni) => {
+                  const scelto = rinnovoScelto && durataRinnovo === anni;
+                  return (
+                    <button
+                      key={anni}
+                      type="button"
+                      aria-pressed={scelto}
+                      onClick={() => {
+                        setDurataRinnovo(anni);
+                        setRinnovoScelto(true);
+                      }}
+                      className={`flex min-h-tap flex-1 flex-col items-center justify-center gap-0.5 rounded-control border-2 transition-colors ${
+                        scelto
+                          ? "border-[var(--brand)] bg-[var(--brand)] text-[var(--brand-contrast)]"
+                          : "border-transparent bg-[var(--surface-raised)] text-[var(--text-secondary)]"
+                      }`}
+                    >
+                      <span className="num text-title leading-none">{anni}</span>
+                      <span className="text-micro tracking-normal">
+                        {anni === 1 ? "anno" : "anni"}
+                      </span>
+                    </button>
+                  );
+                })}
               </div>
-              <p className="mt-2 text-[11px] text-[var(--text-secondary)]">
-                {rinnovoScelto
-                  ? `${euro(contract.wage)}/anno per ${durataRinnovo} ${durataRinnovo === 1 ? "stagione" : "stagioni"} — totale ${euro(contract.wage * durataRinnovo)}. Un contratto lungo costa meno all'anno ma lega; uno corto lo lascia corteggiabile a zero.`
-                  : "Scegli una durata: senza rinnovo l'accordo non si chiude e a fine stagione la panchina è libera."}
+              <p className="mt-2 text-label text-[var(--text-secondary)]">
+                {rinnovoScelto ? (
+                  <>
+                    <strong className="num text-[var(--text-primary)]">
+                      {euro(contract.wage)}/anno
+                    </strong>{" "}
+                    per {durataRinnovo} {durataRinnovo === 1 ? "stagione" : "stagioni"} — in tutto{" "}
+                    <strong className="num text-[var(--text-primary)]">
+                      {euro(contract.wage * durataRinnovo)}
+                    </strong>
+                    . Un contratto lungo costa meno all'anno ma lega; uno corto lo lascia
+                    corteggiabile a zero.
+                  </>
+                ) : (
+                  "Tocca una durata qui sopra: senza rinnovo l'accordo non si chiude e a fine stagione la panchina resta libera."
+                )}
               </p>
             </section>
           ) : (
-            <p className="rounded-2xl border border-[var(--surface-border)] bg-[var(--surface-raised)] p-4 text-[12px] leading-relaxed text-[var(--text-secondary)]">
+            <p className="rounded-card border border-[var(--surface-border)] bg-[var(--surface-raised)] p-4 text-label leading-relaxed text-[var(--text-secondary)]">
               Il contratto regge ancora: se ne riparlerà quando sarà in scadenza. Fino ad allora,
               mandarlo via costa la buonuscita qui sopra.
             </p>
@@ -319,9 +374,14 @@ export function CoachNegotiationChat({
         </main>
       )}
 
-      {/* Chat Area */}
+      {/* Chat Area — **ancorata in basso**, come una conversazione vera.
+
+          Con `justify-end` i messaggi crescono verso l'alto e restano attaccati alle risposte:
+          prima erano incollati in cima e lasciavano ~500px di vuoto assoluto fra l'ultima
+          battuta e i pulsanti, mentre il testo attorno era a 10-11px. Il vuoto stava nel posto
+          sbagliato — fra ciò che si legge e ciò che si tocca. */}
       <main
-        className={`mx-auto w-full max-w-2xl flex-1 flex-col gap-4 px-4 py-6 pb-44 ${
+        className={`mx-auto w-full max-w-2xl flex-1 flex-col justify-end gap-4 px-4 py-5 pb-44 ${
           contract && scheda === "contratto" ? "hidden" : "flex"
         }`}
       >
@@ -331,14 +391,14 @@ export function CoachNegotiationChat({
           animate={{ opacity: 1, y: 0 }}
           className="flex items-start gap-3"
         >
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--brand)]/20 text-base font-extrabold text-[var(--brand)]">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--brand)]/20 text-body font-extrabold text-[var(--brand)]">
             {coach.name[0]}
           </div>
-          <div className="flex-1 rounded-2xl rounded-tl-sm border border-[var(--surface-border)] bg-[var(--surface-raised)] p-4 shadow-sm">
-            <p className="text-xs font-bold text-[var(--brand)] uppercase tracking-wider mb-1">
+          <div className="flex-1 rounded-card rounded-tl-sm border border-[var(--surface-border)] bg-[var(--surface-raised)] p-4 shadow-sm">
+            <p className="text-micro font-bold text-[var(--brand)] uppercase tracking-wider mb-1">
               {coach.name}
             </p>
-            <p className="text-sm leading-relaxed">{greetingMsg}</p>
+            <p className="text-body leading-relaxed">{greetingMsg}</p>
           </div>
         </motion.div>
 
@@ -351,7 +411,7 @@ export function CoachNegotiationChat({
             className={`flex items-start gap-3 ${msg.sender === "user" ? "flex-row-reverse" : ""}`}
           >
             <div
-              className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-base font-extrabold ${
+              className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-body font-extrabold ${
                 msg.sender === "user"
                   ? "bg-[var(--surface-raised)] text-[var(--brand)] border border-[var(--brand)]/40"
                   : "bg-[var(--brand)]/20 text-[var(--brand)]"
@@ -360,16 +420,16 @@ export function CoachNegotiationChat({
               {msg.sender === "user" ? "DS" : coach.name[0]}
             </div>
             <div
-              className={`flex-1 rounded-2xl p-4 shadow-sm text-xs leading-relaxed border ${
+              className={`flex-1 rounded-card p-4 shadow-sm text-label leading-relaxed border ${
                 msg.sender === "user"
                   ? "rounded-tr-sm bg-[var(--brand)]/10 border-[var(--brand)]/30 text-[var(--text-primary)]"
                   : "rounded-tl-sm bg-[var(--surface-raised)] border-[var(--surface-border)]"
               }`}
             >
-              <p className="font-bold mb-1 text-[11px] uppercase tracking-wider">
+              <p className="font-bold mb-1 text-micro uppercase tracking-wider">
                 {msg.sender === "user" ? "Tu (Direttore Sportivo)" : coach.name}
               </p>
-              <p className="text-sm leading-relaxed">{msg.text}</p>
+              <p className="text-body leading-relaxed">{msg.text}</p>
             </div>
           </motion.div>
         ))}
@@ -379,74 +439,101 @@ export function CoachNegotiationChat({
           <motion.div
             initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
-            className="flex flex-col gap-3 rounded-2xl border border-[var(--surface-border)] bg-[var(--surface-raised)] p-4 shadow-sm"
+            className="flex flex-col gap-3 rounded-card border border-[var(--surface-border)] bg-[var(--surface-raised)] p-4 shadow-sm"
           >
-            <p className="text-xs font-bold text-[var(--brand)] uppercase tracking-wider">
-              Richieste del Mister sul Tavolo della Trattativa:
-            </p>
+            <p className="text-micro text-[var(--brand)] uppercase">Cosa chiede</p>
 
             <div className="flex flex-col gap-3">
               {negState.promises.map((p) => {
                 const bonusAmount = p.salaryBonusDemanded ?? 1000000;
+                /* La priorità come colore e parola, non come pallino emoji: 🔴🟡🟢 sono
+                   vietate da CLAUDE.md § 8 e per giunta si disegnano con font di sistema
+                   diversi su Android e iOS, quindi la stessa schermata cambiava aspetto fra
+                   due telefoni. */
+                const priorita =
+                  p.priority === "imprescindibile"
+                    ? { testo: "Imprescindibile", colore: "var(--danger)" }
+                    : p.priority === "negoziabile"
+                      ? { testo: "Negoziabile", colore: "var(--draw)" }
+                      : { testo: "Flessibile", colore: "var(--win)" };
 
                 return (
                   <div
                     key={p.id}
-                    className="flex flex-col gap-2 rounded-xl border border-[var(--brand)]/30 bg-[var(--brand)]/5 p-3 text-xs"
+                    className="flex flex-col gap-2.5 rounded-control border border-[var(--brand)]/30 bg-[var(--brand)]/5 p-3"
                   >
                     <div className="flex items-start gap-2">
-                      <Sparkles size={16} className="shrink-0 text-[var(--brand)] mt-0.5" />
-                      <div className="flex-1">
-                        <span className="font-bold block text-[var(--text-primary)]">{p.description}</span>
-                        <span className="text-[10px] text-[var(--text-secondary)]">
-                          Priorità del Mister: {p.priority === "imprescindibile" ? "🔴 Imprescindibile" : p.priority === "negoziabile" ? "🟡 Negoziabile" : "🟢 Flessibile"}
+                      <Sparkles size={16} className="mt-0.5 shrink-0 text-[var(--brand)]" />
+                      <div className="min-w-0 flex-1">
+                        <span className="block text-body font-bold text-balance">
+                          {p.description}
+                        </span>
+                        <span
+                          className="mt-1 inline-flex rounded-full px-2 py-0.5 text-label font-bold"
+                          style={{
+                            backgroundColor: `color-mix(in srgb, ${priorita.colore} 15%, transparent)`,
+                            color: priorita.colore,
+                          }}
+                        >
+                          {priorita.testo}
                         </span>
                       </div>
                     </div>
 
-                    {/* Opzioni iniziali per ogni promessa */}
-                    <div className="flex flex-wrap gap-2 pt-2 border-t border-[var(--surface-border)]/50">
-                      <button
-                        type="button"
+                    {/* Le mosse erano alte **29px** e tagliate a metà («❌ Chiedi di rimuovere
+                        la r…»), pur essendo le decisioni più importanti della schermata. Ora
+                        stanno in colonna, a piena larghezza e a 44px. */}
+                    <div className="flex flex-col gap-1.5 border-t border-[var(--surface-border)]/50 pt-2.5">
+                      <Button
+                        variant="secondary"
+                        icon={Lightbulb}
+                        block
                         onClick={() => handleAction(p.id, "reduce_target")}
-                        className="rounded-lg bg-[var(--surface)] border border-[var(--surface-border)] px-3 py-1.5 text-[11px] font-bold transition-colors hover:border-[var(--brand)]"
                       >
-                        💡 Proponi un compromesso
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleAction(p.id, "remove_promise")}
-                        className="rounded-lg bg-[var(--surface)] border border-rose-500/40 text-rose-400 px-3 py-1.5 text-[11px] font-bold transition-colors hover:bg-rose-500/10"
-                      >
-                        ❌ Chiedi di rimuovere la richiesta
-                      </button>
+                        Proponi un compromesso
+                      </Button>
                       {p.targetRole && (
-                        <button
-                          type="button"
+                        <Button
+                          variant="secondary"
+                          icon={Repeat}
+                          block
                           onClick={() => handleAction(p.id, "offer_alternative")}
-                          className="rounded-lg bg-[var(--surface)] border border-sky-500/40 text-sky-400 px-3 py-1.5 text-[11px] font-bold transition-colors hover:bg-sky-500/10"
                         >
-                          🔄 Proponi un'alternativa
-                        </button>
+                          Proponi un'alternativa
+                        </Button>
                       )}
-                      <button
-                        type="button"
+                      <Button
+                        variant="secondary"
+                        icon={Hourglass}
+                        block
                         onClick={() => handleAction(p.id, "delay")}
-                        className="rounded-lg bg-[var(--surface)] border border-[var(--surface-border)] px-3 py-1.5 text-[11px] font-bold transition-colors hover:border-[var(--brand)]"
                       >
-                        ⏳ Rimanda alla prossima finestra
-                      </button>
+                        Rimanda alla prossima finestra
+                      </Button>
+                      <Button
+                        variant="danger"
+                        icon={X}
+                        block
+                        onClick={() => handleAction(p.id, "remove_promise")}
+                      >
+                        Chiedi di toglierla
+                      </Button>
 
                       {/* Se la richiesta è stata RIFIUTATA dal mister, sblocca la proposta di aumento ingaggio */}
                       {p.rejectedOffer && (
-                        <button
-                          type="button"
-                          disabled={budget < currentTotalCost + bonusAmount}
+                        <Button
+                          variant="secondary"
+                          icon={Banknote}
+                          block
                           onClick={() => handleAction(p.id, "boost_salary")}
-                          className="w-full mt-1 rounded-lg bg-emerald-500/10 border border-emerald-500/50 text-emerald-400 px-3 py-2 text-xs font-extrabold transition-all hover:bg-emerald-500/20 disabled:opacity-50"
+                          blockedReason={
+                            budget < currentTotalCost + bonusAmount
+                              ? `La cassa non copre il bonus: mancano ${euro(currentTotalCost + bonusAmount - budget)}.`
+                              : undefined
+                          }
                         >
-                          💰 Offri bonus sull'ingaggio di +{euro(bonusAmount)} per rimuovere questa richiesta
-                        </button>
+                          Bonus di {euro(bonusAmount)} per toglierla
+                        </Button>
                       )}
                     </div>
                   </div>
@@ -461,11 +548,11 @@ export function CoachNegotiationChat({
           <motion.div
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
-            className="rounded-2xl border border-emerald-500/40 bg-emerald-500/10 p-4 text-center"
+            className="rounded-card border border-emerald-500/40 bg-emerald-500/10 p-4 text-center"
           >
             <CheckCircle2 size={32} className="mx-auto mb-2 text-emerald-400" />
-            <h3 className="text-base font-extrabold text-emerald-400">Accordo Raggiunto!</h3>
-            <p className="mt-1 text-xs text-[var(--text-secondary)]">{acceptMsg}</p>
+            <h3 className="text-body font-extrabold text-emerald-400">Accordo Raggiunto!</h3>
+            <p className="mt-1 text-label text-[var(--text-secondary)]">{acceptMsg}</p>
           </motion.div>
         )}
 
@@ -474,11 +561,11 @@ export function CoachNegotiationChat({
           <motion.div
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
-            className="rounded-2xl border border-rose-500/40 bg-rose-500/10 p-4 text-center"
+            className="rounded-card border border-rose-500/40 bg-rose-500/10 p-4 text-center"
           >
             <ShieldAlert size={32} className="mx-auto mb-2 text-rose-400" />
-            <h3 className="text-base font-extrabold text-rose-400">Trattativa Interrotta</h3>
-            <p className="mt-1 text-xs text-[var(--text-secondary)]">{rejectMsg}</p>
+            <h3 className="text-body font-extrabold text-rose-400">Trattativa Interrotta</h3>
+            <p className="mt-1 text-label text-[var(--text-secondary)]">{rejectMsg}</p>
           </motion.div>
         )}
       </main>
@@ -494,73 +581,80 @@ export function CoachNegotiationChat({
        * misura, altrimenti l ultima riga della trattativa resterebbe nascosta dietro la barra.
        */}
       <footer className="fixed inset-x-0 bottom-0 z-30 border-t border-[var(--surface-border)] bg-[var(--surface)]/95 px-4 pt-4 backdrop-blur pb-[calc(1rem+env(safe-area-inset-bottom))]">
-        <div className="mx-auto flex w-full max-w-2xl gap-3">
+        {/* ⚠️ **Una sola azione primaria per passo, sempre nella stessa posizione.**
+
+            Prima qui convivevano un rosso vistoso («Rifiuta Condizioni») e un pulsante spento
+            che recitava «Manca il rinnovo»: l'unica cosa ovviamente premibile era quella che
+            mandava tutto a monte. La regola che ne nasce, e che vale per tutta la modalità: un
+            primario **non descrive mai il problema** — o è abilitato, o dice *l'azione che lo
+            sblocca* e ci porta. L'uscita scende a testo secondario, dove vanno le uscite. */}
+        <div className="mx-auto w-full max-w-2xl">
           {step === "greeting" && (
-            <>
-              <button
-                type="button"
-                onClick={onCancel}
-                className="flex-1 rounded-full border border-[var(--surface-border)] py-3 text-sm font-extrabold text-[var(--text-secondary)] transition-colors hover:border-[var(--brand)]"
-              >
-                Abbandona
-              </button>
-              <button
-                type="button"
-                onClick={() => setStep("demands")}
-                className="flex-1 rounded-full bg-[var(--brand)] py-3 text-sm font-extrabold text-[var(--brand-contrast)] transition-transform active:scale-95"
-              >
-                Ascolta le richieste
-              </button>
-            </>
+            <div className="flex flex-col gap-2">
+              <Button size="lg" block onClick={() => setStep("demands")}>
+                Ascolta le sue richieste
+              </Button>
+              <Button variant="ghost" block onClick={onCancel}>
+                Abbandona la trattativa
+              </Button>
+            </div>
           )}
 
           {step === "demands" && negState.status === "in_corso" && (
-            <>
-              <button
-                type="button"
-                onClick={() => setStep("rejected")}
-                className="flex-1 rounded-full border border-rose-500/40 bg-rose-500/10 py-3 text-sm font-extrabold text-rose-400 transition-colors hover:bg-rose-500/20"
-              >
-                Rifiuta Condizioni
-              </button>
-              <button
-                type="button"
-                disabled={budget < currentTotalCost || !rinnovoScelto}
-                onClick={() => {
-                  // Se il rinnovo è dovuto ma non si è ancora scelta la durata, la scheda si
-                  // apre invece di chiudere l'accordo: il bottone dice cosa manca, non si limita
-                  // a essere spento.
-                  if (requiresRenewal && !rinnovoScelto) {
-                    setScheda("contratto");
-                    return;
+            <div className="flex flex-col gap-2">
+              {/* ⚠️ **Il primario avanza, non si blocca.**
+
+                  Il primo tentativo di rinnovo faceva navigare il pulsante bloccato al passo
+                  mancante — meglio del muto «Manca il rinnovo», ma la verifica automatica ha
+                  mostrato il difetto residuo: arrivati al passo 2 il pulsante continuava a dire
+                  «Passa a ingaggio e durata», cioè invitava dov'era già. Un anello.
+
+                  La regola giusta era già scritta nel piano e non l'avevo applicata: *nessun
+                  passo comincia senza una scelta valida in campo — si può cambiare idea, non
+                  restare bloccati per omissione*. La durata nasce quindi preselezionata e
+                  visibile, e il primario dice sempre **il passo successivo**. */}
+              {requiresRenewal && scheda === "richieste" ? (
+                <Button size="lg" block onClick={() => { setPassoRichiesteFatto(true); setScheda("contratto"); }}>
+                  Passa a ingaggio e durata
+                </Button>
+              ) : (
+                <Button
+                  size="lg"
+                  block
+                  onClick={() => {
+                    setPassoRichiesteFatto(true);
+                    setStep("agreed");
+                    setTimeout(() => {
+                      onAgree(
+                        coach,
+                        negState.promises,
+                        currentTotalCost,
+                        requiresRenewal ? durataRinnovo : undefined,
+                      );
+                    }, 1200);
+                  }}
+                  blockedReason={
+                    budget < currentTotalCost
+                      ? `Servono ${euro(currentTotalCost - budget)} in più: togli una richiesta o proponi un compromesso.`
+                      : undefined
                   }
-                  setStep("agreed");
-                  setTimeout(() => {
-                    onAgree(
-                      coach,
-                      negState.promises,
-                      currentTotalCost,
-                      requiresRenewal ? durataRinnovo : undefined,
-                    );
-                  }, 1200);
-                }}
-                className="flex-1 rounded-full bg-[var(--brand)] py-3 text-sm font-extrabold text-[var(--brand-contrast)] transition-transform active:scale-95 disabled:opacity-50"
-              >
-                {requiresRenewal && !rinnovoScelto
-                  ? "Manca il rinnovo"
-                  : `Firma Contratto (${euro(currentTotalCost)})`}
-              </button>
-            </>
+                  onBlockedClick={
+                    budget < currentTotalCost ? () => setScheda("richieste") : undefined
+                  }
+                >
+                  {`Chiudi l'accordo · ${euro(currentTotalCost)}`}
+                </Button>
+              )}
+              <Button variant="ghost" block onClick={() => setStep("rejected")}>
+                Rifiuta le sue condizioni
+              </Button>
+            </div>
           )}
 
           {(step === "agreed" || step === "rejected" || negState.status === "arenata") && (
-            <button
-              type="button"
-              onClick={onCancel}
-              className="w-full rounded-full border border-[var(--surface-border)] py-3 text-sm font-extrabold transition-colors hover:border-[var(--brand)]"
-            >
-              Chiudi Chat
-            </button>
+            <Button variant="secondary" size="lg" block onClick={onCancel}>
+              Chiudi
+            </Button>
           )}
         </div>
       </footer>

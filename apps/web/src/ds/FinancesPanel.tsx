@@ -80,16 +80,16 @@ export function FinancesPanel({
   };
 
   return (
-    <section className="flex flex-col gap-3 rounded-2xl border border-[var(--surface-border)] bg-[var(--surface-raised)] p-4">
+    <section className="flex flex-col gap-3 rounded-card border border-[var(--surface-border)] bg-[var(--surface-raised)] p-4">
       <header className="flex items-center justify-between">
-        <h3 className="flex items-center gap-2 text-sm font-extrabold">
+        <h3 className="flex items-center gap-2 text-body font-extrabold">
           <Landmark size={15} className="text-[var(--brand)]" /> Finanze della stagione
         </h3>
         <span className="text-right">
-          <span className="block text-sm font-extrabold tabular-nums">
+          <span className="block text-body font-extrabold tabular-nums">
             {formatEuro(vista.revenue)}
           </span>
-          <span className="block text-[9px] font-bold tracking-widest text-[var(--text-secondary)] uppercase">
+          <span className="block text-micro font-bold tracking-widest text-[var(--text-secondary)] uppercase">
             fatturato
           </span>
         </span>
@@ -97,23 +97,23 @@ export function FinancesPanel({
 
       {/* I due numeri, e nient'altro. */}
       <div className="grid grid-cols-2 gap-3">
-        <div className="rounded-xl bg-[var(--surface)] p-3">
-          <p className="flex items-center gap-1.5 text-[10px] font-extrabold tracking-widest text-[var(--text-secondary)] uppercase">
+        <div className="rounded-control bg-[var(--surface)] p-3">
+          <p className="flex items-center gap-1.5 text-micro font-extrabold tracking-widest text-[var(--text-secondary)] uppercase">
             <Wallet size={11} /> Mercato
           </p>
-          <p className="mt-1 text-lg leading-none font-extrabold tabular-nums">
+          <p className="mt-1 text-title leading-none font-extrabold tabular-nums">
             {formatEuro(anteprima.mercato)}
           </p>
-          <p className="mt-1 text-[10px] text-[var(--text-secondary)]">disponibile ora</p>
+          <p className="mt-1 text-label text-[var(--text-secondary)]">disponibile ora</p>
         </div>
-        <div className="rounded-xl bg-[var(--surface)] p-3">
-          <p className="flex items-center gap-1.5 text-[10px] font-extrabold tracking-widest text-[var(--text-secondary)] uppercase">
+        <div className="rounded-control bg-[var(--surface)] p-3">
+          <p className="flex items-center gap-1.5 text-micro font-extrabold tracking-widest text-[var(--text-secondary)] uppercase">
             <Users size={11} /> Ingaggi
           </p>
-          <p className="mt-1 text-lg leading-none font-extrabold tabular-nums">
+          <p className="mt-1 text-title leading-none font-extrabold tabular-nums">
             {formatWage(anteprima.tetto)}
           </p>
-          <p className="mt-1 text-[10px] text-[var(--text-secondary)]">
+          <p className="mt-1 text-label text-[var(--text-secondary)]">
             di cui {formatWage(vista.committedWages)} già firmati
           </p>
         </div>
@@ -134,7 +134,7 @@ export function FinancesPanel({
           onKeyUp={() => applica(bozza)}
           className="w-full accent-[var(--brand)]"
         />
-        <div className="flex items-center justify-between text-[10px] font-bold text-[var(--text-secondary)]">
+        <div className="flex items-center justify-between text-label font-bold text-[var(--text-secondary)]">
           <span>min {formatWage(vista.committedWages)}</span>
           <span>max {formatWage(Math.round(vista.revenue * maxConsentito))}</span>
         </div>
@@ -148,7 +148,7 @@ export function FinancesPanel({
             key={`giu-${importo}`}
             type="button"
             onClick={() => applica(bozza - passo(importo))}
-            className="min-h-9 flex-1 rounded-lg border border-[var(--surface-border)] text-[11px] font-bold text-[var(--text-secondary)] active:scale-95"
+            className="min-h-9 flex-1 rounded-control border border-[var(--surface-border)] text-label font-bold text-[var(--text-secondary)] active:scale-95"
           >
             −{formatEuro(importo)}
           </button>
@@ -158,14 +158,14 @@ export function FinancesPanel({
             key={`su-${importo}`}
             type="button"
             onClick={() => applica(bozza + passo(importo))}
-            className="min-h-9 flex-1 rounded-lg border border-[var(--brand)]/40 bg-[var(--brand)]/10 text-[11px] font-bold text-[var(--brand)] active:scale-95"
+            className="min-h-9 flex-1 rounded-control border border-[var(--brand)]/40 bg-[var(--brand)]/10 text-label font-bold text-[var(--brand)] active:scale-95"
           >
             +{formatEuro(importo)}
           </button>
         ))}
       </div>
 
-      <p className="text-[11px] leading-snug font-semibold text-[var(--text-secondary)]">
+      <p className="text-label leading-snug font-semibold text-[var(--text-secondary)]">
         Sposta verso gli ingaggi per firmare rinnovi e svincolati; verso il mercato per i
         cartellini. Sotto {formatWage(vista.committedWages)} non si scende: sono contratti già
         firmati
@@ -176,7 +176,7 @@ export function FinancesPanel({
       </p>
 
       {anteprima.margine !== 0 && (
-        <p className="rounded-xl border border-[var(--surface-border)] bg-[var(--surface)] px-3 py-2 text-[11px] font-bold">
+        <p className="rounded-control border border-[var(--surface-border)] bg-[var(--surface)] px-3 py-2 text-label font-bold">
           Margine per nuove firme:{" "}
           <span className={anteprima.margine < 0 ? "text-[#ff4d4d]" : "text-[#3ddc6b]"}>
             {formatWage(anteprima.margine)}
@@ -192,7 +192,7 @@ export function FinancesPanel({
       )}
 
       {vista.overrunNow > 0 && (
-        <p className="flex items-start gap-2 rounded-xl bg-[#ff4d4d]/15 px-3 py-2 text-[11px] font-bold text-[#ff4d4d]">
+        <p className="flex items-start gap-2 rounded-control bg-[#ff4d4d]/15 px-3 py-2 text-label font-bold text-[#ff4d4d]">
           <AlertTriangle size={13} className="mt-0.5 shrink-0" />
           Stai sforando di {formatEuro(vista.overrunNow)}: verranno tolti dal fatturato della
           prossima stagione.

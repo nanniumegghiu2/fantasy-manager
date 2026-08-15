@@ -78,27 +78,27 @@ function Striscia({
 
   return (
     <section
-      className="overflow-hidden rounded-2xl border"
+      className="overflow-hidden rounded-card border"
       style={{ borderColor: `${accento}4d`, backgroundColor: `${accento}0d` }}
     >
       <div className="flex items-center gap-2 px-3 py-2">
         <Icona size={15} className="shrink-0" style={{ color: accento }} />
         <p
-          className="min-w-0 flex-1 truncate text-[11px] font-bold tracking-wide uppercase"
+          className="min-w-0 flex-1 truncate text-micro font-bold tracking-wide uppercase"
           style={{ color: accento }}
         >
           {titolo}
         </p>
         {vinta ? (
           <span
-            className="flex items-center gap-1 text-[11px] font-extrabold"
+            className="flex items-center gap-1 text-label font-extrabold"
             style={{ color: accento }}
           >
             <Trophy size={12} />
             Vinta
           </span>
         ) : (
-          <span className="text-[11px] font-semibold text-[var(--text-secondary)] tabular-nums">
+          <span className="text-label font-semibold text-[var(--text-secondary)] tabular-nums">
             {stato}
           </span>
         )}
@@ -122,7 +122,7 @@ function Striscia({
                 color: fatta ? "#241a08" : "var(--text-secondary)",
               }}
               transition={{ duration: 0.35 }}
-              className={`flex h-6 flex-1 items-center justify-center rounded-md text-[10px] font-extrabold ${
+              className={`flex h-6 flex-1 items-center justify-center rounded-control text-label font-extrabold ${
                 corrente ? "ring-1" : ""
               }`}
               style={corrente ? { boxShadow: `inset 0 0 0 1px ${accento}` } : undefined}
@@ -249,7 +249,7 @@ export function CompetitionNightBanner({
       animate={{ opacity: 1, scale: 1, y: 0 }}
       exit={{ opacity: 0, scale: 0.98 }}
       transition={{ type: "spring", stiffness: 360, damping: 24 }}
-      className="relative overflow-hidden rounded-2xl px-4 py-3"
+      className="relative overflow-hidden rounded-card px-4 py-3"
       style={{
         border: `1px solid ${accento}66`,
         background: `linear-gradient(to right, ${accento}2e, transparent)`,
@@ -265,13 +265,13 @@ export function CompetitionNightBanner({
         className="pointer-events-none absolute inset-y-0 w-1/3 bg-white/12 blur-md"
       />
       <p
-        className="relative flex items-center gap-2 text-[11px] font-bold tracking-widest uppercase"
+        className="relative flex items-center gap-2 text-micro font-bold tracking-widest uppercase"
         style={{ color: accento }}
       >
         <Icona size={13} />
         {competition === "corona" ? "Serata di Corona" : "Serata di Coppa Tricolore"}
       </p>
-      <p className="relative mt-0.5 text-sm font-extrabold">{stage}</p>
+      <p className="relative mt-0.5 text-body font-extrabold">{stage}</p>
     </motion.div>
   );
 }

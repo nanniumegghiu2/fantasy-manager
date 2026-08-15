@@ -92,27 +92,27 @@ export function MarketBriefing({ state, world, standings }: MarketBriefingProps)
       <button
         type="button"
         onClick={() => setAperto((v) => !v)}
-        className="flex w-full items-center gap-3 px-4 py-2.5 text-left"
+        className="flex min-h-tap w-full items-center gap-3 px-4 py-2 text-left"
       >
         {nostra ? (
           <>
-            <span className="shrink-0 text-sm font-extrabold">
+            <span className="shrink-0 text-body font-extrabold">
               {ordinale(nostra.position)}
               <span className="ml-1 font-semibold text-[var(--text-secondary)]">
                 su {teams}
               </span>
             </span>
-            <span className="shrink-0 text-[11px] font-semibold text-[var(--text-secondary)]">
+            <span className="shrink-0 text-label font-semibold text-[var(--text-secondary)]">
               {nostra.points} pt · {nostra.wins}V {nostra.draws}N {nostra.losses}P
             </span>
           </>
         ) : (
-          <span className="text-[11px] font-semibold text-[var(--text-secondary)]">
+          <span className="text-label font-semibold text-[var(--text-secondary)]">
             La stagione non è ancora cominciata
           </span>
         )}
 
-        <span className="ml-auto flex shrink-0 items-center gap-2.5 text-[11px] font-semibold">
+        <span className="ml-auto flex shrink-0 items-center gap-2.5 text-label font-semibold">
           <span className="flex items-center gap-1 text-[var(--text-secondary)]">
             <TrendingUp size={12} />
             {media}
@@ -159,8 +159,8 @@ export function MarketBriefing({ state, world, standings }: MarketBriefingProps)
             <div className="px-4 pb-3">
               {/* **La dirigenza è parte del contesto**, non una sorpresa di fine stagione: se la
                   fiducia sta scendendo lo si deve poter leggere mentre si decide come spendere. */}
-              <div className="mb-2 flex items-center justify-between gap-2 rounded-xl border border-[var(--surface-border)] bg-[var(--surface)] px-2.5 py-2">
-                <span className="flex items-center gap-1.5 text-[10px] font-extrabold tracking-widest text-[var(--text-secondary)] uppercase">
+              <div className="mb-2 flex items-center justify-between gap-2 rounded-control border border-[var(--surface-border)] bg-[var(--surface)] px-2.5 py-2">
+                <span className="flex items-center gap-1.5 text-micro font-extrabold tracking-widest text-[var(--text-secondary)] uppercase">
                   <Building2 size={11} /> Dirigenza
                 </span>
                 <span className="flex items-center gap-2">
@@ -170,7 +170,7 @@ export function MarketBriefing({ state, world, standings }: MarketBriefingProps)
                       style={{ width: `${fiducia.valore}%`, backgroundColor: fiducia.tone }}
                     />
                   </span>
-                  <span className="text-[11px] font-extrabold" style={{ color: fiducia.tone }}>
+                  <span className="text-label font-extrabold" style={{ color: fiducia.tone }}>
                     {fiducia.label}
                   </span>
                 </span>
@@ -184,11 +184,11 @@ export function MarketBriefing({ state, world, standings }: MarketBriefingProps)
               />
 
               {standings.length > 0 && (
-                <ul className="mt-2 max-h-52 overflow-y-auto rounded-xl border border-[var(--surface-border)] bg-[var(--surface)]">
+                <ul className="mt-2 max-h-52 overflow-y-auto rounded-control border border-[var(--surface-border)] bg-[var(--surface)]">
                   {standings.map((row) => (
                     <li
                       key={row.teamId}
-                      className={`flex items-center gap-2 px-2.5 py-1 text-[13px] ${
+                      className={`flex items-center gap-2 px-2.5 py-1 text-label ${
                         row.isUser ? "bg-[var(--brand)]/12 font-extrabold" : ""
                       }`}
                     >
@@ -203,9 +203,9 @@ export function MarketBriefing({ state, world, standings }: MarketBriefingProps)
                                 : "transparent",
                         }}
                       />
-                      <span className="w-5 shrink-0 text-[11px] tabular-nums">{row.position}</span>
+                      <span className="w-5 shrink-0 text-label tabular-nums">{row.position}</span>
                       <span className="min-w-0 flex-1 truncate">{row.name}</span>
-                      <span className="shrink-0 text-[11px] tabular-nums text-[var(--text-secondary)]">
+                      <span className="shrink-0 text-label tabular-nums text-[var(--text-secondary)]">
                         {row.goalsFor}:{row.goalsAgainst}
                       </span>
                       <span className="w-7 shrink-0 text-right font-extrabold tabular-nums">
@@ -247,14 +247,14 @@ function Legenda({
 
   if (voci.length === 0) {
     return (
-      <p className="text-[11px] text-[var(--text-secondary)]">
+      <p className="text-label text-[var(--text-secondary)]">
         Rosa al completo e serena: nessun infortunio, nessun malumore.
       </p>
     );
   }
 
   return (
-    <p className="text-[11px] text-[var(--text-secondary)]">
+    <p className="text-label text-[var(--text-secondary)]">
       {voci.map((v, i) => (
         <span key={v.testo}>
           {i > 0 && " · "}

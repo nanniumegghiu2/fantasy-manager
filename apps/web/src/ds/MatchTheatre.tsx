@@ -268,7 +268,7 @@ export function MatchTheatre({
         initial={{ scale: 0.95, y: 14, opacity: 0 }}
         animate={{ scale: 1, y: 0, opacity: 1 }}
         transition={{ type: "spring", stiffness: 320, damping: 28 }}
-        className="flex max-h-full w-full max-w-3xl flex-col overflow-hidden rounded-3xl border border-emerald-500/25 bg-[#0b1118] shadow-2xl"
+        className="flex max-h-full w-full max-w-3xl flex-col overflow-hidden rounded-card border border-emerald-500/25 bg-[#0b1118] shadow-2xl"
       >
         <Intestazione
           reason={reason}
@@ -326,7 +326,7 @@ export function MatchTheatre({
                 type="button"
                 onClick={() => setInPausa((p) => !p)}
                 aria-label={inPausa ? "Riprendi la partita" : "Metti in pausa"}
-                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-white/15 bg-white/5 text-slate-200 transition-colors hover:bg-white/15 hover:text-white"
+                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-control border border-white/15 bg-white/5 text-slate-200 transition-colors hover:bg-white/15 hover:text-white"
               >
                 {inPausa ? <Play size={18} /> : <Pause size={18} />}
               </button>
@@ -334,7 +334,7 @@ export function MatchTheatre({
                 type="button"
                 onClick={() => setVelocita((v) => (v === 1 ? 2 : v === 2 ? 4 : 1))}
                 aria-label={`Velocità ${velocita}x, tocca per cambiare`}
-                className={`flex h-11 shrink-0 items-center gap-1.5 rounded-xl border px-3.5 text-xs font-black transition-colors ${
+                className={`flex h-11 shrink-0 items-center gap-1.5 rounded-control border px-3.5 text-label font-black transition-colors ${
                   velocita === 1
                     ? "border-white/15 bg-white/5 text-slate-300"
                     : "border-emerald-400/70 bg-emerald-500/20 text-emerald-300"
@@ -350,7 +350,7 @@ export function MatchTheatre({
               <button
                 type="button"
                 onClick={onClose}
-                className="w-full rounded-2xl bg-emerald-500 py-3 text-sm font-black text-slate-950 shadow-lg transition-transform hover:bg-emerald-400 active:scale-[0.98]"
+                className="w-full rounded-card bg-emerald-500 py-3 text-body font-black text-slate-950 shadow-lg transition-transform hover:bg-emerald-400 active:scale-[0.98]"
               >
                 Torna alla stagione
               </button>
@@ -358,7 +358,7 @@ export function MatchTheatre({
               <button
                 type="button"
                 onClick={salta}
-                className="flex w-full items-center justify-center gap-2 rounded-2xl border border-white/15 bg-white/5 py-2.5 text-sm font-bold text-slate-300 transition-colors hover:bg-white/10 hover:text-white"
+                className="flex w-full items-center justify-center gap-2 rounded-card border border-white/15 bg-white/5 py-2.5 text-body font-bold text-slate-300 transition-colors hover:bg-white/10 hover:text-white"
               >
                 <FastForward size={16} />
                 Salta al finale
@@ -614,7 +614,7 @@ function Campo({
             initial={{ opacity: 0, y: 6 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0 }}
-            className="pointer-events-none absolute z-20 -translate-x-1/2 -translate-y-full rounded-md border border-white/20 bg-slate-950/90 px-1.5 py-0.5 text-[9px] font-black whitespace-nowrap text-white shadow-lg"
+            className="pointer-events-none absolute z-20 -translate-x-1/2 -translate-y-full rounded-control border border-white/20 bg-slate-950/90 px-1.5 py-0.5 text-label font-black whitespace-nowrap text-white shadow-lg"
             // Il viewBox è allargato a −1..101 per contenere le porte: un overlay in HTML deve
             // riportare la coordinata su quella scala, altrimenti scivola di un punto.
             style={{ left: `${((ball.x + 1) / 102) * 100}%`, top: `${Math.max(7, ball.y - 5)}%` }}
@@ -634,7 +634,7 @@ function Campo({
             className="pointer-events-none absolute inset-x-0 bottom-0 flex items-center justify-center gap-1.5 bg-gradient-to-t from-black/70 to-transparent pb-2 pt-8"
           >
             <FastForward size={12} className="text-emerald-300" />
-            <span className="text-[10px] font-black tracking-widest text-emerald-200 uppercase">
+            <span className="text-micro font-black tracking-widest text-emerald-200 uppercase">
               Si gioca
             </span>
           </motion.div>
@@ -808,16 +808,16 @@ function Intestazione({
     <header className="border-b border-white/10 bg-gradient-to-r from-slate-950 via-slate-900 to-slate-950 px-4 py-3">
       <div className="flex items-center gap-3">
         <div className="min-w-0 flex-1">
-          <p className="flex items-center gap-1.5 truncate text-[10px] font-black tracking-widest text-emerald-400 uppercase">
+          <p className="flex items-center gap-1.5 truncate text-micro font-black tracking-widest text-emerald-400 uppercase">
             <Crown size={11} />
             {reason}
           </p>
-          <p className="truncate text-sm leading-tight font-extrabold text-white">
+          <p className="truncate text-body leading-tight font-extrabold text-white">
             {clubName} <span className="font-normal text-slate-500">vs</span> {opponent}
           </p>
         </div>
         <span
-          className="shrink-0 rounded-2xl border border-white/10 px-4 py-1.5 text-2xl font-black tabular-nums shadow-lg"
+          className="shrink-0 rounded-card border border-white/10 px-4 py-1.5 text-display font-black tabular-nums shadow-lg"
           style={{ backgroundColor: `${colore}22`, color: colore }}
         >
           {parziale.nostri} - {parziale.loro}
@@ -833,7 +833,7 @@ function Intestazione({
       </div>
 
       <div className="mt-2.5 flex items-center gap-2">
-        <span className="shrink-0 text-[9px] font-black tracking-wider text-slate-500 uppercase">
+        <span className="shrink-0 text-micro font-black tracking-wider text-slate-500 uppercase">
           Inerzia
         </span>
         <div className="flex h-1.5 flex-1 overflow-hidden rounded-full bg-slate-800">
@@ -846,7 +846,7 @@ function Intestazione({
             style={{ width: `${100 - inerzia}%` }}
           />
         </div>
-        <span className="shrink-0 text-[9px] font-bold text-slate-400 tabular-nums">
+        <span className="shrink-0 text-label font-bold text-slate-400 tabular-nums">
           {inerzia}/{100 - inerzia}
         </span>
       </div>
@@ -856,9 +856,9 @@ function Intestazione({
 
 function Orologio({ minuto, correndo }: { minuto: number; correndo: boolean }) {
   return (
-    <div className="absolute top-3 left-3 z-20 flex items-center gap-1.5 rounded-xl border border-emerald-400/40 bg-black/80 px-3 py-1 shadow-lg backdrop-blur">
+    <div className="absolute top-3 left-3 z-20 flex items-center gap-1.5 rounded-control border border-emerald-400/40 bg-black/80 px-3 py-1 shadow-lg backdrop-blur">
       <Radio size={11} className={correndo ? "text-slate-500" : "animate-pulse text-emerald-400"} />
-      <span className="text-xs font-black text-white tabular-nums">{minuto}&apos;</span>
+      <span className="text-label font-black text-white tabular-nums">{minuto}&apos;</span>
     </div>
   );
 }
@@ -881,9 +881,9 @@ function StrisciaStatistiche({ stats }: { stats: ReturnType<typeof vistoFinora> 
   return (
     <div className="flex gap-4 overflow-x-auto border-b border-white/10 bg-slate-950/70 px-3 py-1.5">
       {voci.map(([label, a, b]) => (
-        <div key={label} className="flex shrink-0 items-center gap-1.5 text-[10px] font-extrabold">
+        <div key={label} className="flex shrink-0 items-center gap-1.5 text-label font-extrabold">
           <span className="text-emerald-400 tabular-nums">{a}</span>
-          <span className="text-[9px] font-semibold tracking-wide text-slate-500 uppercase">
+          <span className="text-micro font-semibold tracking-wide text-slate-500 uppercase">
             {label}
           </span>
           <span className="text-rose-400 tabular-nums">{b}</span>
@@ -929,7 +929,7 @@ function BannerGol({
         initial={{ y: 10, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
         transition={{ delay: 0.18 }}
-        className="rounded-full border px-4 py-1 text-sm font-black tracking-wide text-white uppercase shadow-2xl backdrop-blur"
+        className="rounded-full border px-4 py-1 text-body font-black tracking-wide text-white uppercase shadow-2xl backdrop-blur"
         style={{ borderColor: colore, backgroundColor: "rgba(2,6,23,0.75)" }}
       >
         {marcatore}
@@ -938,7 +938,7 @@ function BannerGol({
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ delay: 0.3 }}
-        className="text-[10px] font-bold tracking-widest text-slate-300 uppercase"
+        className="text-micro font-bold tracking-widest text-slate-300 uppercase"
       >
         {squadra}
       </motion.span>
@@ -966,7 +966,7 @@ function Lampo({ flash }: { flash: Exclude<PhaseFlash, null> }) {
       className="pointer-events-none absolute inset-x-0 top-1/2 z-30 flex -translate-y-1/2 justify-center"
     >
       <span
-        className="flex items-center gap-2 rounded-2xl border-2 px-5 py-2 text-lg font-black tracking-wide uppercase shadow-2xl"
+        className="flex items-center gap-2 rounded-card border-2 px-5 py-2 text-title font-black tracking-wide uppercase shadow-2xl"
         style={{ backgroundColor: `${colore}25`, borderColor: colore, color: colore }}
       >
         <Icona size={20} />
@@ -998,22 +998,22 @@ function Cronaca({
             className="flex items-baseline gap-2 py-0.5"
           >
             <span
-              className="w-8 shrink-0 text-right text-[10px] font-black tabular-nums"
+              className="w-8 shrink-0 text-right text-label font-black tabular-nums"
               style={{ color: r.team === "for" ? "#34d399" : "#fb7185" }}
             >
               {r.minute}&apos;
             </span>
-            <span className="min-w-0 flex-1 truncate text-[11px] leading-tight font-semibold text-slate-200">
+            <span className="min-w-0 flex-1 truncate text-label leading-tight font-semibold text-slate-200">
               {r.text}
             </span>
-            <span className="hidden shrink-0 text-[9px] font-bold text-slate-600 uppercase sm:inline">
+            <span className="hidden shrink-0 text-micro font-bold text-slate-600 uppercase sm:inline">
               {r.team === "for" ? clubName : opponent}
             </span>
           </motion.div>
         ))}
       </AnimatePresence>
       {righe.length === 0 && (
-        <p className="py-1 text-[11px] italic text-slate-600">La partita è appena cominciata.</p>
+        <p className="py-1 text-label italic text-slate-600">La partita è appena cominciata.</p>
       )}
     </div>
   );
@@ -1030,7 +1030,7 @@ function Rigori({
 }) {
   return (
     <div className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-3 bg-black/85 backdrop-blur-md">
-      <p className="text-[11px] font-black tracking-widest text-amber-300 uppercase">
+      <p className="text-micro font-black tracking-widest text-amber-300 uppercase">
         Sequenza dei rigori
       </p>
       <div className="flex gap-1.5">
@@ -1038,14 +1038,14 @@ function Rigori({
           <Segno key={i} kick={k} visto={i < visti} />
         ))}
       </div>
-      <p className="text-3xl font-black text-white tabular-nums">
+      <p className="text-display font-black text-white tabular-nums">
         {kicks.slice(0, visti).filter((k) => k.team === "for" && k.scored).length}
         {" - "}
         {kicks.slice(0, visti).filter((k) => k.team === "against" && k.scored).length}
       </p>
       {visti >= kicks.length && (
         <p
-          className="text-sm font-black tracking-wider uppercase"
+          className="text-body font-black tracking-wider uppercase"
           style={{ color: weWon ? "#3ddc6b" : "#ff4d4d" }}
         >
           {weWon ? "Vittoria ai rigori" : "Sconfitta ai rigori"}
