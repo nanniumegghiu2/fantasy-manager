@@ -100,16 +100,28 @@ import { cognome, euro, moraleLabel } from "./format";
  * Ora il primo livello risponde a *cosa stai facendo* (bilancio, chi ti cerca, chi vuoi tu, la
  * tua rosa, il mondo) e il secondo a *dove esattamente*.
  */
-type Tab = "finanze" | "offerte" | "mercato" | "rosa" | "notizie";
+/**
+ * ⚠️ **Il mister ha una scheda sua** (richiesta esplicita dell'utente).
+ *
+ * Prima il meeting viveva in due posti sbagliati insieme: la panchina era una *pastiglia dentro
+ * Cerca* — accanto a "Ricerca" e "Cedibili IA", come se ingaggiare un allenatore fosse un modo
+ * di cercare un giocatore — mentre le sue **richieste** (`CoachPromisesPanel`) stavano appese
+ * sopra tutte le schede, quindi si leggevano attaccate al rapporto sulla rosa, che è la scheda
+ * su cui il pannello si apre. Due contenuti dello stesso interlocutore, nessuno dei due a casa
+ * propria.
+ *
+ * Ora *Mister* è una voce di primo livello e contiene tutto ciò che lo riguarda: cosa chiede,
+ * il suo contratto, e con chi eventualmente sostituirlo.
+ */
+type Tab = "finanze" | "offerte" | "mercato" | "rosa" | "mister" | "notizie";
 
 /** Le sottovoci di **Mercato**: qui si va a cercare qualcuno, in un modo o nell'altro. */
-type SubMercato = "ricerca" | "cedibili" | "svincolati" | "mister";
+type SubMercato = "ricerca" | "cedibili" | "svincolati";
 
 const SUB_MERCATO: SegmentedItem<SubMercato>[] = [
   { key: "ricerca", label: "Ricerca", icon: Search },
   { key: "cedibili", label: "Cedibili IA", icon: Tag },
   { key: "svincolati", label: "Svincolati", icon: UserPlus },
-  { key: "mister", label: "Mister", icon: UserCog },
 ];
 
 const DEPARTMENTS: Department[] = ["POR", "DIF", "CC", "ATT"];
@@ -332,6 +344,15 @@ export function MarketPanel({
               },
               { key: "mercato", label: "Cerca", icon: Search },
               { key: "rosa", label: "Rosa", icon: ClipboardList, badge: chatInSospeso },
+              {
+                key: "mister",
+                label: "Mister",
+                icon: UserCog,
+                // Il pallino dice che c'è una richiesta ancora da soddisfare: senza, spostare il
+                // meeting in una scheda sua lo renderebbe più ordinato ma anche più facile da
+                // non aprire mai.
+                badge: promesseLive.filter((p) => !p.liveFulfilled).length,
+              },
               { key: "notizie", label: "Notizie", icon: Newspaper },
             ]}
           />
@@ -341,22 +362,28 @@ export function MarketPanel({
             sotto direbbe la stessa cosa due volte. */}
 
         <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-3">
-          {promesseLive.length > 0 && (
-            <>
-              <CoachPromisesPanel
-                promises={promesseLive}
-                onProposeAlternative={(promise) => {
-                  setRispostaAlternativa(null);
-                  setAlternativaPer(promise);
-                }}
-              />
-              {rispostaAlternativa && (
-                <p className="rounded-card border border-[var(--brand)]/30 bg-[var(--brand)]/8 px-3 py-2.5 text-label leading-relaxed">
-                  «{rispostaAlternativa}»
-                </p>
-              )}
-            </>
-          )}
+          {/* **Chi ha pagato la clausola si è già portato via il giocatore.**
+
+              Non è un'offerta e non c'è nulla da premere: sta in cima perché è la notizia con
+              cui questa finestra si apre, e perderla fra i messaggi di giornata significherebbe
+              scoprire il buco in rosa senza sapere quando è successo. */}
+          {(snapshot.clauseSales ?? []).map((vendita) => (
+            <div
+              key={vendita.playerId}
+              className="rounded-card border border-[var(--danger)]/40 bg-[var(--danger)]/8 px-3 py-2.5"
+            >
+              <p className="text-micro font-bold tracking-widest text-[var(--danger)] uppercase">
+                Clausola rescissoria pagata
+              </p>
+              <p className="mt-1 text-body leading-snug font-bold">
+                {vendita.playerName} va al {vendita.toClubName}.
+              </p>
+              <p className="num mt-0.5 text-label text-[var(--text-secondary)]">
+                Incassiamo {euro(vendita.fee)} — la cifra che avevamo firmato. Non c'era nulla da
+                trattare.
+              </p>
+            </div>
+          ))}
           {tab === "offerte" && (
             <SchedaOfferte
               snapshot={snapshot}
@@ -411,15 +438,35 @@ export function MarketPanel({
                   onShiftFinances={onShiftFinances}
                 />
               )}
-              {subMercato === "mister" && (
-                <SchedaMister
-                  state={state}
-                  world={world}
-                  choices={coachChoices}
-                  onHire={onHireCoach}
-                  onRenewCoach={onRenewCoach}
-                />
+            </div>
+          )}
+          {tab === "mister" && (
+            <div className="flex flex-col gap-3">
+              {/* Le sue richieste vengono prima della sua scheda: è quello che ti sta
+                  chiedendo *adesso*, ed è il motivo per cui questa scheda ha un pallino. */}
+              {promesseLive.length > 0 && (
+                <>
+                  <CoachPromisesPanel
+                    promises={promesseLive}
+                    onProposeAlternative={(promise) => {
+                      setRispostaAlternativa(null);
+                      setAlternativaPer(promise);
+                    }}
+                  />
+                  {rispostaAlternativa && (
+                    <p className="rounded-card border border-[var(--brand)]/30 bg-[var(--brand)]/8 px-3 py-2.5 text-label leading-relaxed">
+                      «{rispostaAlternativa}»
+                    </p>
+                  )}
+                </>
               )}
+              <SchedaMister
+                state={state}
+                world={world}
+                choices={coachChoices}
+                onHire={onHireCoach}
+                onRenewCoach={onRenewCoach}
+              />
             </div>
           )}
           {tab === "rosa" && (
@@ -1566,44 +1613,55 @@ function SchedaRosa({
                       </div>
                     </div>
 
-                    <div className="flex shrink-0 gap-1">
-                      <AzioneIcona
-                        attiva={vendita}
-                        colore="#ff8a3d"
-                        etichetta={vendita ? "Togli dalla lista trasferimenti" : "Metti in vendita"}
-                        onClick={() =>
-                          onAction({
-                            kind: "lista_trasferimenti",
-                            playerId: entry.playerId,
-                            on: !vendita,
-                          })
-                        }
+                    {/* Chi è qui in prestito non è nostro: le tre azioni di mercato non lo
+                        riguardano, e mostrarle disabilitate sarebbe un bivio finto. */}
+                    {entry.loan?.ownerClubId ? (
+                      <span
+                        className="flex shrink-0 items-center gap-1 rounded-full bg-[#5aa9e6]/15 px-2 py-1 text-micro font-bold text-[#2f7fbd]"
+                        title={`In prestito da ${world.market?.clubs[entry.loan.ownerClubId]?.name ?? "un altro club"}`}
                       >
-                        <Tag size={14} />
-                      </AzioneIcona>
-                      <AzioneIcona
-                        attiva={prestito}
-                        colore="#5aa9e6"
-                        etichetta={prestito ? "Togli dalla lista prestiti" : "Metti in lista prestiti"}
-                        onClick={() =>
-                          onAction({
-                            kind: "lista_prestiti",
-                            playerId: entry.playerId,
-                            on: !prestito,
-                          })
-                        }
-                      >
-                        <Plane size={14} />
-                      </AzioneIcona>
-                      <AzioneIcona
-                        attiva={false}
-                        colore="#ff4d4d"
-                        etichetta="Vendi subito, a prezzo ridotto"
-                        onClick={() => onAction({ kind: "vendi_subito", playerId: entry.playerId })}
-                      >
-                        <Banknote size={14} />
-                      </AzioneIcona>
-                    </div>
+                        <Plane size={12} /> In prestito
+                      </span>
+                    ) : (
+                      <div className="flex shrink-0 gap-1">
+                        <AzioneIcona
+                          attiva={vendita}
+                          colore="#ff8a3d"
+                          etichetta={vendita ? "Togli dalla lista trasferimenti" : "Metti in vendita"}
+                          onClick={() =>
+                            onAction({
+                              kind: "lista_trasferimenti",
+                              playerId: entry.playerId,
+                              on: !vendita,
+                            })
+                          }
+                        >
+                          <Tag size={14} />
+                        </AzioneIcona>
+                        <AzioneIcona
+                          attiva={prestito}
+                          colore="#5aa9e6"
+                          etichetta={prestito ? "Togli dalla lista prestiti" : "Metti in lista prestiti"}
+                          onClick={() =>
+                            onAction({
+                              kind: "lista_prestiti",
+                              playerId: entry.playerId,
+                              on: !prestito,
+                            })
+                          }
+                        >
+                          <Plane size={14} />
+                        </AzioneIcona>
+                        <AzioneIcona
+                          attiva={false}
+                          colore="#ff4d4d"
+                          etichetta="Vendi subito, a prezzo ridotto"
+                          onClick={() => onAction({ kind: "vendi_subito", playerId: entry.playerId })}
+                        >
+                          <Banknote size={14} />
+                        </AzioneIcona>
+                      </div>
+                    )}
                   </li>
                 );
               })}

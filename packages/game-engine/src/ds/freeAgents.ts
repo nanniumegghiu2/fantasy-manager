@@ -142,7 +142,19 @@ export function buildFreeAgentPool(input: FreeAgentPoolInput): FreeAgent[] {
     pool.push(agente);
   }
 
-  pool.push(...generateUnattachedYouth(seed, season, regenCount, pool));
+  /**
+   * ⚠️ **Anche i ragazzi senza squadra escono dalla vetrina quando qualcuno li firma.**
+   *
+   * Il filtro `signed` valeva solo per il giro sui giocatori del mondo, e i regen si
+   * aggiungevano **dopo**, incondizionatamente. Siccome il loro id è derivato da
+   * `(seme, stagione, indice)` — quindi stabile dentro la stagione — il difetto si vedeva così:
+   * si firmava uno svincolato in estate, lo si vendeva a gennaio, e alla riapertura della
+   * vetrina **era di nuovo lì**. La lista lo nascondeva solo finché stava in rosa
+   * (`FreeAgentsPanel`), che è esattamente il caso in cui il difetto non si nota.
+   */
+  pool.push(
+    ...generateUnattachedYouth(seed, season, regenCount, pool).filter((a) => !signed?.has(a.id)),
+  );
 
   return pool.sort((a, b) => b.overall - a.overall);
 }

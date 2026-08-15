@@ -65,6 +65,135 @@ export interface CoachRequestInput {
    * che l'utente non poteva prendere sul serio.
    */
   window?: "estiva" | "riparazione";
+  /**
+   * Cosa aveva chiesto l'ultima volta.
+   *
+   * Non serve a variare per il gusto di variare: serve a rompere i pareggi. Quando due caselle
+   * sono ugualmente scoperte, riproporre esattamente la stessa dell'anno prima fa sembrare che
+   * il mister non abbia guardato la rosa — che è la segnalazione dell'utente. Se invece quella
+   * casella è **davvero** la peggiore e con un margine chiaro, la richiesta si ripete: mentire
+   * sarebbe peggio che ripetersi.
+   */
+  previous?: { kind: RequestKind; role?: Role };
+}
+
+/**
+ * Quanto deve essere peggiore una casella perché il mister la richieda **di nuovo** dopo averla
+ * già chiesta: sotto questo margine si preferisce la seconda peggiore.
+ */
+const MARGINE_RIPETIZIONE = 2;
+
+/** Sotto questo scarto dal livello della rosa una casella non è "debole", è normale. */
+const SCARTO_MINIMO_RUOLO = 3;
+
+/**
+ * **La copertura vera di ogni casella del modulo.**
+ *
+ * ⚠️ La versione precedente contava, per ogni ruolo, quante volte compariva come ruolo
+ * principale o secondario in rosa. Due difetti, ed erano la causa diretta della segnalazione
+ * *"mi chiede un ruolo dove sono già coperto"*:
+ *
+ *  1. **lo stesso uomo veniva contato su tutte le sue caselle**. Un difensore che sa fare il
+ *     centrale e i due terzini copriva tre ruoli contemporaneamente, cosa che in campo non può
+ *     fare: la copertura risultava molto più alta del vero;
+ *  2. **si guardava solo il numero, mai il livello**. Un ruolo con due uomini da 62 in una rosa
+ *     da 78 risultava "coperto" quanto uno con due titolari da 80.
+ *
+ * Qui la copertura è **esclusiva**: si assegna prima chi ha quel ruolo come principale, poi si
+ * riempie con chi lo sa fare da secondario e non è già stato usato altrove — un corpo, una
+ * casella. E accanto al conteggio si porta la **qualità** di chi la occuperebbe davvero, che è
+ * l'informazione con cui un allenatore vero decide dove serve rinforzare.
+ */
+interface CoperturaRuolo {
+  role: Role;
+  /** Quante caselle il modulo chiede per questo ruolo. */
+  richieste: number;
+  /** Quanti uomini distinti la coprono davvero, dopo l'assegnazione esclusiva. */
+  uomini: number;
+  /** Media degli Overall di chi la occuperebbe; 0 se non la copre nessuno. */
+  qualita: number;
+}
+
+function coperturaDelModulo(
+  formation: Formation,
+  disponibili: readonly RosterEntry[],
+  players: PlayerIndex,
+): CoperturaRuolo[] {
+  const richieste = new Map<Role, number>();
+  for (const slot of formation.slots) {
+    richieste.set(slot.role, (richieste.get(slot.role) ?? 0) + 1);
+  }
+
+  /**
+   * L'ordine di assegnazione conta: si servono prima i ruoli **più rari** in rosa, altrimenti un
+   * jolly finisce speso su una casella che aveva già i suoi titolari e ne lascia scoperta una
+   * che solo lui sapeva fare.
+   */
+  const nativi = new Map<Role, RosterEntry[]>();
+  const adattabili = new Map<Role, RosterEntry[]>();
+  for (const role of richieste.keys()) {
+    nativi.set(role, []);
+    adattabili.set(role, []);
+  }
+  for (const entry of disponibili) {
+    const player = players[entry.playerId];
+    if (!player) continue;
+    if (nativi.has(player.role)) nativi.get(player.role)!.push(entry);
+    for (const r of player.secondaryRoles) {
+      if (r !== player.role && adattabili.has(r)) adattabili.get(r)!.push(entry);
+    }
+  }
+
+  const ordine = [...richieste.keys()].sort(
+    (a, b) =>
+      (nativi.get(a)!.length + adattabili.get(a)!.length) -
+      (nativi.get(b)!.length + adattabili.get(b)!.length),
+  );
+
+  const usati = new Set<string>();
+  const risultato = new Map<Role, CoperturaRuolo>();
+
+  for (const role of ordine) {
+    const quante = richieste.get(role) ?? 0;
+    const scelti: RosterEntry[] = [];
+    // Prima i nativi, dal più forte: sono quelli che quella casella la occupano davvero.
+    for (const gruppo of [nativi.get(role)!, adattabili.get(role)!]) {
+      for (const entry of [...gruppo].sort((a, b) => b.overall - a.overall)) {
+        if (scelti.length >= quante) break;
+        if (usati.has(entry.playerId)) continue;
+        usati.add(entry.playerId);
+        scelti.push(entry);
+      }
+    }
+    risultato.set(role, {
+      role,
+      richieste: quante,
+      uomini: scelti.length,
+      qualita:
+        scelti.length > 0 ? scelti.reduce((s, e) => s + e.overall, 0) / scelti.length : 0,
+    });
+  }
+
+  // Restituita nell'ordine del modulo, non in quello di assegnazione: è come si legge il campo.
+  return [...richieste.keys()].map((role) => risultato.get(role)!);
+}
+
+/**
+ * Fra più caselle candidate sceglie quella su cui insistere, rispettando la richiesta
+ * precedente: si ripete solo chi è peggiore delle altre con un margine chiaro.
+ */
+function scegliCasella(
+  candidati: { role: Role; deficit: number }[],
+  previous?: { kind: RequestKind; role?: Role },
+): { role: Role; deficit: number } | undefined {
+  if (candidati.length === 0) return undefined;
+  const ordinati = [...candidati].sort((a, b) => b.deficit - a.deficit);
+  const peggiore = ordinati[0]!;
+  if (!previous?.role || previous.role !== peggiore.role) return peggiore;
+
+  const alternativa = ordinati.find((c) => c.role !== peggiore.role);
+  if (!alternativa) return peggiore;
+  return peggiore.deficit - alternativa.deficit >= MARGINE_RIPETIZIONE ? peggiore : alternativa;
 }
 
 /**
@@ -81,6 +210,7 @@ export function coachRequest({
   players,
   ageOf,
   window = "estiva",
+  previous,
 }: CoachRequestInput): CoachRequest | undefined {
   const estate = window === "estiva";
   const disponibili = roster.filter((e) => !e.loan?.hostClubId);
@@ -89,63 +219,55 @@ export function coachRequest({
       ? disponibili.reduce((s, e) => s + e.overall, 0) / disponibili.length
       : 70;
 
-  // Quante caselle richiede ogni ruolo, e quanti uomini le sanno coprire.
-  const richiesti = new Map<Role, number>();
-  for (const slot of formation.slots) {
-    richiesti.set(slot.role, (richiesti.get(slot.role) ?? 0) + 1);
-  }
-  const copertura = new Map<Role, number>();
-  for (const entry of disponibili) {
-    const player = players[entry.playerId];
-    if (!player) continue;
-    copertura.set(player.role, (copertura.get(player.role) ?? 0) + 1);
-    for (const r of player.secondaryRoles) {
-      copertura.set(r, (copertura.get(r) ?? 0) + 1);
-    }
+  /**
+   * Il metro di paragone non è la media della rosa ma **il livello di chi gioca**: con
+   * venticinque giocatori la media è abbassata dal fondo rosa, e confrontarci una casella
+   * titolare farebbe risultare forte anche un reparto mediocre.
+   */
+  const undici = [...disponibili].sort((a, b) => b.overall - a.overall).slice(0, 11);
+  const livelloTitolari =
+    undici.length > 0 ? undici.reduce((s, e) => s + e.overall, 0) / undici.length : media;
+
+  const copertura = coperturaDelModulo(formation, disponibili, players);
+
+  // 1. Le caselle che non riesce a riempire: nessuno le sa fare, o non abbastanza gente.
+  const scoperte = copertura
+    .filter((c) => c.uomini < c.richieste)
+    .map((c) => ({ role: c.role, deficit: (c.richieste - c.uomini) * 10 }));
+  const scoperta = scegliCasella(scoperte, previous);
+  if (scoperta) {
+    return {
+      kind: "ruolo_scoperto",
+      role: scoperta.role,
+      minOverall: Math.round(media - 3),
+      message: `Con il ${formation.name} non ho nemmeno un ${ROLE_NOME[scoperta.role]} vero. Trovamelo, o quella casella la copro con un adattato.`,
+    };
   }
 
-  // 1. Una casella che non riesce a riempire: è la richiesta più urgente e più concreta.
-  for (const [role, quante] of richiesti) {
-    if ((copertura.get(role) ?? 0) < quante) {
-      return {
-        kind: "ruolo_scoperto",
-        role,
-        minOverall: Math.round(media - 3),
-        message: `Con il ${formation.name} non ho nemmeno un ${ROLE_NOME[role]} vero. Trovamelo, o quella casella la copro con un adattato.`,
-      };
-    }
-  }
-
-  // 2. Il reparto più debole rispetto al resto della squadra.
-  const perReparto = new Map<string, number[]>();
-  for (const entry of disponibili) {
-    const player = players[entry.playerId];
-    if (!player) continue;
-    const dep = ROLE_DEPARTMENT[player.role];
-    const gruppo = perReparto.get(dep);
-    if (gruppo) gruppo.push(entry.overall);
-    else perReparto.set(dep, [entry.overall]);
-  }
-
-  let repartoDebole: string | undefined;
-  let scartoPeggiore = 0;
-  for (const [dep, valori] of perReparto) {
-    const migliori = [...valori].sort((a, b) => b - a).slice(0, dep === "POR" ? 1 : 3);
-    const mediaReparto = migliori.reduce((s, v) => s + v, 0) / migliori.length;
-    const scarto = media - mediaReparto;
-    if (scarto > scartoPeggiore) {
-      scartoPeggiore = scarto;
-      repartoDebole = dep;
-    }
-  }
-
-  if (repartoDebole && scartoPeggiore >= 2) {
-    const ruolo = ruoloPrincipaleDelReparto(formation, repartoDebole);
+  /**
+   * 2. La casella **coperta ma non all'altezza**.
+   *
+   * Prima si individuava il reparto più debole e poi si chiedeva, di quel reparto, il ruolo con
+   * più caselle nel modulo — quindi in difesa usciva `DC` ogni singola volta, anche dopo averne
+   * comprati due, mentre il terzino che era il vero problema non veniva mai nominato. È
+   * letteralmente la segnalazione dell'utente: *"mi chiede sempre lo stesso ruolo ogni anno
+   * nonostante sia già coperto"*.
+   *
+   * Adesso il confronto è **per casella**: chi la occuperebbe, contro il livello di chi gioca.
+   */
+  const deboli = copertura
+    .map((c) => ({ role: c.role, deficit: livelloTitolari - c.qualita }))
+    .filter((c) => c.deficit >= SCARTO_MINIMO_RUOLO);
+  const debole = scegliCasella(deboli, previous);
+  if (debole) {
+    const reparto = ROLE_DEPARTMENT[debole.role];
     return {
       kind: "reparto_debole",
-      role: ruolo,
-      minOverall: Math.round(media + 1),
-      message: `${REPARTO_NOME[repartoDebole] ?? repartoDebole}: lì siamo sotto il livello del resto della squadra. Serve qualcuno che alzi l'asticella.`,
+      role: debole.role,
+      // Deve alzare il livello di quella casella, non semplicemente occuparla: la soglia è
+      // quella dei titolari, non la media della rosa.
+      minOverall: Math.round(livelloTitolari),
+      message: `${REPARTO_NOME[reparto] ?? reparto}: il ${ROLE_NOME[debole.role]} che ho è sotto il livello di chi gioca nelle altre zone. Serve qualcuno che alzi l'asticella lì.`,
     };
   }
 
@@ -250,24 +372,6 @@ export function requestSatisfiedBy(
     if (!copre) return false;
   }
   return true;
-}
-
-/** Un ruolo rappresentativo del reparto, fra quelli che il modulo schiera. */
-function ruoloPrincipaleDelReparto(formation: Formation, department: string): Role | undefined {
-  const conteggio = new Map<Role, number>();
-  for (const slot of formation.slots) {
-    if (ROLE_DEPARTMENT[slot.role] !== department) continue;
-    conteggio.set(slot.role, (conteggio.get(slot.role) ?? 0) + 1);
-  }
-  let migliore: Role | undefined;
-  let quante = 0;
-  for (const [role, n] of conteggio) {
-    if (n > quante) {
-      quante = n;
-      migliore = role;
-    }
-  }
-  return migliore;
 }
 
 const REPARTO_NOME: Record<string, string> = {

@@ -21,7 +21,7 @@ import {
   type MarketPlayer,
   type ValuationContext,
 } from "./market";
-import { canBuy, canSell, averageOverall } from "./roster";
+import { canBuy, canSell, averageOverall, isLoanedIn, isLoanedOut, MIN_SQUAD_SIZE } from "./roster";
 import {
   canLoanIn,
   canLoanOut,
@@ -95,6 +95,14 @@ export interface MarketSnapshot {
   loanOffers: LoanOffer[];
   /** Giocatori IA in eccedenza reale (titolari+panchina coperti): il mercato IA "vivo". */
   aiSellable: AiSellableListing[];
+  /**
+   * Clausole rescissorie **già esercitate** all'apertura della finestra.
+   *
+   * Non è una scheda di cose da fare: è una notizia da leggere, e sta nello snapshot solo
+   * perché il pannello di mercato la mostri in cima invece di lasciarla scorrere via fra i
+   * messaggi di giornata. Vuota nella stragrande maggioranza delle finestre.
+   */
+  clauseSales?: ClauseSale[];
 }
 
 /**
@@ -392,6 +400,126 @@ function buildOffers(
   }
 
   return offers;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Clausole rescissorie                                                        */
+/* -------------------------------------------------------------------------- */
+
+/** Un club ha pagato la clausola di un nostro giocatore: non c'è niente da negoziare. */
+export interface ClauseSale {
+  playerId: string;
+  playerName: string;
+  toClubId: string;
+  toClubName: string;
+  /** La cifra della clausola, cioè quanto incassiamo. Non è trattabile: è quella firmata. */
+  fee: number;
+  /** Quanto vale oggi sul mercato: dice se la clausola era un affare per loro o per noi. */
+  marketValue: number;
+}
+
+/**
+ * **Le clausole sono vere.**
+ *
+ * ⚠️ Difetto segnalato dall'utente, e il più netto del gruppo: `releaseClause` si negoziava al
+ * tavolo del contratto, si salvava nell'override e **non la leggeva nessuno**. Una clausola che
+ * nessuno può esercitare non è una concessione, è una casella di testo: firmarla non costava
+ * nulla, quindi accettarla per chiudere una trattativa era sempre la scelta giusta.
+ *
+ * Adesso all'apertura di ogni finestra un club può pagarla e portarsi via il giocatore. Tre
+ * regole, e nessuna è arbitraria:
+ *
+ *  1. **chi paga dev'essere credibile per quel giocatore** (`MAX_BUYER_GAP`, la stessa soglia
+ *     che filtra le offerte normali) **e** abbastanza ricco: una clausola da ottanta milioni non
+ *     la esercita chi lotta per non retrocedere;
+ *  2. **quanto è probabile dipende dallo sconto**. Una clausola sotto il valore di mercato è un
+ *     affare e qualcuno la coglie quasi sempre; una molto sopra è una protezione e resta lettera
+ *     morta. È questo a rendere la cifra una decisione vera al momento della firma;
+ *  3. **una sola per finestra**, e mai se la rosa scenderebbe sotto gli undici schierabili: la
+ *     clausola è la notizia della sessione, non una falcidia.
+ *
+ * Non è un'offerta: `ClauseSale` è un fatto compiuto. Il DS non ha voce in capitolo, ed è
+ * precisamente ciò che una clausola significa.
+ */
+export function buildClauseSales(
+  roster: readonly RosterEntry[],
+  world: MarketWorld,
+  ownClubId: string,
+  clauseOf: (playerId: string) => number | undefined,
+  random: () => number,
+): ClauseSale[] {
+  if (roster.length <= MIN_SQUAD_SIZE) return [];
+
+  const compratori = Object.values(world.clubs).filter((c) => c.id !== ownClubId);
+  const candidati: ClauseSale[] = [];
+
+  for (const entry of roster) {
+    if (isLoanedIn(entry) || isLoanedOut(entry)) continue;
+    const clausola = clauseOf(entry.playerId);
+    if (!clausola || clausola <= 0) continue;
+
+    const resolved = world.players[entry.playerId];
+    if (!resolved) continue;
+
+    const target: MarketPlayer = {
+      playerId: entry.playerId,
+      clubId: ownClubId,
+      overall: entry.overall,
+      potential: entry.potential,
+      age: world.ageOf(entry.playerId),
+      nation: resolved.nation,
+      department: ROLE_DEPARTMENT[resolved.role],
+      stats: entry.stats,
+    };
+    const valore = currentValue(target, world.valuation);
+    if (valore <= 0) continue;
+
+    // Quanto è appetibile: sotto il valore è un'occasione, molto sopra non la tocca nessuno.
+    const rapporto = clausola / valore;
+    const probabilita = Math.max(0, Math.min(0.8, 0.95 - (rapporto - 0.7) * 0.62));
+    if (probabilita <= 0) continue;
+
+    const plausibili = compratori.filter((club) => {
+      if (livelloClub(club) < entry.overall - MAX_BUYER_GAP) return false;
+      return clausola <= budgetPlausibile(club, world);
+    });
+    if (plausibili.length === 0) continue;
+
+    // Un tiro per giocatore: l'ordine di scorrimento non deve decidere chi è a rischio.
+    if (random() >= probabilita) continue;
+
+    const club = plausibili[Math.floor(random() * plausibili.length)];
+    if (!club) continue;
+
+    candidati.push({
+      playerId: entry.playerId,
+      playerName: world.nameOf(entry.playerId),
+      toClubId: club.id,
+      toClubName: club.name,
+      fee: clausola,
+      marketValue: valore,
+    });
+  }
+
+  if (candidati.length === 0) return [];
+  // Una sola: se più di uno è stato "colpito", parte quello su cui la clausola era più bassa
+  // rispetto al valore — cioè l'affare più evidente per chi compra.
+  return [
+    candidati.sort((a, b) => a.fee / a.marketValue - b.fee / b.marketValue)[0]!,
+  ];
+}
+
+/**
+ * Quanto può spendere un club in un colpo solo.
+ *
+ * `MarketClub` non porta un bilancio — il mondo IA lo calcola altrove — quindi si stima dal
+ * livello dell'undici e dal prestigio, che sono i due dati che abbiamo qui. Serve a una domanda
+ * sola: questa clausola è alla sua portata?
+ */
+function budgetPlausibile(club: MarketClub, world: MarketWorld): number {
+  const livello = livelloClub(club);
+  const prestigio = world.valuation.clubPrestige[club.id] ?? 3;
+  return Math.max(8_000_000, Math.pow(1.22, Math.max(0, livello - 62)) * 1_400_000 * prestigio);
 }
 
 /** Un giocatore IA in eccedenza reale nel suo club: il mercato dei "cedibili" della ricerca. */
@@ -734,6 +862,33 @@ export function applyMarketAction(
     case "lista_trasferimenti": {
       const presente = lists.transferList.includes(action.playerId);
       if (action.on === presente) return invariato;
+      /**
+       * ⚠️ **Un giocatore in prestito non si mette in vendita.**
+       *
+       * `canSell` lo negava da sempre, ma la lista trasferimenti non passava da nessun
+       * controllo: si poteva dichiarare cedibile un giocatore **di un altro club**, e la
+       * garanzia "chi metti in vendita riceve offerte adesso" gli generava pure un compratore.
+       * Il rifiuto non usa `canSell` per intero — essere infortunati o sfiorare il minimo di
+       * rosa non deve impedire di *programmare* una cessione, che è ciò per cui la lista
+       * esiste (sez. 3.7.5) — ma solo le due ragioni di proprietà.
+       */
+      const inRosa = roster.find((e) => e.playerId === action.playerId);
+      if (action.on && inRosa) {
+        if (isLoanedIn(inRosa)) {
+          return {
+            ...invariato,
+            message: "È in prestito da un altro club: non è tuo da vendere.",
+            rejected: true,
+          };
+        }
+        if (isLoanedOut(inRosa)) {
+          return {
+            ...invariato,
+            message: "È in prestito altrove: rientrerà a fine stagione.",
+            rejected: true,
+          };
+        }
+      }
       const nome = world.nameOf(action.playerId);
       return {
         ...invariato,

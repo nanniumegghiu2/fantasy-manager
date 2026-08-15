@@ -470,6 +470,15 @@ export interface DialogueEffects {
   listForTransfer?: boolean;
   listForLoan?: boolean;
   sellNow?: boolean;
+  /**
+   * Gli è stato promesso di lasciarlo partire.
+   *
+   * Il riduttore lo registra sul rapporto (`salePromisedAtWindow`) e da lì il giocatore **tace
+   * fino alla sessione di mercato successiva** — vedi `playerTopics.ts`. Serve un flag distinto
+   * da `listForTransfer` perché mettere in lista è anche una decisione unilaterale del DS, presa
+   * dalla schermata Rosa, che non comporta nessuna parola data al giocatore.
+   */
+  salePromised?: boolean;
   setCaptain?: boolean;
   restMatchdays?: number;
   guaranteeRole?: Role;
@@ -734,6 +743,7 @@ export function applyDialogueMove(
         impegno("clausola_addio", facts, ctx, { targetPlayerId: facts.playerId }, ctx.season, "season", "Addio concordato a fine stagione"),
       );
       effetti.listForTransfer = true;
+      effetti.salePromised = true;
       break;
     case "nomina_capitano":
       effetti.setCaptain = true;
@@ -747,9 +757,11 @@ export function applyDialogueMove(
     case "lista_cessione":
     case "prometti_trattativa_cessione":
       effetti.listForTransfer = true;
+      effetti.salePromised = true;
       break;
     case "concedi_prestito":
       effetti.listForLoan = true;
+      effetti.salePromised = true;
       break;
     case "accetta_cessione":
       effetti.sellNow = true;

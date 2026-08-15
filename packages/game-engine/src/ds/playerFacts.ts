@@ -46,7 +46,28 @@ export interface RelationshipState {
    * argomento nuovo e più grave (un precontratto comparso ieri) deve poter passare comunque.
    */
   lastTopicId?: string;
+  /**
+   * Le promesse che gli abbiamo **infranto**, in chiaro, dalla più recente.
+   *
+   * Non è un dettaglio narrativo: `brokenCount` diceva *quante* volte era successo e non
+   * *cosa* era successo, quindi il giocatore si presentava dicendo "mi avete promesso una cosa
+   * e non l'avete mantenuta" senza che né lui né il DS potessero nominarla — richiesta esplicita
+   * dell'utente. Si tengono le ultime poche: è un rinfaccio, non un archivio.
+   */
+  brokenPromises?: string[];
+  /**
+   * La sessione di mercato in cui gli è stata promessa la cessione (`marketWindowsOpened`).
+   *
+   * Finché non se ne apre una nuova il giocatore **tace**: gli abbiamo detto che lo lasciamo
+   * partire, e ripresentarsi la settimana dopo con la stessa lamentela farebbe sembrare la
+   * promessa una parola vuota. Alla finestra successiva torna a farsi sentire — perché lì la
+   * promessa o è stata mantenuta, o è stata disattesa.
+   */
+  salePromisedAtWindow?: number;
 }
+
+/** Quante promesse infrante si ricordano per rinfacciarle. */
+export const REMEMBERED_BROKEN_PROMISES = 3;
 
 export const DEFAULT_TRUST = 50;
 
@@ -127,10 +148,19 @@ export interface PlayerFacts {
   brokenCommitments: number;
   keptCommitments: number;
   openCommitments: Commitment[];
+  /** Cosa gli abbiamo promesso senza mantenerlo, dalla più recente: si rinfaccia per nome. */
+  brokenPromises: string[];
   lastTalkedWeek?: number;
   weeksSinceLastTalk: number;
   /** Il tema dell'ultima conversazione chiusa, per la tregua di `playerTopics.ts`. */
   lastTopicId?: string;
+  /**
+   * Gli abbiamo promesso la cessione e la finestra non è ancora cambiata: **non si lamenta**.
+   *
+   * Vale per tutti i temi, non per uno solo (`eligibleTopics`): la promessa risponde alla
+   * domanda di fondo — resto o vado — quindi finché è in piedi non c'è altro di cui discutere.
+   */
+  salePromiseActive: boolean;
 
   /* — mister — */
   coachHarmony: number;
@@ -180,6 +210,14 @@ export interface PlayerFactsInput {
   lostCaptaincy?: boolean;
   openCommitments?: readonly Commitment[];
   currentWeek?: number;
+  /**
+   * Quante finestre di mercato sono state aperte da inizio carriera.
+   *
+   * È un contatore monotòno, e serve a una cosa sola: decidere se la promessa di cessione fatta
+   * a questo giocatore è ancora quella "della sessione in corso". Un confronto su
+   * stagione+finestra non basterebbe fuori dalle finestre, quando nessuna è aperta.
+   */
+  marketWindowsOpened?: number;
 }
 
 /**
@@ -328,6 +366,10 @@ export function buildPlayerFacts(input: PlayerFactsInput): PlayerFacts {
     brokenCommitments: rapporto?.brokenCount ?? 0,
     keptCommitments: rapporto?.keptCount ?? 0,
     openCommitments: [...(input.openCommitments ?? [])],
+    brokenPromises: [...(rapporto?.brokenPromises ?? [])],
+    salePromiseActive:
+      rapporto?.salePromisedAtWindow !== undefined &&
+      (input.marketWindowsOpened ?? 0) <= rapporto.salePromisedAtWindow,
     lastTalkedWeek: rapporto?.lastTalkedWeek,
     // Una conversazione di **un'altra stagione** è acqua passata: confrontare i soli numeri di
     // giornata direbbe "ne abbiamo appena parlato" a ogni inizio d'anno.

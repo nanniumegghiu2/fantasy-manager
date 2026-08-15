@@ -51,6 +51,7 @@ import { emptyCupSave, ownCupOutcome, playCupRound, type CupSave } from "./caree
 import { isKeyMatch } from "./highlights";
 import {
   applyMarketAction,
+  buildClauseSales,
   emptySquadLists,
   openMarketWindow,
   type IncomingOffer,
@@ -109,6 +110,7 @@ import {
 import {
   buildPlayerFacts,
   DEFAULT_TRUST,
+  REMEMBERED_BROKEN_PROMISES,
   type PlayerFacts,
   type RelationshipState,
 } from "./playerFacts";
@@ -152,6 +154,7 @@ import {
   PATIENCE_WINDOWS,
   REQUEST_FULFILLED_COHESION,
   type CoachRequest,
+  type RequestKind,
 } from "./coachRequests";
 import {
   verifyCoachPromises,
@@ -599,6 +602,18 @@ export interface CareerState {
   freeAgentsSigned?: string[];
   /** Chi il DS ha mandato a riposo, e per quante giornate ancora. */
   resting?: Record<string, number>;
+  /**
+   * Quante finestre di mercato si sono aperte da inizio carriera: un contatore monotòno.
+   *
+   * Serve alle promesse che valgono "fino alla prossima sessione di mercato" — oggi solo quella
+   * di cessione (`salePromisedAtWindow`). Una coppia stagione+finestra non basterebbe: fra
+   * agosto e gennaio nessuna finestra è aperta, e il confronto non saprebbe dire se quella in
+   * cui la promessa è stata fatta sia già passata. Assente sui salvataggi precedenti: vale 0,
+   * cioè nessuna promessa pendente, che è il comportamento di sempre.
+   */
+  marketWindowsOpened?: number;
+  /** L'ultima richiesta del mister: evita che ne riproponga una identica ogni anno. */
+  lastCoachRequest?: { kind: RequestKind; role?: Role };
 }
 
 /* -------------------------------------------------------------------------- */
@@ -1254,23 +1269,38 @@ export function advanceWeek(
       // quando c e ancora il tempo di rifare la squadra attorno al modulo nuovo.
       next = maybeAskFormationChange(next);
 
+      const richiestaEstate = apriRichiestaAllenatore(next, world, "estiva");
       next = {
         ...next,
         market: snapshot,
         worldTransfers: [...(next.worldTransfers ?? []), ...nuovi],
         aiCoaches,
-        coachRequest: apriRichiestaAllenatore(next, world, "estiva"),
+        coachRequest: richiestaEstate,
+        lastCoachRequest: richiestaEstate
+          ? { kind: richiestaEstate.request.kind, role: richiestaEstate.request.role }
+          : next.lastCoachRequest,
+        // Una finestra nuova: le promesse "fino al prossimo mercato" sono scadute.
+        marketWindowsOpened: (next.marketWindowsOpened ?? 0) + 1,
         // Ogni finestra riparte pulita: chi è saltato in estate si può ritrattare a gennaio.
         negotiationBlocked: [],
         // Operazioni della sessione partono da zero.
         sessionDeals: [],
       };
+      // Le clausole rescissorie si esercitano **all'apertura**: chi le paga trova la porta
+      // aperta, e il DS se lo trova comunicato, non proposto (sez. clausole vere).
+      const clausole = eseguiClausole(next, world);
+      next = clausole.state;
       return {
         state: next,
         report: emptyReport(next, {
-          market: snapshot,
+          market: next.market ?? snapshot,
           marketWindow: true,
-          messages: [...messages, "Mercato estivo aperto.", ...coachMoveMessages],
+          messages: [
+            ...messages,
+            "Mercato estivo aperto.",
+            ...coachMoveMessages,
+            ...clausole.messages,
+          ],
         }),
       };
     }
@@ -1458,10 +1488,15 @@ export function advanceWeek(
   if (hasMarketWindow(week)) {
     const snapshot = openWindow(next, world, "riparazione");
     if (snapshot) {
+      const richiestaInverno = apriRichiestaAllenatore(next, world, "riparazione");
       next = {
         ...next,
         market: snapshot,
-        coachRequest: apriRichiestaAllenatore(next, world, "riparazione"),
+        coachRequest: richiestaInverno,
+        lastCoachRequest: richiestaInverno
+          ? { kind: richiestaInverno.request.kind, role: richiestaInverno.request.role }
+          : next.lastCoachRequest,
+        marketWindowsOpened: (next.marketWindowsOpened ?? 0) + 1,
         negotiationBlocked: [],
         // Come per l'estiva: senza azzerarlo, le operazioni fatte in estate restavano nel
         // recap del meeting di gennaio, mescolate a quelle nuove — il bug del "recap
@@ -1469,6 +1504,9 @@ export function advanceWeek(
         sessionDeals: [],
       };
       messages.push("Si è aperta la finestra di riparazione.");
+      const clausole = eseguiClausole(next, world);
+      next = clausole.state;
+      messages.push(...clausole.messages);
     }
   }
 
@@ -1702,6 +1740,76 @@ export function playerValue(state: CareerState, world: CareerWorld, playerId: st
   );
 }
 
+/**
+ * **Chi paga la clausola si porta via il giocatore.**
+ *
+ * Si esegue all'apertura di una finestra, subito dopo che lo snapshot è stato scritto in stato:
+ * il DS non riceve una proposta, riceve una notizia. È il senso di una clausola rescissoria, ed
+ * è la ragione per cui concederla al tavolo del contratto smette di essere gratis.
+ *
+ * L'incasso entra nella cassa mercato e l'operazione compare nel recap della sessione come una
+ * cessione qualunque — perché lo è, solo senza trattativa. Contestualmente si azzerano la
+ * clausola nell'override e le liste, così il giocatore non lascia strascichi.
+ */
+function eseguiClausole(
+  state: CareerState,
+  world: CareerWorld,
+): { state: CareerState; messages: string[] } {
+  if (!world.market || !state.market) return { state, messages: [] };
+
+  const vendite = buildClauseSales(
+    state.roster,
+    world.market,
+    state.clubId,
+    (playerId) => contractFor(state, world, playerId)?.releaseClause,
+    derivedRandom(state.seed, "clausole", state.season, state.market.window),
+  );
+  if (vendite.length === 0) return { state, messages: [] };
+
+  let next = state;
+  const messages: string[] = [];
+
+  for (const vendita of vendite) {
+    const base = emptyContracts(next);
+    const overrides = { ...base.overrides };
+    delete overrides[vendita.playerId];
+
+    next = {
+      ...next,
+      roster: next.roster.filter((e) => e.playerId !== vendita.playerId),
+      budget: next.budget + vendita.fee,
+      contracts: { ...base, overrides },
+      lists: {
+        transferList: (next.lists?.transferList ?? []).filter((id) => id !== vendita.playerId),
+        loanList: (next.lists?.loanList ?? []).filter((id) => id !== vendita.playerId),
+      },
+      market: next.market
+        ? {
+            ...next.market,
+            clauseSales: [...(next.market.clauseSales ?? []), vendita],
+            offers: next.market.offers.filter((o) => o.playerId !== vendita.playerId),
+            loanOffers: next.market.loanOffers.filter((l) => l.playerId !== vendita.playerId),
+          }
+        : next.market,
+      sessionDeals: [
+        ...(next.sessionDeals ?? []),
+        {
+          playerId: vendita.playerId,
+          playerName: vendita.playerName,
+          kind: "cessione" as const,
+          amount: vendita.fee,
+        },
+      ],
+    };
+
+    messages.push(
+      `Clausola pagata: ${vendita.playerName} lascia il club per ${formatEuro(vendita.fee)} (${vendita.toClubName}). Non c'era nulla da trattare.`,
+    );
+  }
+
+  return { state: next, messages };
+}
+
 /** Cosa chiede l'allenatore in questa sessione, se ha qualcosa da chiedere. */
 function apriRichiestaAllenatore(
   state: CareerState,
@@ -1719,6 +1827,7 @@ function apriRichiestaAllenatore(
     players,
     ageOf: (id) => ageInSeason(players[id]?.birthDate, state.season) ?? 25,
     window,
+    previous: state.lastCoachRequest,
   });
   return request ? { request, fulfilled: false } : null;
 }
@@ -4119,6 +4228,7 @@ export function playerFactsOf(
     relationship: state.relationships?.[playerId],
     openCommitments: commitmentsFor(state.commitments, playerId),
     currentWeek: state.league.round,
+    marketWindowsOpened: state.marketWindowsOpened ?? 0,
   });
 }
 
@@ -4445,6 +4555,25 @@ export function applyPlayerDialogue(
   }
   if (effetti.listForTransfer) next = withList(next, id, "transferList");
   if (effetti.listForLoan) next = withList(next, id, "loanList");
+  /**
+   * **Gliel'abbiamo promesso: da qui in poi tace fino al mercato dopo.**
+   *
+   * Richiesta dell'utente. Senza questa riga la promessa produceva l'effetto opposto — mettendo
+   * il giocatore in lista trasferimenti lo rendeva ammissibile al tema `corteggiato`, quindi
+   * tornava a bussare pochi giorni dopo (`playerTopics.ts`, `eligibleTopics`).
+   */
+  if (effetti.salePromised) {
+    next = {
+      ...next,
+      relationships: {
+        ...(next.relationships ?? {}),
+        [id]: {
+          ...(next.relationships?.[id] ?? { trust: DEFAULT_TRUST }),
+          salePromisedAtWindow: next.marketWindowsOpened ?? 0,
+        },
+      },
+    };
+  }
   if (effetti.sellNow) next = executeIncomingOffer(next, id);
   if (effetti.coachResigns) {
     next = { ...next, coachId: null, coachPromises: [], coachHarmony: 40, coachContract: undefined };
@@ -5262,7 +5391,21 @@ export function settleCommitments(
       ...next,
       relationships: {
         ...(next.relationships ?? {}),
-        [rotto.playerId]: { ...attuale, brokenCount: (attuale.brokenCount ?? 0) + 1 },
+        [rotto.playerId]: {
+          ...attuale,
+          brokenCount: (attuale.brokenCount ?? 0) + 1,
+          /**
+           * **Si tiene anche *quale* promessa era**, non solo quante ne abbiamo mancate.
+           *
+           * Con il solo conteggio il giocatore poteva rinfacciare l'esistenza di un torto ma non
+           * nominarlo, e il DS si trovava un rimprovero senza oggetto. La descrizione è quella
+           * che l'impegno si porta dietro da quando è stato preso (`commitments.ts`).
+           */
+          brokenPromises: [rotto.description, ...(attuale.brokenPromises ?? [])].slice(
+            0,
+            REMEMBERED_BROKEN_PROMISES,
+          ),
+        },
       },
     };
   }

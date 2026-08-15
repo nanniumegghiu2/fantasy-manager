@@ -197,6 +197,13 @@ export function SquadPanel({
               const quota = Math.round((entry.stats.minutes / massimoMinuti) * 100);
               const vendita = inVendita.has(entry.playerId);
               const prestito = inPrestito.has(entry.playerId);
+              /**
+               * **Chi è qui in prestito non è nostro da vendere.**
+               *
+               * Il motore lo rifiuta (`lista_trasferimenti`), ma offrire il pulsante e poi
+               * negare l'azione è un bivio finto: al suo posto si dice di chi è.
+               */
+              const daAltroClub = entry.loan?.ownerClubId;
 
               return (
                 <motion.li
@@ -320,7 +327,14 @@ export function SquadPanel({
 
                   {/* Le liste si compilano anche fuori dalla finestra: è programmazione, non
                       una trattativa, e a novembre si deve poter già decidere chi cedere. */}
-                  {onAction && (
+                  {onAction && daAltroClub && (
+                    <p className="flex items-center gap-1.5 rounded-control border border-[#5aa9e6]/30 bg-[#5aa9e6]/8 px-2.5 py-1.5 text-label font-semibold text-[#2f7fbd]">
+                      <Plane size={12} className="shrink-0" />
+                      In prestito da {world.market?.clubs[daAltroClub]?.name ?? "un altro club"}:
+                      non è tuo da vendere o prestare.
+                    </p>
+                  )}
+                  {onAction && !daAltroClub && (
                     <div className="flex gap-1.5">
                       <button
                         type="button"

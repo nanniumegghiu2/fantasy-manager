@@ -262,11 +262,30 @@ export const TOPICS: Topic[] = [
     label: "Fiducia tradita",
     eligible: (f) => f.brokenCommitments > 0 || f.isFeuding,
     urgency: (f) => Math.min(URGENZA_EMERGENZA.precontratto - 1, URGENZA_EMERGENZA.promessaInfranta + f.brokenCommitments * 2),
-    demand: () => ({ description: "Non accetta più parole: o un fatto concreto, o se ne va." }),
-    opening: (f) =>
-      f.brokenCommitments > 1
-        ? `Mi avete promesso delle cose ${f.brokenCommitments} volte e non ne è arrivata una. Perché dovrei ancora ascoltarvi?`
-        : `Mi avevate promesso una cosa precisa e non l'avete mantenuta. La fiducia, adesso, dovete ricostruirla voi.`,
+    /**
+     * **La promessa si nomina.** Richiesta esplicita dell'utente: senza il nome, il rimprovero
+     * è indistinguibile da un malumore generico e il DS non ha modo di sapere di quale impegno
+     * si stia parlando — mentre è precisamente l'informazione che serve a rispondere.
+     * `brokenPromises` porta le descrizioni vere degli impegni (`commitments.ts`); se manca,
+     * come sui salvataggi precedenti, si ricade sul testo di prima.
+     */
+    demand: (f) => ({
+      description: f.brokenPromises[0]
+        ? `Rinfaccia una promessa non mantenuta: «${f.brokenPromises[0]}». O un fatto concreto, o se ne va.`
+        : "Non accetta più parole: o un fatto concreto, o se ne va.",
+    }),
+    opening: (f) => {
+      const ultima = f.brokenPromises[0];
+      if (!ultima) {
+        return f.brokenCommitments > 1
+          ? `Mi avete promesso delle cose ${f.brokenCommitments} volte e non ne è arrivata una. Perché dovrei ancora ascoltarvi?`
+          : `Mi avevate promesso una cosa precisa e non l'avete mantenuta. La fiducia, adesso, dovete ricostruirla voi.`;
+      }
+      if (f.brokenPromises.length > 1) {
+        return `«${ultima}»: questa me l'avete promessa e non è arrivata. E prima ancora «${f.brokenPromises[1]}». Perché dovrei ancora ascoltarvi?`;
+      }
+      return `«${ultima}»: parole vostre, Direttore. Non è successo niente. La fiducia, adesso, dovete ricostruirla voi.`;
+    },
     blocking: true,
   },
   {
@@ -413,6 +432,21 @@ export function topicById(id: TopicId): Topic | undefined {
  */
 export function eligibleTopics(f: PlayerFacts, options: { ignoreTregua?: boolean } = {}): Topic[] {
   if (f.onLoanOut) return [];
+  /**
+   * **A chi è stata promessa la cessione non si deve più niente, fino al mercato dopo.**
+   *
+   * Richiesta esplicita dell'utente. La tregua per argomento non bastava: promettere la cessione
+   * lo mette in lista trasferimenti, e `isOnTransferList` è una delle condizioni che rendono
+   * ammissibile `corteggiato` — quindi la promessa *alimentava* la lamentela successiva invece
+   * di chiuderla, e bastava che cambiasse il tema più urgente per vederlo ricomparire il giorno
+   * dopo. Qui tacciono **tutti** i temi: la promessa risponde alla domanda di fondo, non a una
+   * delle diciassette. Alla finestra successiva torna a parlare, ed è giusto — lì la promessa
+   * sarà stata mantenuta o disattesa.
+   *
+   * `ignoreTregua` (la richiesta forzata che ferma il calendario) resta una deroga: se è il
+   * giocatore a essersi già presentato, la conversazione deve poter aprirsi.
+   */
+  if (f.salePromiseActive && !options.ignoreTregua) return [];
   return TOPICS.filter((t) => t.eligible(f) && (options.ignoreTregua || !inTregua(f, t))).sort(
     (a, b) => b.urgency(f) - a.urgency(f),
   );
