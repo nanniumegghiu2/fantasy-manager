@@ -252,7 +252,17 @@ export function renewalTerms(ctx: RenewalContext): RenewalTerms {
       ctx.overall >= 80 && ctx.age <= 29
         ? Math.round((ctx.marketValue * 1.6) / 500_000) * 500_000
         : 0,
-    wantsStarter: ctx.playedShare >= 0.5 || ctx.personality === "giovane_ambizioso",
+    /**
+     * ⚠️ **Il giovane ambizioso non pretende il posto a prescindere.**
+     *
+     * La clausola `|| personality === "giovane_ambizioso"` lo faceva chiedere *sempre*, anche
+     * arrivando dietro a un titolare molto più forte — ed era metà della segnalazione "nove
+     * acquisti su dieci vogliono la titolarità". Resta il più esigente dei cinque profili
+     * (`playedShare` bassa gli basta meno che agli altri), ma la garanzia la chiede solo se il
+     * posto lo prenderebbe davvero: chi lo chiama a fare la riserva in una grande lo sa, e lui
+     * pure.
+     */
+    wantsStarter: ctx.playedShare >= (ctx.personality === "giovane_ambizioso" ? 0.45 : 0.5),
     wantsCaptaincy: ctx.personality === "leader" && ctx.age >= 28,
   };
 }

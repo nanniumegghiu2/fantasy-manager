@@ -358,6 +358,12 @@ export interface PlayPhase {
   /**
    * Vale la pena guardarla al rallentatore? La riproduzione mostra queste per intero e corre
    * sulle altre — senza questa distinzione, 90 minuti continui richiederebbero 90 minuti.
+   *
+   * ⚠️ **Solo i gol**, dal 2026-08-15. Richiesta dell'utente: *"al momento si vedono troppe cose
+   * inutili, nelle azioni voglio solo vedere i gol e poi la partita in modalità veloce"*. Prima
+   * erano al rallentatore anche parate, pali, cartellini e un terzo dei tiri fuori: una ventina
+   * di fermate a partita, che è la ragione per cui guardarne una sembrava lungo. Parate e pali
+   * restano nella cronaca e nelle statistiche — succedono, si leggono, non fermano la partita.
    */
   notable: boolean;
 }
@@ -449,11 +455,26 @@ function riceve(
   y: number,
   escludi: string | null,
   random: () => number,
+  /**
+   * Il reparto che dovrebbe toccarla in questo momento dell'azione.
+   *
+   * Vincolo **morbido**: se quel reparto non ha nessuno libero si torna alla prossimità pura,
+   * invece di rompere la catena. Serve alle azioni da gol, dove il pallone deve risalire per
+   * reparti — dietro, in mezzo, davanti — e non passare da un difensore a un attaccante e
+   * ritorno come se il centrocampo non esistesse.
+   */
+  repartoAtteso?: Department,
 ): PitchPlayer | null {
   const candidati = squadra.filter((p) => p.id !== escludi && p.department !== "POR");
   const pool = candidati.length > 0 ? candidati : squadra.filter((p) => p.id !== escludi);
   if (pool.length === 0) return null;
-  const ordinati = [...pool].sort(
+
+  const dalReparto = repartoAtteso
+    ? pool.filter((p) => p.department === repartoAtteso)
+    : [];
+  const scelti = dalReparto.length > 0 ? dalReparto : pool;
+
+  const ordinati = [...scelti].sort(
     (a, b) => Math.hypot(a.base.x - x, a.base.y - y) - Math.hypot(b.base.x - x, b.base.y - y),
   );
   const finestra = Math.min(3, ordinati.length);
@@ -618,14 +639,52 @@ function costruisciFase(params: {
     };
   }
 
-  // La costruzione: da 2 a 5 tocchi che avanzano verso la porta.
-  const passaggi = 2 + Math.floor(random() * 4);
-  const tempoCostruzione = durata * (outcome === "recupero" || outcome === "rimessa" ? 0.9 : 0.75);
+  /**
+   * **L'azione da gol si costruisce, le altre no.**
+   *
+   * ⚠️ Richiesta dell'utente: *"voglio migliorato la qualità del motore grafico delle azioni dei
+   * gol con movimenti strutturati, movimenti realistici dei pallini e azioni convincenti tra
+   * difesa e attacco"*. Prima ogni possesso — gol compreso — aveva la stessa forma: due-cinque
+   * tocchi con la stessa legge di avanzamento. Il gol arrivava quindi con la stessa costruzione
+   * di una rimessa laterale, e l'unica cosa che lo distingueva era il finale.
+   *
+   * Adesso una rete nasce da una catena **più lunga e più lenta** (cinque-otto tocchi contro
+   * due-cinque), e soprattutto da una **risalita per reparti**: il pallone parte da dietro,
+   * passa dal centrocampo e arriva davanti, invece di puntare la porta dal primo tocco. È la
+   * differenza fra un'azione e un lancio lungo, ed è l'unica cosa che rende leggibile il gioco
+   * fra difesa e attacco in una vista dall'alto.
+   */
+  const eGol = outcome === "gol";
+  const passaggi = eGol ? 5 + Math.floor(random() * 4) : 2 + Math.floor(random() * 4);
+  const tempoCostruzione =
+    durata * (eGol ? 1.35 : outcome === "recupero" || outcome === "rimessa" ? 0.9 : 0.75);
   for (let i = 1; i <= passaggi; i++) {
     const u = i / (passaggi + 1);
-    const x = lerp(start.x, finaleX, u * u * 0.55 + u * 0.45);
-    const y = clamp(lerp(start.y, finaleY, u) + (random() - 0.5) * 26, 6, 94);
-    const ricevente = riceve(squadra, x, y, ultimo, random);
+    /**
+     * Su un gol la risalita è **quasi lineare** e il pallone cambia fascia: si costruisce
+     * davvero, invece di puntare la porta con una parabola che schiaccia tutti i tocchi
+     * nell'area avversaria. Sulle altre azioni resta la legge di prima.
+     */
+    const x = eGol
+      ? lerp(start.x, finaleX, u * 0.82 + u * u * 0.18)
+      : lerp(start.x, finaleX, u * u * 0.55 + u * 0.45);
+    // L'ampiezza: su un gol il pallone attraversa il campo (il gioco si sposta di fascia),
+    // sulle altre oscilla e basta. È ciò che rende l'azione "convincente" invece che diritta.
+    const respiro = eGol ? Math.sin(u * Math.PI) * 34 * (random() < 0.5 ? -1 : 1) : 0;
+    const y = clamp(lerp(start.y, finaleY, u) + respiro + (random() - 0.5) * 26, 6, 94);
+    /**
+     * **Chi tocca il pallone segue i reparti**: dietro all'inizio, in mezzo a metà azione,
+     * davanti alla fine. Senza questo vincolo il ricevente era semplicemente "il più vicino", e
+     * capitava di vedere un attaccante impostare da centrocampo mentre il difensore concludeva.
+     */
+    const repartoAtteso: Department | undefined = eGol
+      ? u < 0.3
+        ? "DIF"
+        : u < 0.68
+          ? "CC"
+          : "ATT"
+      : undefined;
+    const ricevente = riceve(squadra, x, y, ultimo, random, repartoAtteso);
     const avanzamento = Math.abs(x - (touches[touches.length - 1]?.x ?? x));
     // Il tipo di tocco decide anche **come vola il pallone**, che è ciò che dà profondità a una
     // vista dall'alto: un cross dalla fascia si alza, un lancio scavalca, un appoggio resta
@@ -715,7 +774,6 @@ function costruisciFase(params: {
       );
       commentary = frase("parata", nomeConclusore, random);
       flash = "PARATA";
-      notable = true;
       break;
     }
     case "palo": {
@@ -730,7 +788,6 @@ function costruisciFase(params: {
       );
       commentary = frase("palo", nomeConclusore, random);
       flash = "PALO";
-      notable = true;
       break;
     }
     case "fuori": {
@@ -744,9 +801,6 @@ function costruisciFase(params: {
       );
       commentary = frase("fuori", nomeConclusore, random);
       flash = "FUORI";
-      // Solo una conclusione fuori su tre merita il rallentatore: sono dieci a partita, e
-      // guardarle tutte allungherebbe la riproduzione senza aggiungere niente.
-      notable = random() < 0.3;
       break;
     }
     case "angolo": {
@@ -762,12 +816,9 @@ function costruisciFase(params: {
       if (card === "rosso") {
         commentary = frase("rosso", nomeConclusore, random);
         flash = "ROSSO";
-        notable = true;
       } else if (card === "giallo") {
         commentary = frase("giallo", nomeConclusore, random);
         flash = "GIALLO";
-        // Un'ammonizione si guarda: sono tre o quattro a partita, non tante da rallentarla.
-        notable = true;
       }
       break;
     }

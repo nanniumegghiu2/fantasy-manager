@@ -133,6 +133,32 @@ function pretendeIlPosto(f: PlayerFacts): boolean {
   return f.overall >= f.bestRivalOverallInRole - TOLLERANZA_PANCHINA(f.squadAverage);
 }
 
+/**
+ * **L'attaccamento alla maglia.**
+ *
+ * ⚠️ Richiesta dell'utente: *"non sempre un giocatore deve chiedermi di andare via se corteggiato
+ * da un altro club, esiste l'attaccamento alla maglia"*. Prima ogni offerta credibile portava
+ * il giocatore dal DS: il club poteva anche essere la sua casa da otto anni, e lui bussava lo
+ * stesso. Mancava del tutto la ragione per cui, nel calcio vero, molte offerte non producono
+ * nemmeno una conversazione.
+ *
+ * Non è un tiro di dado: è una condizione **sui fatti**, e sono i tre che rendono uno un
+ * bandiera — gli anni al club, il ruolo che ci ha (capitano, o comunque uno che gioca), e il
+ * fatto di starci bene. Chi ha tutti e tre non chiede di andarsene: se ne parlano le società.
+ *
+ * Non è un veto assoluto sul mercato — resta cedibile, e le offerte continuano ad arrivare al
+ * DS nella scheda Offerte. Toglie solo la **richiesta** del giocatore, che è la cosa che non
+ * aveva senso.
+ */
+const ANNI_DA_BANDIERA = 4;
+
+export function attaccatoAllaMaglia(f: PlayerFacts): boolean {
+  if (f.isOnTransferList) return false; // se l'hai messo tu sul mercato, il messaggio è arrivato
+  if (f.isFeuding || f.brokenCommitments > 0) return false; // la fiducia rotta scioglie il legame
+  const bandiera = f.isCaptain || f.seasonsAtClub >= ANNI_DA_BANDIERA || f.captaincy.isBandiera;
+  return bandiera && f.morale >= MORALE_SERENO && f.playedShare >= 0.45;
+}
+
 export const TOPICS: Topic[] = [
   /* ------------------------------------------------------------------ campo */
   {
@@ -180,6 +206,7 @@ export const TOPICS: Topic[] = [
     eligible: (f) =>
       !!f.incomingOffer &&
       !f.onLoanOut &&
+      !attaccatoAllaMaglia(f) &&
       ((f.incomingOffer?.prestige ?? 3) >= 4 ||
         f.playedShare < 0.45 ||
         f.morale < MORALE_SERENO ||

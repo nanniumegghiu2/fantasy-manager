@@ -417,3 +417,46 @@ export function cupOutcomeOf(state: CupState, teamIndex: number): CupOutcome {
   if (last.stage === "semifinali") return "semifinale";
   return "quarti";
 }
+
+/**
+ * **Come è finita la coppa, con nome e punteggio.**
+ *
+ * ⚠️ Richiesta dell'utente: *"nella card riepilogo di fine stagione voglio anche vedere i
+ * risultati in coppa ed in quale momento della coppa e contro chi sono uscito"*. `cupOutcomeOf`
+ * dice solo *dove* ci si è fermati — "quarti" — e per una competizione a eliminazione è metà
+ * dell'informazione: chi ti ha eliminato e con che punteggio è il resto della storia, ed è già
+ * tutto dentro `knockoutLog`. Serviva solo qualcuno che lo leggesse.
+ */
+export interface CupExit {
+  stage: CupOutcome;
+  /** Chi ci ha eliminati. Assente se abbiamo vinto o se siamo usciti nel girone. */
+  eliminatedBy?: string;
+  /** Il punteggio dei tempi regolamentari, dal nostro punto di vista. */
+  score?: { us: number; them: number };
+  /** L'eliminazione è arrivata ai rigori. */
+  onPenalties?: boolean;
+  /** …o ai supplementari. */
+  afterExtraTime?: boolean;
+}
+
+export function cupExitOf(state: CupState, teamIndex: number): CupExit {
+  const stage = cupOutcomeOf(state, teamIndex);
+  if (stage === "assente" || stage === "vittoria" || stage === "girone") return { stage };
+
+  const nostre = state.knockoutLog.filter((r) => r.home === teamIndex || r.away === teamIndex);
+  const ultima = nostre[nostre.length - 1];
+  if (!ultima || ultima.winner === teamIndex) return { stage };
+
+  const inCasa = ultima.home === teamIndex;
+  const avversaria = state.teams[inCasa ? ultima.away : ultima.home];
+  return {
+    stage,
+    eliminatedBy: avversaria?.name,
+    score: {
+      us: inCasa ? ultima.goalsHome : ultima.goalsAway,
+      them: inCasa ? ultima.goalsAway : ultima.goalsHome,
+    },
+    onPenalties: !!ultima.penalties,
+    afterExtraTime: !!ultima.extraTime,
+  };
+}

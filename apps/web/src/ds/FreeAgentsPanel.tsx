@@ -17,6 +17,7 @@ import {
 } from "@app/game-engine";
 import { ContractOfferForm, type ContractOffer } from "./ContractOfferForm";
 import { NationFlag } from "../classic/NationFlag";
+import { RoleChips } from "./RoleChips";
 
 /**
  * **La vetrina dei parametri zero.**
@@ -98,9 +99,19 @@ function Card({ agente, onApri }: { agente: FreeAgent; onApri: () => void }) {
           <p className="truncate text-body font-extrabold">{agente.name}</p>
           <p className="flex items-center gap-1.5 truncate text-label text-[var(--text-secondary)]">
             <NationFlag nation={agente.nation} />
-            {ROLE_LABELS[agente.role]} · {agente.age} anni
+            {agente.age} anni
             {agente.origin === "regen" && " · giovane senza squadra"}
           </p>
+          {/* ⚠️ **Tutti i ruoli che sa fare, non una dicitura generica.**
+
+              Segnalazione dell'utente: qui si leggeva solo l'etichetta larga del ruolo
+              principale — "esterno", "centrocampista" — mentre la ricerca globale e i cedibili
+              mostrano da sempre le caselle puntuali coi secondari. Un terzino che sa fare il
+              quinto è un acquisto diverso da uno che non lo sa fare, e su una vetrina di
+              parametri zero è **l'informazione** su cui si decide. */}
+          <div className="mt-1">
+            <RoleChips role={agente.role} secondary={agente.secondaryRoles} />
+          </div>
         </div>
         {agente.windowsFree > 0 && (
           <span

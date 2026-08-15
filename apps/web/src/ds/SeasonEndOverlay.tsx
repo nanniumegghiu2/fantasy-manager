@@ -1,6 +1,7 @@
+import type { ReactNode } from "react";
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { ArrowUpCircle, Check, Crown, Handshake, Home, MessagesSquare, Share2, Smile, Swords, Target, TrendingDown, Trophy, Wallet } from "lucide-react";
+import { ArrowUpCircle, Check, Crown, Shield, Handshake, Home, MessagesSquare, Share2, Smile, Swords, Target, TrendingDown, Trophy, Wallet } from "lucide-react";
 import { PROMOTION_SLOTS, type CareerState, type SeasonSummary } from "@app/game-engine";
 import { CUP_STAGE_LABEL, euro, ordinale } from "./format";
 import { CelebrationConfetti } from "./CelebrationConfetti";
@@ -153,15 +154,41 @@ export function SeasonEndOverlay({
           <p className="text-body font-semibold">
             {ordinale(summary.position)} posto · {summary.points} punti
           </p>
-          {summary.cupOutcome && (
-            <p className="flex items-center gap-1.5 text-label font-semibold text-[#c9a10b]">
-              <Crown size={13} />
-              {vintaCoppa
-                ? "Corona Continentale vinta"
-                : `Corona: ${CUP_STAGE_LABEL[summary.cupOutcome] ?? summary.cupOutcome}`}
-            </p>
-          )}
         </div>
+
+        {/* ⚠️ **Le coppe, per esteso** (richiesta dell'utente: *"voglio anche vedere i risultati
+            in coppa ed in quale momento della coppa e contro chi sono uscito"*).
+
+            Prima si leggeva soltanto «Corona: quarti» — dove ci si era fermati, mai contro chi
+            né con che punteggio, cioè la parte della storia che uno ricorda. E la Coppa
+            Tricolore non compariva affatto, pur essendo giocata da agosto. */}
+        {(summary.cupOutcome || summary.nationalCupOutcome) && (
+          <div className="flex flex-col gap-1.5 border-t border-[var(--surface-border)] px-4 py-3">
+            <p className="text-micro font-bold tracking-widest text-[var(--text-secondary)] uppercase">
+              Le coppe
+            </p>
+            {summary.cupOutcome && (
+              <RigaCoppa
+                icona={<Crown size={13} />}
+                colore="#c9a10b"
+                nome="Corona Continentale"
+                vinta={vintaCoppa}
+                stage={CUP_STAGE_LABEL[summary.cupOutcome] ?? summary.cupOutcome}
+                exit={summary.cupExit}
+              />
+            )}
+            {summary.nationalCupOutcome && (
+              <RigaCoppa
+                icona={<Shield size={13} />}
+                colore="#b07a5e"
+                nome="Coppa Tricolore"
+                vinta={summary.nationalCupOutcome === "vittoria"}
+                stage={CUP_STAGE_LABEL[summary.nationalCupOutcome] ?? summary.nationalCupOutcome}
+                exit={summary.nationalCupExit}
+              />
+            )}
+          </div>
+        )}
 
         <div className="grid grid-cols-3 divide-x divide-[var(--surface-border)] border-y border-[var(--surface-border)]">
           <Numero label="Fatti" value={summary.goalsFor} />
@@ -314,6 +341,55 @@ export function SeasonEndOverlay({
         </div>
       </motion.div>
     </motion.div>
+  );
+}
+
+/**
+ * Una riga di coppa: dove siamo arrivati e — se ci hanno eliminati — **chi** e con che
+ * punteggio. Il turno da solo non racconta niente: "quarti" è uguale per chi è stato travolto e
+ * per chi è uscito ai rigori dopo i supplementari, che nel ricordo sono due stagioni diverse.
+ */
+function RigaCoppa({
+  icona,
+  colore,
+  nome,
+  vinta,
+  stage,
+  exit,
+}: {
+  icona: ReactNode;
+  colore: string;
+  nome: string;
+  vinta: boolean;
+  stage: string;
+  exit?: { eliminatedBy?: string; score?: { us: number; them: number }; onPenalties?: boolean; afterExtraTime?: boolean };
+}) {
+  return (
+    <div
+      className="flex items-start gap-2 rounded-control border p-2.5"
+      style={{ borderColor: `${colore}40`, backgroundColor: `${colore}12` }}
+    >
+      <span className="mt-0.5 shrink-0" style={{ color: colore }}>
+        {icona}
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-label font-extrabold">
+          {nome} · {vinta ? "vinta" : stage}
+        </span>
+        {!vinta && exit?.eliminatedBy && (
+          <span className="num block text-label text-[var(--text-secondary)]">
+            Eliminati dal {exit.eliminatedBy}
+            {exit.score && ` (${exit.score.us}-${exit.score.them})`}
+            {exit.onPenalties ? " ai rigori" : exit.afterExtraTime ? " dopo i supplementari" : ""}
+          </span>
+        )}
+        {!vinta && !exit?.eliminatedBy && stage.toLowerCase().includes("giron") && (
+          <span className="block text-label text-[var(--text-secondary)]">
+            Fuori nella fase a girone.
+          </span>
+        )}
+      </span>
+    </div>
   );
 }
 

@@ -23,6 +23,7 @@ import {
   type Coach,
   type CoachNegotiationState,
   type CoachPromise,
+  type CoachReport,
   type RoleCandidate,
   type RosterEntry,
 } from "@app/game-engine";
@@ -37,8 +38,15 @@ import { Button, Stepper, type Step } from "./ui";
  * sequenza più sotto.
  */
 const PASSI: Step[] = [
+  { key: "analisi", label: "La sua analisi" },
   { key: "richieste", label: "Richieste" },
   { key: "contratto", label: "Ingaggio e durata" },
+];
+
+/** Senza contratto da discutere (ingaggio di un mister nuovo) i passi sono due. */
+const PASSI_SENZA_CONTRATTO: Step[] = [
+  { key: "analisi", label: "La sua analisi" },
+  { key: "richieste", label: "Richieste" },
 ];
 
 interface CoachNegotiationChatProps {
@@ -83,6 +91,17 @@ interface CoachNegotiationChatProps {
    * Vale quando restano zero o una stagione (richiesta esplicita dell'utente).
    */
   requiresRenewal?: boolean;
+  /**
+   * **La sua lettura della rosa** (`coachReport.ts`), primo passo del tavolo.
+   *
+   * ⚠️ Richiesta dell'utente: *"non voglio più richieste con Overall, voglio una sua analisi
+   * sulla squadra"*. Senza questo passo il mister apriva parlando per soglie numeriche — il
+   * linguaggio del motore, non quello di un allenatore — e non diceva mai *perché* chiedeva
+   * quello che chiedeva. Assente per un tecnico che ancora non conosce la squadra.
+   */
+  report?: CoachReport | null;
+  /** Le dimissioni si annunciano qui: chi si alza dal tavolo lascia la panchina davvero. */
+  onResign?: () => void;
   onAgree: (coach: Coach, promises: CoachPromise[], cost: number, renewSeasons?: number) => void;
   onCancel: () => void;
 }
@@ -101,13 +120,17 @@ export function CoachNegotiationChat({
   marketCandidates,
   contract,
   requiresRenewal = false,
+  report,
+  onResign,
   onAgree,
   onCancel,
 }: CoachNegotiationChatProps) {
   /** Le due schede del meeting: cosa chiede in campo, e cosa chiede per sé. */
-  const [scheda, setScheda] = useState<"richieste" | "contratto">("richieste");
+  const [scheda, setScheda] = useState<"analisi" | "richieste" | "contratto">(
+    report ? "analisi" : "richieste",
+  );
   /** Se il primo passo è stato affrontato: serve allo stepper per dire cosa è già fatto. */
-  const [passoRichiesteFatto, setPassoRichiesteFatto] = useState(false);
+  const [, setPassoRichiesteFatto] = useState(false);
   const [durataRinnovo, setDurataRinnovo] = useState(3);
   /**
    * ⚠️ Nasce **già scelta**, e non è un dettaglio: era `!requiresRenewal`, cioè falsa proprio
@@ -261,15 +284,126 @@ export function CoachNegotiationChat({
 
           Si può tornare indietro su un passo già fatto — cambiare idea è legittimo — ma non
           saltare avanti: sarebbe di nuovo la barra a schede, con lo stesso difetto. */}
-      {contract && (
+      {(contract || report) && (
         <div className="mx-auto w-full max-w-2xl px-4 pt-3">
-          <Stepper
-            steps={PASSI}
-            current={scheda === "richieste" ? 0 : 1}
-            furthest={rinnovoScelto ? 1 : passoRichiesteFatto ? 1 : 0}
-            onGoTo={(i) => setScheda(i === 0 ? "richieste" : "contratto")}
-          />
+          {(() => {
+            const passi = contract ? PASSI : PASSI_SENZA_CONTRATTO;
+            const offset = report ? 0 : 1; // senza analisi il primo passo è "richieste"
+            const indice = scheda === "analisi" ? 0 : scheda === "richieste" ? 1 : 2;
+            const visibili = report ? passi : passi.slice(1);
+            return (
+              <Stepper
+                steps={visibili}
+                current={Math.max(0, indice - offset)}
+                furthest={visibili.length - 1}
+                onGoTo={(i) => {
+                  const chiave = visibili[i]?.key;
+                  if (chiave === "analisi") setScheda("analisi");
+                  else if (chiave === "richieste") setScheda("richieste");
+                  else setScheda("contratto");
+                }}
+              />
+            );
+          })()}
         </div>
+      )}
+
+      {/* **La sua analisi**: cosa vede lui guardando questa rosa. Viene prima di tutto perché è
+          il motivo delle richieste che arrivano dopo — leggerle senza sapere da dove nascono era
+          esattamente ciò che le faceva sembrare arbitrarie. */}
+      {report && scheda === "analisi" && (
+        <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-3 px-4 py-5 pb-44">
+          <p className="rounded-card rounded-tl-sm border border-[var(--brand)]/30 bg-[var(--brand)]/8 p-4 text-body leading-relaxed">
+            «{report.headline}»
+          </p>
+
+          {report.objectiveTalk && (
+            <section className="rounded-card border border-[#ffc107]/40 bg-[#ffc107]/8 p-4">
+              <p className="flex items-center gap-2 text-micro font-extrabold tracking-widest text-[#b8860b] uppercase">
+                <ShieldAlert size={13} /> Perché non ci stiamo arrivando
+              </p>
+              <p className="mt-1.5 text-label leading-relaxed">«{report.objectiveTalk.diagnosis}»</p>
+              <p className="mt-2 text-label leading-relaxed font-semibold">
+                «{report.objectiveTalk.needed}»
+              </p>
+            </section>
+          )}
+
+          {report.weakSpots.length > 0 && (
+            <section>
+              <p className="mb-1.5 text-micro font-extrabold tracking-widest text-[var(--text-secondary)] uppercase">
+                Dove siamo corti
+              </p>
+              <ul className="flex flex-col gap-1.5">
+                {report.weakSpots.map((w) => (
+                  <li
+                    key={w.role}
+                    className="rounded-control border-l-3 border-[var(--surface-border)] bg-[var(--surface-raised)] px-3 py-2 text-label leading-relaxed"
+                    style={{ borderLeftColor: w.kind === "scoperto" ? "#ff4d4d" : "#ffab2e" }}
+                  >
+                    «{w.text}»
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+
+          {report.untouchables.length > 0 && (
+            <section>
+              <p className="mb-1.5 text-micro font-extrabold tracking-widest text-[var(--text-secondary)] uppercase">
+                Chi non si tocca
+              </p>
+              <ul className="flex flex-col gap-1.5">
+                {report.untouchables.map((u) => (
+                  <li
+                    key={u.playerId}
+                    className="rounded-control border-l-3 border-[#f5c518] bg-[var(--surface-raised)] px-3 py-2 text-label leading-relaxed"
+                  >
+                    «{u.text}»
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+
+          {(report.wanted || report.unwanted) && (
+            <section>
+              <p className="mb-1.5 text-micro font-extrabold tracking-widest text-[var(--text-secondary)] uppercase">
+                I nomi che fa
+              </p>
+              <ul className="flex flex-col gap-1.5">
+                {report.wanted && (
+                  <li className="rounded-control border-l-3 border-[#3ddc6b] bg-[var(--surface-raised)] px-3 py-2 text-label leading-relaxed">
+                    «{report.wanted.text}»
+                  </li>
+                )}
+                {report.unwanted && (
+                  <li className="rounded-control border-l-3 border-[#ff8a3d] bg-[var(--surface-raised)] px-3 py-2 text-label leading-relaxed">
+                    «{report.unwanted.text}»
+                  </li>
+                )}
+              </ul>
+            </section>
+          )}
+
+          <section>
+            <p className="mb-1.5 text-micro font-extrabold tracking-widest text-[var(--text-secondary)] uppercase">
+              Sul gruppo
+            </p>
+            <ul className="flex flex-col gap-1.5">
+              {report.wishes.map((w) => (
+                <li
+                  key={w.kind}
+                  className="rounded-control bg-[var(--surface-raised)] px-3 py-2 text-label leading-relaxed"
+                >
+                  «{w.text}»
+                </li>
+              ))}
+            </ul>
+          </section>
+
+          <Button onClick={() => setScheda("richieste")}>Passa alle sue richieste</Button>
+        </main>
       )}
 
       {contract && scheda === "contratto" && (
@@ -382,7 +516,7 @@ export function CoachNegotiationChat({
           sbagliato — fra ciò che si legge e ciò che si tocca. */}
       <main
         className={`mx-auto w-full max-w-2xl flex-1 flex-col justify-end gap-4 px-4 py-5 pb-44 ${
-          contract && scheda === "contratto" ? "hidden" : "flex"
+          scheda !== "richieste" ? "hidden" : "flex"
         }`}
       >
         {/* Messaggio 1: Saluto del Mister */}
@@ -589,7 +723,15 @@ export function CoachNegotiationChat({
             primario **non descrive mai il problema** — o è abilitato, o dice *l'azione che lo
             sblocca* e ci porta. L'uscita scende a testo secondario, dove vanno le uscite. */}
         <div className="mx-auto w-full max-w-2xl">
-          {step === "greeting" && (
+          {/* Sul passo dell'analisi l'unica azione è passare oltre: il footer non deve offrire
+              «ascolta le sue richieste» mentre le si sta ancora leggendo. */}
+          {scheda === "analisi" && (
+            <Button size="lg" block onClick={() => setScheda("richieste")}>
+              Passa alle sue richieste
+            </Button>
+          )}
+
+          {scheda !== "analisi" && step === "greeting" && (
             <div className="flex flex-col gap-2">
               <Button size="lg" block onClick={() => setStep("demands")}>
                 Ascolta le sue richieste
@@ -600,7 +742,7 @@ export function CoachNegotiationChat({
             </div>
           )}
 
-          {step === "demands" && negState.status === "in_corso" && (
+          {scheda !== "analisi" && step === "demands" && negState.status === "in_corso" && (
             <div className="flex flex-col gap-2">
               {/* ⚠️ **Il primario avanza, non si blocca.**
 
@@ -651,10 +793,27 @@ export function CoachNegotiationChat({
             </div>
           )}
 
-          {(step === "agreed" || step === "rejected" || negState.status === "arenata") && (
-            <Button variant="secondary" size="lg" block onClick={onCancel}>
-              Chiudi
+          {/**
+           * ⚠️ **Chi si alza dal tavolo lascia la panchina.**
+           *
+           * Richiesta dell'utente: *"nella stessa schermata si deve discutere il suo rinnovo o le
+           * sue dimissioni se non si trova un accordo, e se si dimette si deve immediatamente
+           * cercare un sostituto"*. Prima rifiutare le condizioni chiudeva la schermata e basta:
+           * il mister restava in panchina con quindici punti di sintonia in meno, cioè il
+           * "rifiuto" non era una decisione ma un modo di uscire. Ora, quando il rinnovo è la
+           * sua condizione, il no è una separazione — e la panchina resta vuota finché non se
+           * ne trova un altro.
+           */}
+          {(step === "rejected" || negState.status === "arenata") && onResign ? (
+            <Button variant="danger" size="lg" block onClick={onResign}>
+              Prendi atto delle dimissioni
             </Button>
+          ) : (
+            (step === "agreed" || step === "rejected" || negState.status === "arenata") && (
+              <Button variant="secondary" size="lg" block onClick={onCancel}>
+                Chiudi
+              </Button>
+            )
           )}
         </div>
       </footer>

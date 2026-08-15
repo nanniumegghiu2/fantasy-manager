@@ -40,6 +40,7 @@ export * from "./ds/seasonObjectives";
 export * from "./ds/board";
 export * from "./ds/coachRequests";
 export * from "./ds/coachRequestsCatalog";
+export * from "./ds/coachReport";
 export * from "./ds/coachDialogueEngine";
 export * from "./ds/coachNegotiation";
 export * from "./ds/coachSynergy";

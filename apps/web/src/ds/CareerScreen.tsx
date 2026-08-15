@@ -46,7 +46,11 @@ import {
   playNegotiation,
   proposePromiseAlternative,
   setGuaranteedStarter,
-  answerBoardSackDemand,
+  boardMeeting,
+  careerPlayers,
+  coachSquadReport,
+  resignCoach,
+  settleBoardMeeting,
   answerFormationChange,
   FORMATION_RESIGN_HARMONY,
   FORMATION_REFUSAL_HARMONY_COST,
@@ -94,7 +98,8 @@ import { PlayerDialogueChat } from "./PlayerDialogueChat";
 import { RenewalModal } from "./RenewalModal";
 import { ContractOfferForm } from "./ContractOfferForm";
 import { SeasonObjectiveScreen } from "./SeasonObjectiveScreen";
-import { BoardDemandDialog } from "./BoardDemandDialog";
+import { BoardMeetingScreen } from "./BoardMeetingScreen";
+import { CoachPickerScreen } from "./CoachPickerScreen";
 import { StandingsTable } from "../classic/StandingsTable";
 import { CupPanel } from "./CupPanel";
 import { CupProgress, NationalCupProgress } from "./CupProgress";
@@ -224,12 +229,21 @@ export function CareerScreen({
   const finanze = useMemo(() => financesOf(state, world), [state, world]);
   const coach = state.coachId ? findCoach(state.coachId) : undefined;
 
+  /**
+   * I nomi di **chiunque** possa comparire in un referto o sul campo 2D.
+   *
+   * Le tre fonti si sovrappongono di proposito, ed è la stessa regola di `marketPlayerIndex`:
+   * il database non conosce i regen, il mondo del mercato non conosce i nostri, e chi abbiamo
+   * comprato da un altro club sta solo nel secondo. Chi arriva dopo aggiorna, nessuno azzera —
+   * l'unica cosa che potrebbe far ricomparire i "Giocatore" è cambiare l'ordine.
+   */
   const nameById = useMemo(() => {
     const map: Record<string, string> = {};
     for (const [id, player] of Object.entries(world.players)) map[id] = player.name;
+    for (const [id, player] of Object.entries(world.market?.players ?? {})) map[id] = player.name;
     for (const generated of state.generated) map[generated.id] = generated.name;
     return map;
-  }, [world.players, state.generated]);
+  }, [world.players, world.market, state.generated]);
 
   /** La classifica corrente, ricostruita dai totali salvati: non si conserva, si deriva. */
   const standingsFinali: StandingRow[] = useMemo(
@@ -774,16 +788,16 @@ export function CareerScreen({
   const bisognaObiettivo = state.seasonObjectiveSet === false;
 
   /**
-   * **La dirigenza chiede la testa del mister** (`board.ts`).
+   * **Il colloquio con la società** (`board.ts`), primo gate di ogni stagione.
    *
-   * È il primo gate di inizio stagione, prima del rinnovo col mister — che potrebbe non esserci
-   * più — e prima dell'obiettivo, che si dichiara con la panchina già assegnata.
+   * Non è più un avviso che compare solo dopo un'annata storta: è il tavolo in cui il presidente
+   * dichiara l'obiettivo minimo, si concordano ambizione e mezzi, e — quando la questione è
+   * aperta — si decide della panchina. Viene prima del rinnovo col mister proprio perché da qui
+   * il mister può uscire esonerato.
    */
-  const richiestaDirigenza = state.board?.sackDemand;
-  const rispondiDirigenza = useCallback(
-    (scelta: "esonera" | "difendi") => onChange(answerBoardSackDemand(state, scelta).state),
-    [state, onChange],
-  );
+  const colloquio = useMemo(() => boardMeeting(state, world), [state, world]);
+  /** La lettura della rosa che il mister porta al tavolo (`coachReport.ts`). */
+  const analisiMister = useMemo(() => coachSquadReport(state, world), [state, world]);
   const coachAttuale = state.coachId ? findCoach(state.coachId) : undefined;
   const marketCandidatesRinnovo = useMemo(
     () =>
@@ -945,7 +959,28 @@ export function CareerScreen({
           al bordo e «Storico» non si vedeva affatto. Lo spazio in fondo lascia posto alla barra
           più l'azione contestuale. */}
       <main className="mx-auto w-full max-w-3xl flex-1 px-4 py-4 pb-[13rem]">
-        {tab === "stagione" && (
+        {/* ⚠️ **Niente spoiler mentre si decide se guardare.**
+
+            Segnalazione dell'utente: *"capita di vedere prima il risultato o l'esito nei
+            tabelloni delle coppe della selezione se guardare o meno le azioni, perdendo la
+            voglia stessa di guardarle"*. La causa è strutturale: quando la corsa si ferma per
+            una partita chiave il motore l'ha **già simulata** — è la garanzia che guardare o
+            saltare non cambi nulla — quindi lo stato dietro l'invito contiene già il tabellino,
+            la riga nella lista dei risultati e, peggio, la striscia della coppa aggiornata con
+            l'eliminazione. Il velo del modale non basta: la striscia si legge lo stesso.
+
+            Finché l'invito è aperto (o il teatro è in scena) la scheda Stagione non si disegna
+            affatto. Non è un espediente visivo: è l'unico modo per cui la domanda «vuoi
+            vederla?» abbia ancora senso quando la risposta è già scritta nello stato. */}
+        {tab === "stagione" && (keyMatch || teatro) && (
+          <div className="flex items-center justify-center px-6 py-16 text-center">
+            <p className="text-body leading-relaxed text-[var(--text-secondary)] text-balance">
+              Il campo ti aspetta. Il risultato lo scoprirai guardando.
+            </p>
+          </div>
+        )}
+
+        {tab === "stagione" && !keyMatch && !teatro && (
           /* Due colonne su schermo largo: i risultati scorrono a sinistra, la classifica resta
              ferma a destra. Su telefono la classifica sta sopra, compatta, perché è il dato che
              si vuole sotto controllo mentre le giornate passano. */
@@ -1441,12 +1476,20 @@ export function CareerScreen({
           />
         )}
 
-        {!correndo && !incident && !teatro && !keyMatch && !riepilogo && richiestaDirigenza && (
-          <BoardDemandDialog
-            key="dirigenza"
-            demand={richiestaDirigenza}
+        {/* **Il colloquio con la società apre la stagione**, ogni anno e non solo dopo un'annata
+            storta: è lì che si concordano obiettivo, mezzi e sorte della panchina. Viene prima
+            del rinnovo col mister — che potrebbe non esserci più dopo questo tavolo — e prima
+            delle coppe, che si dichiarano sapendo già quanto si è promesso in campionato. */}
+        {!correndo && !incident && !teatro && !keyMatch && !riepilogo && !state.market && bisognaObiettivo && (
+          <BoardMeetingScreen
+            key="colloquio-societa"
+            meeting={colloquio}
             board={state.board ?? defaultBoard()}
-            onChoose={rispondiDirigenza}
+            onAgree={(decisione) => {
+              const esito = settleBoardMeeting(state, world, decisione);
+              onChange(esito.state);
+              setDeal({ id: Date.now(), kind: "acquisto", message: esito.message, delta: 0 });
+            }}
           />
         )}
 
@@ -1455,7 +1498,7 @@ export function CareerScreen({
             finestra aperta. La condizione sul mercato e una rete di sicurezza — la causa vera e
             corretta in `hireCoach` — perche un blocco totale non deve poter tornare da un altro
             percorso. */}
-        {!correndo && !incident && !teatro && !keyMatch && !riepilogo && !richiestaDirigenza && !state.market && bisognaRinnovare && coachAttuale && (
+        {!correndo && !incident && !teatro && !keyMatch && !riepilogo && !bisognaObiettivo && !state.market && bisognaRinnovare && coachAttuale && (
           <CoachNegotiationChat
             key="rinnovo-mister"
             coach={coachAttuale}
@@ -1479,6 +1522,21 @@ export function CareerScreen({
                il messaggio "va rinnovato o lascia la panchina" restava una frase che nessun
                flusso poteva mantenere. */
             requiresRenewal={coachContractSeasonsLeft(state) <= 1}
+            /* La sua lettura della rosa: punti deboli, intoccabili, i nomi che fa, e — quando la
+               stagione è andata storta — perché e cosa gli servirebbe. È il primo passo del
+               tavolo, ed è ciò che rende leggibili le richieste che arrivano dopo. */
+            report={analisiMister}
+            /* Se il rinnovo era la sua condizione e non si trova l'accordo, lascia davvero: la
+               panchina resta vuota e il gate qui sotto costringe a cercarne subito un altro. */
+            onResign={
+              coachContractSeasonsLeft(state) <= 1
+                ? () => {
+                    const esito = resignCoach(state);
+                    onChange(esito.state);
+                    setDeal({ id: Date.now(), kind: "errore", message: esito.message, delta: 0 });
+                  }
+                : undefined
+            }
             onAgree={(_c, promises, cost, renewSeasons) => {
               let next = state;
               if (renewSeasons) {
@@ -1498,28 +1556,65 @@ export function CareerScreen({
           />
         )}
 
-        {/* L'obiettivo si dichiara dopo il rinnovo col mister: stesso momento, la "sveglia" di
-            inizio stagione, un passo alla volta. */}
-        {!correndo && !incident && !teatro && !keyMatch && !riepilogo && !richiestaDirigenza && !bisognaRinnovare && bisognaObiettivo && (
-          <SeasonObjectiveScreen
-            key="obiettivo-stagionale"
-            season={state.season}
-            choices={seasonObjectiveChoices(state, world)}
-            finances={finanze}
-            secondDivision={inSecondDivision(state, world)}
-            cups={coppeDaDichiarare}
-            onChoose={(tier, cupTiers) => {
-              let next = setSeasonObjective(state, tier, world);
-              if (Object.keys(cupTiers).length > 0) {
+        {/* ⚠️ **La panchina vuota si riempie subito.**
+
+            Richiesta dell'utente: *"se si dimette si deve immediatamente cercare un sostituto"*.
+            Prima un mister che lasciava (dimissioni, esonero della dirigenza, promesse infrante)
+            lasciava la carriera senza guida, e l'unico modo di sostituirlo era aprire il mercato
+            e trovare la scheda giusta — cioè si poteva giocare intere giornate senza allenatore.
+            Questo gate non ha una via d'uscita perché una squadra senza tecnico non scende in
+            campo. */}
+        {!correndo && !incident && !teatro && !keyMatch && !riepilogo && !state.market && !state.coachId && (
+          <div
+            key="sostituto-mister"
+            className="fixed inset-0 z-[55] overflow-y-auto bg-[var(--surface)]"
+          >
+            <CoachPickerScreen
+              clubId={state.clubId}
+              clubName={world.clubName}
+              clubPrestige={world.market?.valuation.clubPrestige[state.clubId] ?? 3}
+              budget={state.budget}
+              roster={state.roster}
+              season={state.season}
+              players={world.players}
+              onPick={(coachId, promises, totalCost) => ingaggia(coachId, promises, totalCost)}
+              onBack={() => {
+                /* Non c'è un indietro: senza allenatore la squadra non gioca. */
+              }}
+            />
+          </div>
+        )}
+
+        {/* Le **coppe** restano da dichiarare dopo il colloquio: il campionato è già concordato
+            al tavolo con la società, qui si aggiungono i traguardi delle competizioni a cui si
+            partecipa davvero. Se non ce n'è nessuna la schermata non compare affatto. */}
+        {!correndo &&
+          !incident &&
+          !teatro &&
+          !keyMatch &&
+          !riepilogo &&
+          !bisognaObiettivo &&
+          !bisognaRinnovare &&
+          coppeDaDichiarare.length > 0 &&
+          !state.seasonCupObjectives && (
+            <SeasonObjectiveScreen
+              key="obiettivi-coppa"
+              season={state.season}
+              choices={seasonObjectiveChoices(state, world)}
+              finances={finanze}
+              secondDivision={inSecondDivision(state, world)}
+              cups={coppeDaDichiarare}
+              agreed={state.seasonObjective}
+              onChoose={(tier, cupTiers) => {
+                let next = state.seasonObjective ? state : setSeasonObjective(state, tier, world);
                 next = setSeasonCupObjectives(next, {
                   continental: cupTiers.continental,
                   national: cupTiers.national,
                 });
-              }
-              onChange(next);
-            }}
-          />
-        )}
+                onChange(next);
+              }}
+            />
+          )}
         {/**
          * ⚠️ **Una sola schermata di fine stagione** (segnalazione dell utente).
          *
@@ -1657,14 +1752,37 @@ function buildTheatreContext(
   opponentName: string,
 ): MatchTheatreContext | undefined {
   const lineup = currentLineup(state, world);
+  /**
+   * ⚠️ **L'anagrafica fusa, non `world.players`.**
+   *
+   * Segnalazione dell'utente: *"è capitato di non vedere i nomi dei giocatori in campo ma una
+   * dicitura generica «giocatore»"*. `world.players` è il pool del database: non contiene i
+   * **regen** nati in carriera, quindi un nostro titolare cresciuto in casa non veniva
+   * riconosciuto, cadeva fuori dall'undici e — con l'undici incompleto — l'intero contesto
+   * saltava, mandando in campo ventidue anonimi. È lo stesso difetto già corretto altrove
+   * (`careerPlayers` esiste apposta), ricomparso qui perché questa funzione era stata scritta
+   * dopo.
+   */
+  const anagrafica = careerPlayers(state, world);
   const ourEleven = Object.values(lineup.starters)
     .map((playerId) => {
-      const p = world.players[playerId];
+      const p = anagrafica[playerId];
       return p ? { playerId, department: p.department } : null;
     })
     .filter((p): p is { playerId: string; department: Department } => p !== null);
 
-  const team = world.opponents.find((t) => t.name === opponentName);
+  /**
+   * ⚠️ **L'avversaria può non essere di campionato.**
+   *
+   * `world.opponents` sono le 19 di lega: in Corona e in Coppa Tricolore la ricerca falliva
+   * sempre, `opponentEleven` restava vuoto e il contesto tornava `undefined` — cioè proprio
+   * nelle partite che il gioco propone di guardare si finiva con gli undici generici. Si
+   * cercano quindi anche fra le iscritte alla Corona e fra i club delle due divisioni.
+   */
+  const team =
+    world.opponents.find((t) => t.name === opponentName) ??
+    Object.values(world.cupTeams ?? {}).find((t) => t.name === opponentName) ??
+    Object.values(world.divisions?.teams ?? {}).find((t) => t.name === opponentName);
   const scorers = team?.scorers ?? [];
   const shape: [Department, number][] = [
     ["POR", 1],

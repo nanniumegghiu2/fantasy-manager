@@ -6,6 +6,7 @@
  */
 import type { Role } from "@app/shared-types";
 import { getFormation } from "../formations";
+import { ROLE_NOME } from "./coachRequests";
 import type { Coach, CoachPromise, CoachPromiseKind, RosterEntry } from "./types";
 
 export interface SquadAnalysis {
@@ -84,7 +85,7 @@ export function generateCoachPromises(
       id: promiseId("top_player", 1, random),
       kind: "top_player",
       targetValue: requiredOverall,
-      description: `Acquisto di un Top Player con Overall ≥ ${requiredOverall}`,
+      description: "Un giocatore che sposti gli equilibri: uno che le partite le decide da solo",
       seasonAccepted: season,
       fulfilled: false,
       priority: "imprescindibile",
@@ -140,8 +141,8 @@ export function generateCoachPromises(
     targetPlayerId: nominato?.playerId,
     targetPlayerName: nominato?.playerName,
     description: nominato
-      ? `Acquisto di ${nominato.playerName} (${targetRole}, Overall ${nominato.overall}) per il ${coach.formationId}`
-      : `Acquisto di uno specialista in grado di coprire il ruolo ${targetRole} (Overall ≥ ${reqRoleOverall}) per il ${coach.formationId}`,
+      ? `${nominato.playerName}: è il ${ROLE_NOME[targetRole]} che serve al ${coach.formationId}`
+      : `Un ${ROLE_NOME[targetRole]} all'altezza, per non coprire quella casella con un adattato`,
     seasonAccepted: season,
     fulfilled: false,
     priority: "imprescindibile",
@@ -177,7 +178,7 @@ export function generateCoachPromises(
       id: promiseId("youth_prospect", 3, random),
       kind: "youth_prospect",
       targetValue: 1,
-      description: "Acquisto di almeno 1 talento Under 22 da valorizzare",
+      description: "Un ragazzo su cui lavorare: non dev'essere pronto, deve avere qualcosa dentro",
       seasonAccepted: season,
       fulfilled: false,
       priority: "negoziabile",
@@ -191,7 +192,7 @@ export function generateCoachPromises(
       id: promiseId("veteran_leadership", 4, random),
       kind: "veteran_leadership",
       targetValue: 30,
-      description: "Inserimento di un leader d'esperienza Over 30 per lo spogliatoio",
+      description: "Un veterano che nello spogliatoio abbia già visto tutto, anche se non gioca ogni domenica",
       seasonAccepted: season,
       fulfilled: false,
       priority: "negoziabile",
@@ -205,7 +206,7 @@ export function generateCoachPromises(
       id: promiseId("trim_squad", 5, random),
       kind: "trim_squad",
       targetValue: 23,
-      description: "Sfoltimento della rosa a un massimo di 23 giocatori",
+      description: "Sfoltire la rosa: non riesco a dare campo a tutti, e chi non gioca non mi parla più",
       seasonAccepted: season,
       fulfilled: false,
       priority: "flessibile",
@@ -221,7 +222,7 @@ export function generateCoachPromises(
       kind: "key_player_retention",
       targetPlayerId: topPlayerEntry.playerId,
       targetPlayerName: topName,
-      description: `Garantire l'incedibilità assoluta per ${topName} (Overall ${topPlayerEntry.overall})`,
+      description: `${topName} non si tocca: senza di lui devo rifare tutto`,
       seasonAccepted: season,
       fulfilled: false,
       priority: "imprescindibile",
@@ -234,7 +235,7 @@ export function generateCoachPromises(
     candidates.push({
       id: promiseId("depth_backup", 7, random),
       kind: "depth_backup",
-      description: "Copertura delle lacune in organico (secondo portiere/riserva difesa)",
+      description: "Coprire i buchi in organico: un secondo portiere, e ricambi veri dietro",
       seasonAccepted: season,
       fulfilled: false,
       priority: "flessibile",
@@ -248,7 +249,7 @@ export function generateCoachPromises(
       id: promiseId("domestic_core", 8, random),
       kind: "domestic_core",
       targetValue: 4,
-      description: "Mantenere almeno 4 giocatori di nazionalità del club/mister",
+      description: "Tenere un blocco di giocatori del posto: è quello che regge lo spogliatoio",
       seasonAccepted: season,
       fulfilled: false,
       priority: "flessibile",

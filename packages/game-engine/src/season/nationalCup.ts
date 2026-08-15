@@ -205,3 +205,43 @@ export function nationalCupOutcomeOf(
   }
   return undefined;
 }
+
+/**
+ * Come è finita, con chi ci ha eliminati e il punteggio — stessa forma di `cupExitOf` per la
+ * Corona, così il riepilogo di fine stagione legge le due coppe con lo stesso codice.
+ */
+export interface NationalCupExit {
+  stage: NationalCupStage | "vittoria";
+  eliminatedBy?: string;
+  score?: { us: number; them: number };
+  onPenalties?: boolean;
+  afterExtraTime?: boolean;
+}
+
+export function nationalCupExitOf(
+  state: NationalCupState,
+  clubId: string,
+): NationalCupExit | undefined {
+  const index = state.teams.findIndex((t) => t.id === clubId);
+  if (index < 0) return undefined;
+  if (state.winner === index) return { stage: "vittoria" };
+
+  for (let i = state.log.length - 1; i >= 0; i--) {
+    const tie = state.log[i]!;
+    if (tie.home !== index && tie.away !== index) continue;
+    if (tie.winner === index) return undefined; // ancora in corsa
+    const inCasa = tie.home === index;
+    const avversaria = state.teams[inCasa ? tie.away : tie.home];
+    return {
+      stage: tie.stage,
+      eliminatedBy: avversaria?.name,
+      score: {
+        us: inCasa ? tie.goalsHome : tie.goalsAway,
+        them: inCasa ? tie.goalsAway : tie.goalsHome,
+      },
+      onPenalties: !!tie.penalties,
+      afterExtraTime: !!tie.extraTime,
+    };
+  }
+  return undefined;
+}

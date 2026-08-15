@@ -39,6 +39,7 @@ export function SeasonObjectiveScreen({
   finances,
   secondDivision = false,
   cups,
+  agreed,
   onChoose,
 }: {
   season: number;
@@ -60,6 +61,15 @@ export function SeasonObjectiveScreen({
    * Tricolore). Assenti = non si gioca quella competizione, e non se ne parla.
    */
   cups?: { key: "continental" | "national"; label: string; tiers: CupObjectiveTier[] }[];
+  /**
+   * L'obiettivo di campionato **già concordato** al colloquio con la società.
+   *
+   * Quando c'è, questa schermata non lo chiede più: lo mostra e si limita alle coppe. È la
+   * conseguenza di aver spostato la contrattazione dov'è il suo posto — al tavolo con chi mette
+   * i soldi (`BoardMeetingScreen`) — e senza questa distinzione il DS sceglierebbe due volte la
+   * stessa cosa, la seconda senza nessuno di fronte.
+   */
+  agreed?: { label: string; targetPosition: number };
   onChoose: (tier: ObjectiveTier, cupTiers: Record<string, CupObjectiveTier>) => void;
 }) {
   /** Le scelte di coppa gia fatte: si dichiarano tutte insieme, poi si conferma. */
@@ -99,10 +109,13 @@ export function SeasonObjectiveScreen({
           style={{ backgroundColor: "color-mix(in srgb, var(--brand) 12%, transparent)" }}
         >
           <p className="text-micro text-[var(--text-secondary)] uppercase">Stagione {season}</p>
-          <h2 className="text-display leading-tight">Qual è l'obiettivo?</h2>
+          <h2 className="text-display leading-tight">
+            {agreed ? "E nelle coppe?" : "Qual è l'obiettivo?"}
+          </h2>
           <p className="text-label leading-relaxed text-[var(--text-secondary)] text-balance">
-            Una dichiarazione d'intenti alla società: pesa sul morale della rosa durante l'anno e
-            sul rapporto col mister a fine stagione.
+            {agreed
+              ? `In campionato con la società avete concordato «${agreed.label}», entro la ${agreed.targetPosition}ª. Restano da dichiarare le coppe.`
+              : "Una dichiarazione d'intenti alla società: pesa sul morale della rosa durante l'anno e sul rapporto col mister a fine stagione."}
           </p>
         </div>
 
@@ -175,7 +188,23 @@ export function SeasonObjectiveScreen({
           </div>
         )}
 
-        <div className="flex flex-col gap-2 p-4">
+        {/* Concordato al tavolo con la società: qui resta solo da confermare le coppe, e il
+            primario dice l'azione invece di ripresentare una scelta già fatta. */}
+        {agreed && (
+          <div className="p-4">
+            <button
+              type="button"
+              onClick={() =>
+                onChoose({ label: agreed.label as ObjectiveTier["label"], targetPosition: agreed.targetPosition }, sceltoCoppa)
+              }
+              className="min-h-tap w-full rounded-card bg-[var(--brand)] px-4 text-body font-extrabold text-[var(--brand-contrast)] transition-transform active:scale-[0.98]"
+            >
+              {cups && cups.length > 0 ? "Dichiara gli obiettivi di coppa" : "Prosegui"}
+            </button>
+          </div>
+        )}
+
+        <div className={`flex flex-col gap-2 p-4 ${agreed ? "hidden" : ""}`}>
           {choices.map((tier) => {
             const Icona = ICONA[tier.label];
             return (

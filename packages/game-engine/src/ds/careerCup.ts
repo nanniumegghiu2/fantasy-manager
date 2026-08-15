@@ -14,6 +14,8 @@
 import { derivedRandom } from "../random";
 import {
   createCupState,
+  cupExitOf,
+  type CupExit,
   cupOutcomeOf,
   cupStandings,
   simulateGroupRound,
@@ -240,6 +242,19 @@ export function ownCupOutcome(
   return cupOutcomeOf(rebuildCupState(save, teamsById, seed, season), index);
 }
 
+/** Come è finita, con chi ci ha eliminati e il punteggio: alimenta il riepilogo di fine anno. */
+export function ownCupExit(
+  save: CupSave,
+  teamsById: Record<string, LeagueTeam>,
+  ownClubId: string,
+  seed: string,
+  season: number,
+): CupExit | undefined {
+  const index = save.entrants.indexOf(ownClubId);
+  if (index < 0) return undefined;
+  return cupExitOf(rebuildCupState(save, teamsById, seed, season), index);
+}
+
 /** La classifica del girone, per la schermata della coppa. */
 export function cupTable(
   save: CupSave,
@@ -249,3 +264,5 @@ export function cupTable(
 ) {
   return cupStandings(rebuildCupState(save, teamsById, seed, season));
 }
+
+export type { CupExit } from "../season/cup";

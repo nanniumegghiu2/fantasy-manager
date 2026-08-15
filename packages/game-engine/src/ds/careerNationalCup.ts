@@ -19,7 +19,9 @@ import { narrateGoals, type MatchResult, type ScorerCandidate } from "../season/
 import type { LeagueTeam } from "../season/leagueState";
 import {
   createNationalCupState,
+  nationalCupExitOf,
   nationalCupOutcomeOf,
+  type NationalCupExit,
   playNationalCupRound,
   type NationalCupStage,
   type NationalCupState,
@@ -188,6 +190,16 @@ export function ownNationalCupOutcome(
   return nationalCupOutcomeOf(rebuildNationalCupState(save, teamsById), ownClubId) ?? "assente";
 }
 
+/** Come è finita, con chi ci ha eliminati e il punteggio: alimenta il riepilogo di fine anno. */
+export function ownNationalCupExit(
+  save: NationalCupSave,
+  teamsById: Record<string, LeagueTeam>,
+  ownClubId: string,
+): NationalCupExit | undefined {
+  if (!save.entrants.includes(ownClubId)) return undefined;
+  return nationalCupExitOf(rebuildNationalCupState(save, teamsById), ownClubId);
+}
+
 /** La forza del club, quando serve sostituire la nostra fotografia con la rosa vera. */
 export function withOwnStrength(
   teamsById: Record<string, LeagueTeam>,
@@ -205,3 +217,5 @@ export function withOwnStrength(
   };
 }
 
+
+export type { NationalCupExit } from "../season/nationalCup";

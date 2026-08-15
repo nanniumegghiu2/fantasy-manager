@@ -296,7 +296,17 @@ function toFreeAgent(player: WorldPlayer, ctx: ToFreeAgentCtx): FreeAgent | null
     personality,
     askingWage: Math.max(60_000, Math.round(richiesta / 10_000) * 10_000),
     askingSeasons: age >= 33 ? 1 : age >= 30 ? 2 : age <= 22 ? 4 : 3,
-    wantsStarter: overall >= 74 || personality === "giovane_ambizioso",
+    /**
+     * ⚠️ **Non tutti pretendono il posto.**
+     *
+     * Con la soglia a 74 la pretendeva quasi chiunque valesse qualcosa, e siccome non concederla
+     * schiacciava il punteggio (`campo` a 0,2) la conseguenza era quella segnalata dall'utente:
+     * *"nonostante sia uno dei club più affermati in Europa solo pochi giocatori accettano il
+     * trasferimento"*. Un giocatore da 75 che va in una grande sa benissimo di non essere
+     * titolare, e ci va lo stesso. La soglia sale a 79, e la pretesa resta di chi ha davvero
+     * carriera da difendere — più i giovani ambiziosi, per cui giocare *è* la carriera.
+     */
+    wantsStarter: overall >= 79 || personality === "giovane_ambizioso",
     suitors: 0,
   };
 }
@@ -391,7 +401,14 @@ export function freeAgentBidScore(agent: FreeAgent, bid: FreeAgentBid): number {
 
   const soldi = Math.min(1.3, bid.wage / Math.max(1, agent.askingWage));
   const durata = 1 - Math.min(1, Math.abs(bid.seasons - agent.askingSeasons) / 3);
-  const campo = agent.wantsStarter ? (bid.guaranteedStarter ? 1 : 0.2) : bid.guaranteedStarter ? 1 : 0.75;
+  /**
+   * Non concedere il posto a chi lo chiede **pesa**, ma non annulla l'offerta: chi punta in alto
+   * mette in conto di doverselo giocare. Con 0,2 la sola mancanza della garanzia bastava a farlo
+   * perdere contro qualunque rivale che gliela concedesse, a prescindere da tutto il resto —
+   * ingaggio, blasone, ambizioni. Alzato a 0,45: resta la leva più forte che una piccola ha per
+   * battere una grande, senza essere l'unica cosa che conta.
+   */
+  const campo = agent.wantsStarter ? (bid.guaranteedStarter ? 1 : 0.45) : bid.guaranteedStarter ? 1 : 0.75;
   const ruolo = bid.captain ? 1 : 0.55;
 
   /**
@@ -423,11 +440,35 @@ export function freeAgentBidScore(agent: FreeAgent, bid: FreeAgentBid): number {
     campoPesato * campo +
     p.ambizione * pesoAmbizione * ambizione +
     p.ruolo * ruolo;
-  return Math.round(Math.max(0, Math.min(1, grezzo)) * 100);
+
+  /**
+   * **Il pavimento sull'ingaggio: sotto una certa cifra non è un'offerta.**
+   *
+   * ⚠️ Serve perché i cinque assi si compensano fra loro, e per il `giovane_ambizioso` i soldi
+   * pesano solo 0,20: alzando il peso del campo (correzione "pochi accettano il trasferimento")
+   * un'offerta da **un ventesimo** di quanto chiedeva superava comunque la soglia grazie a
+   * durata, ambizione e ruolo. L'ha colto un test che esisteva già — *"un'offerta troppo bassa
+   * non la accetta nessuno, anche senza concorrenza"* — ed è esattamente il genere di
+   * compensazione che una somma pesata produce se nessun asse ha diritto di veto.
+   *
+   * Sotto metà della richiesta il punteggio collassa in proporzione, invece di essere azzerato:
+   * così la controproposta (`buildCounter`) continua a poter dire *quanto* servirebbe, che è la
+   * cosa che rende la vetrina una trattativa e non un muro.
+   */
+  const pavimento = agent.askingWage * FREE_AGENT_WAGE_FLOOR;
+  const collasso = bid.wage >= pavimento ? 1 : Math.max(0, bid.wage / Math.max(1, pavimento));
+
+  return Math.round(Math.max(0, Math.min(1, grezzo * collasso)) * 100);
 }
 
 /** Sotto questo punteggio non firma con nessuno: preferisce restare libero e aspettare. */
 export const FREE_AGENT_MIN_SCORE = 46;
+
+/**
+ * Frazione della richiesta sotto cui l'ingaggio diventa un veto, non un asse da compensare.
+ * Nessuno firma per metà di quanto ha chiesto perché gli si promette il posto e la fascia.
+ */
+export const FREE_AGENT_WAGE_FLOOR = 0.5;
 
 /**
  * **Cosa serve per convincerlo**, quando qualcun altro sta offrendo di più.
@@ -729,7 +770,10 @@ export function rivalBidsFor(
     if (club.wageRoom < agent.askingWage * 0.85) continue;
     // Un club molto più forte non perde tempo con chi non alzerebbe il livello.
     if (club.elevenAverage - agent.overall > 6) continue;
-    if (random() > 0.65) continue;
+    // Meno club si muovono su ciascuno: con la vecchia soglia quasi ogni svincolato aveva un
+    // pretendente, e la corsa si vinceva solo strapagando. La concorrenza resta, non è più
+    // sistematica.
+    if (random() > 0.45) continue;
 
     const generosita = 0.9 + random() * 0.45;
     bids.push({

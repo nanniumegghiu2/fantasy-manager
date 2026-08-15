@@ -564,10 +564,39 @@ export function aiSellableListings(
     if (eccedenza <= 0) continue;
 
     const club = world.clubs[clubId];
+    const ordinati = [...giocatori].sort((a, b) => b.overall - a.overall);
     // I più deboli del gruppo sono quelli davvero "di troppo": il club terrebbe i migliori.
-    const cedibili = [...giocatori].sort((a, b) => b.overall - a.overall).slice(-eccedenza);
-    for (const player of cedibili) {
+    const cedibili = ordinati.slice(-eccedenza);
+
+    /**
+     * ⚠️ **Ci deve essere anche l'occasione, o la scheda non si apre mai.**
+     *
+     * Segnalazione dell'utente: *"il mercato cedibili contiene sempre giocatori troppo bassi di
+     * Overall, non c'è quasi mai un'occasione da prendere al volo"*. Non era un difetto di
+     * taratura ma la conseguenza esatta della regola: prendendo *solo* la coda del reparto si
+     * ottiene, per costruzione, il fondo rosa di ogni squadra — venti volte. Corretto per il
+     * conteggio, inutile da guardare.
+     *
+     * Il pezzo che mancava è il **chiuso fuori**: un giocatore forte che in quel club non è
+     * titolare perché ne ha davanti uno più forte ancora. È il caso in cui una società vende
+     * davvero bene, ed è l'unica cosa che rende sensato aprire questa scheda ogni finestra.
+     * Non svuota il club — resta comunque sopra il fabbisogno — e costa il **prezzo pieno**,
+     * perché non è un esubero da smaltire: è una scelta tecnica.
+     */
+    const titolari = ordinati.slice(0, FABBISOGNO_PER_REPARTO[dep]);
+    const chiusiFuori = titolari
+      .slice(1)
+      .filter(
+        (p) =>
+          // Deve valere davvero qualcosa, e stare dietro a qualcuno di nettamente migliore:
+          // è quella distanza a spiegare perché il club lo lascia partire.
+          p.overall >= 76 && titolari[0]!.overall - p.overall >= 3 && p.age <= 31,
+      )
+      .slice(0, 2);
+
+    for (const player of [...cedibili, ...chiusiFuori]) {
       const value = currentValue(player, world.valuation);
+      const occasione = chiusiFuori.includes(player);
       risultati.push({
         playerId: player.playerId,
         playerName: world.nameOf(player.playerId),
@@ -575,19 +604,36 @@ export function aiSellableListings(
         clubName: club?.name ?? "Club",
         overall: player.overall,
         department: dep,
-        // Scontato rispetto al valore pieno: il club vuole smaltirlo, non trattenerlo.
-        price: Math.max(50_000, Math.round((value * 0.82) / 50_000) * 50_000),
-        reason: `Il ${club?.name ?? "club"} ha già titolare e riserve coperte in ${dep}: valuta offerte.`,
+        // L'esubero è scontato (il club vuole smaltirlo); il chiuso fuori no — se lo fanno
+        // pagare, perché non hanno nessuna fretta di cederlo.
+        price: Math.max(
+          50_000,
+          Math.round((value * (occasione ? 1.05 : 0.82)) / 50_000) * 50_000,
+        ),
+        reason: occasione
+          ? `Al ${club?.name ?? "club"} non è titolare: davanti ha chi gioca sempre. Se offri bene, se ne parla.`
+          : `Il ${club?.name ?? "club"} ha già titolare e riserve coperte in ${dep}: valuta offerte.`,
       });
     }
   }
 
-  // Mescolato (seedato): altrimenti la lista uscirebbe sempre nello stesso ordine di club.
-  for (let i = risultati.length - 1; i > 0; i--) {
-    const j = Math.floor(random() * (i + 1));
-    [risultati[i], risultati[j]] = [risultati[j]!, risultati[i]!];
+  /**
+   * Le occasioni vanno in cima, poi il resto mescolato: senza questa riga il mescolamento le
+   * seppellirebbe fra venti esuberi e la scheda tornerebbe quella di prima.
+   */
+  risultati.sort((a, b) => b.overall - a.overall);
+  const occasioni = risultati.filter((r) => r.overall >= 76);
+  const resto = risultati.filter((r) => r.overall < 76);
+
+  // Mescolato (seedato) dentro ciascuno dei due gruppi: altrimenti la lista uscirebbe sempre
+  // nello stesso ordine di club, ma le occasioni resterebbero comunque in cima dove servono.
+  for (const gruppo of [occasioni, resto]) {
+    for (let i = gruppo.length - 1; i > 0; i--) {
+      const j = Math.floor(random() * (i + 1));
+      [gruppo[i], gruppo[j]] = [gruppo[j]!, gruppo[i]!];
+    }
   }
-  return risultati.slice(0, limit);
+  return [...occasioni, ...resto].slice(0, limit);
 }
 
 function buildShortlist(

@@ -30,7 +30,9 @@ import {
 import { orderedClubIds, simulateSiblingSeason } from "./siblingLeague";
 import {
   createNationalCupSave,
+  ownNationalCupExit,
   ownNationalCupOutcome,
+  type NationalCupExit,
   playNationalCupWeek,
   withOwnStrength,
   type NationalCupSave,
@@ -47,7 +49,7 @@ import { FORMATIONS, getFormation } from "../formations";
 import { advanceSeasonOveralls, ageInSeason, shouldRetire } from "./aging";
 import { computeCohesion } from "./cohesion";
 import { findCoach } from "./coaches";
-import { emptyCupSave, ownCupOutcome, playCupRound, type CupSave } from "./careerCup";
+import { emptyCupSave, ownCupExit, ownCupOutcome, playCupRound, type CupExit, type CupSave } from "./careerCup";
 import { isKeyMatch } from "./highlights";
 import {
   applyMarketAction,
@@ -116,10 +118,13 @@ import {
 } from "./playerFacts";
 import { MAX_OPEN_CASES, blockingTopic, pickTopic, talkUrgency } from "./playerTopics";
 import {
+  agreeWithBoard,
   boardMidSeasonWarning,
+  boardSeasonMeeting,
   boardSeasonVerdict,
   defaultBoard,
   resolveSackDemand,
+  type BoardMeeting,
   type BoardState,
   type SackDemandChoice,
 } from "./board";
@@ -153,9 +158,11 @@ import {
   requestSatisfiedBy,
   PATIENCE_WINDOWS,
   REQUEST_FULFILLED_COHESION,
+  coverageOfFormation,
   type CoachRequest,
   type RequestKind,
 } from "./coachRequests";
+import { buildCoachReport, type CoachReport, type CoachReportInput } from "./coachReport";
 import {
   verifyCoachPromises,
   promiseSatisfiedNow,
@@ -177,6 +184,7 @@ import {
   objectiveBudgetMultiplier,
   seasonVerdictScore,
   suggestObjectiveTiers,
+  thresholdsFor,
   type CupObjectiveLabel,
   type CupObjectiveTier,
   type ObjectiveLabel,
@@ -341,6 +349,10 @@ export interface SeasonSummary {
   divisionOutcome?: "promosso" | "retrocesso" | "resta";
   /** Fin dove siamo arrivati in Coppa Tricolore, se l'abbiamo giocata. */
   nationalCupOutcome?: string;
+  /** Come è finita la Corona: turno, avversaria che ci ha eliminati, punteggio. */
+  cupExit?: CupExit;
+  /** Lo stesso per la Coppa Tricolore. */
+  nationalCupExit?: NationalCupExit;
   /**
    * I tre trofei della stagione, come un unico fatto.
    *
@@ -2115,8 +2127,24 @@ export function searchMarket(
   if (!world.market) return [];
   const anagrafica = world.market.players;
 
+  /**
+   * ⚠️ **Uno svincolato non ha un club, quindi non si compra dal suo club.**
+   *
+   * Segnalazione dell'utente: *"c'è un bug che mi mostra stessi giocatori sia su ricerca globale
+   * in un club che negli svincolati"*. La causa: la vetrina dei parametri zero si costruisce
+   * **dallo stesso `transferPool`** della ricerca (`freeAgentMarket`), filtrando chi ha il
+   * contratto scaduto secondo il seme. Nessuno però toglieva quelle righe dalla ricerca, quindi
+   * lo stesso uomo compariva due volte: gratis di là, e col cartellino del suo vecchio club di
+   * qua. Comprarlo dalla ricerca significava pagare per qualcuno che era già libero.
+   *
+   * Il filtro sta **qui e non nella vetrina** perché la vetrina è la vista corretta: è la
+   * ricerca a doverli escludere.
+   */
+  const svincolati = new Set(freeAgentMarket(state, world).map((a) => a.id));
+
   const players: SearchablePlayer[] = [];
   for (const player of world.market.transferPool) {
+    if (svincolati.has(player.playerId)) continue;
     const info = anagrafica[player.playerId];
     if (!info) continue;
     players.push({
@@ -2314,6 +2342,22 @@ export function offerPushProbability(state: CareerState, world: CareerWorld, ent
     return 0;
   }
 
+  /**
+   * ⚠️ **L'attaccamento alla maglia vale anche qui** (richiesta dell'utente).
+   *
+   * Chi è al club da anni, gioca e sta bene non bussa alla porta del DS per un'offerta: se ne
+   * parlano le società. Senza questo taglio la regola scritta in `playerTopics.attaccatoAllaMaglia`
+   * sarebbe stata mezza regola — il tema `corteggiato` non si apriva più dallo Spogliatoio, ma
+   * il percorso "a sorpresa" continuava a portarlo lì lo stesso.
+   */
+  const anniAlClub = state.season - entry.sinceSeason;
+  const bandiera =
+    (entry.playerId === state.captainId || anniAlClub >= 4) &&
+    entry.morale >= STANDOFF_MORALE_THRESHOLD &&
+    playedShare >= 0.45 &&
+    !(state.lists?.transferList ?? []).includes(entry.playerId);
+  if (bandiera) return 0;
+
   let prob = 0.1;
   if (prestigio >= 4) prob += 0.35; // un top club chiama, e si sente
   if (playedShare < 0.35) prob += 0.35; // gioca poco: un'occasione da ascoltare
@@ -2359,6 +2403,32 @@ export function confirmCoachSeasonPromises(
 }
 
 /** Il meeting di inizio stagione è saltato/arenato: il mister la prende male. */
+/**
+ * **Il mister si dimette perché non si è trovato l'accordo.**
+ *
+ * Richiesta dell'utente: se il rinnovo salta, il tecnico lascia — e la panchina resta vuota,
+ * quindi il DS deve cercarne un altro *subito*, non alla finestra successiva. La differenza con
+ * `declineCoachSeasonMeeting` è tutta qui: quello è "non ne parliamo adesso" e costa sintonia,
+ * questo è una separazione.
+ */
+export function resignCoach(state: CareerState): { state: CareerState; message: string } {
+  const uscente = state.coachId ? findCoach(state.coachId) : undefined;
+  return {
+    state: {
+      ...state,
+      coachId: null,
+      coachPromises: [],
+      coachContract: undefined,
+      guaranteedStarters: {},
+      coachBenched: {},
+      coachHarmony: 50,
+      // Il meeting è chiuso: quello nuovo lo farà il sostituto, non lui.
+      seasonNegotiationDone: true,
+    },
+    message: `${uscente?.name ?? "L'allenatore"} lascia la panchina: non si è trovato un accordo. Serve un sostituto, subito.`,
+  };
+}
+
 export function declineCoachSeasonMeeting(state: CareerState, world: CareerWorld): CareerState {
   return maybePoachOurCoach(
     {
@@ -2500,6 +2570,170 @@ export function seasonObjectiveChoices(state: CareerState, world: CareerWorld): 
     world.opponents.length + 1,
     inSecondDivision(state, world),
   );
+}
+
+/**
+ * **L'analisi del mister sulla rosa**, pronta per il tavolo (`coachReport.ts`).
+ *
+ * Sostituisce il discorso per soglie numeriche del catalogo delle promesse: qui il tecnico dice
+ * dov'è corta la squadra, chi non gli si tocca, che nome vorrebbe, e — se la stagione sta
+ * andando storta — perché e cosa gli servirebbe. Tutto derivato dai fatti che il motore ha già.
+ */
+export function coachSquadReport(state: CareerState, world: CareerWorld): CoachReport | null {
+  const coach = state.coachId ? findCoach(state.coachId) : undefined;
+  if (!coach) return null;
+  const formation = getFormation(state.coachFormationId ?? coach.formationId) ?? getFormation("4-3-3")!;
+  const anagrafica = careerPlayers(state, world);
+
+  // Il nome che farebbe: il miglior candidato di mercato per la casella che lo preoccupa di più.
+  const copertura = coverageOfFormation(formation, state.roster.filter((e) => !e.loan?.hostClubId), anagrafica);
+  const undici = [...state.roster].sort((a, b) => b.overall - a.overall).slice(0, 11);
+  const livello = undici.length > 0 ? undici.reduce((s, e) => s + e.overall, 0) / undici.length : 70;
+  const buco = [...copertura]
+    .filter((c) => c.uomini < c.richieste || livello - c.qualita >= 3)
+    .sort((a, b) => a.qualita - b.qualita)[0];
+
+  let marketCandidate: CoachReportInput["marketCandidate"];
+  if (buco && world.market) {
+    const adatti = world.market.transferPool
+      .filter((p) => {
+        const info = world.market!.players[p.playerId];
+        return (
+          info &&
+          (info.role === buco.role || info.secondaryRoles.includes(buco.role)) &&
+          p.overall >= livello
+        );
+      })
+      .sort((a, b) => b.overall - a.overall);
+    // Non il migliore in assoluto (sarebbe sempre lo stesso nome irraggiungibile): uno dei primi,
+    // scelto dal seme, così la richiesta cambia di stagione in stagione e resta plausibile.
+    const scelto = adatti[Math.floor(derivedRandom(state.seed, "coachWant", state.season)() * Math.min(8, adatti.length))];
+    if (scelto) {
+      const info = world.market.players[scelto.playerId]!;
+      marketCandidate = {
+        playerId: scelto.playerId,
+        name: world.market.nameOf(scelto.playerId),
+        role: info.role,
+        clubName: world.market.clubs[scelto.clubId]?.name,
+      };
+    }
+  }
+
+  const disponibili = state.roster.filter((e) => !e.loan?.hostClubId);
+  const morale =
+    disponibili.length > 0
+      ? disponibili.reduce((s, e) => s + e.morale, 0) / disponibili.length
+      : 70;
+
+  return buildCoachReport({
+    coachName: coach.name,
+    formation,
+    roster: state.roster,
+    players: anagrafica,
+    ageOf: (id) => ageInSeason(anagrafica[id]?.birthDate, state.season) ?? 25,
+    untouchableIds: getCoachUntouchables(state.roster, state.coachId, anagrafica),
+    goodWithYouth: coach.development >= 1.3,
+    marketCandidate,
+    positionsBelowTarget: positionsBelowTargetOf(state, world),
+    objectiveLabel: state.seasonObjective?.label,
+    matchday: state.league.round,
+    averageMorale: morale,
+    injuredCount: disponibili.filter((e) => e.injuryMatchdaysLeft > 0).length,
+  });
+}
+
+/* -------------------------------------------------------------------------- */
+/* Il colloquio con la dirigenza                                               */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Il colloquio di inizio stagione, pronto per la schermata.
+ *
+ * Riunisce ciò che prima stava in due posti scollegati e in un caso non stava da nessuna parte:
+ * il giudizio sull'anno appena chiuso, **l'obiettivo minimo preteso** (che nessuno dichiarava
+ * mai), la contrattazione su obiettivo e mezzi, e la questione panchina.
+ */
+export function boardMeeting(state: CareerState, world: CareerWorld): BoardMeeting {
+  const seconda = inSecondDivision(state, world);
+  const fasce = seasonObjectiveChoices(state, world);
+  const scala = thresholdsFor(seconda);
+  // Le fasce proponibili sono quelle stimate; se la stima ne restituisce una sola, si apre
+  // comunque il ventaglio a tutta la scala, altrimenti non ci sarebbe niente da negoziare.
+  const proponibili = fasce.length >= 2 ? fasce : [...scala];
+  const ultima = state.history[state.history.length - 1];
+
+  return boardSeasonMeeting({
+    board: state.board,
+    season: state.season,
+    tiers: proponibili,
+    realistic: proponibili[Math.floor(proponibili.length / 2)] ?? proponibili[0]!,
+    budgetMultiplierOf: (t) =>
+      objectiveBudgetMultiplier({ label: t.label as ObjectiveLabel, targetPosition: t.targetPosition }, seconda),
+    baseRevenue: revenueOf(state, world),
+    lastSeason: ultima
+      ? {
+          objectiveLabel: ultima.objective?.label,
+          finalPosition: ultima.position,
+          trophies: ultima.trophies
+            ? Number(ultima.trophies.league) + Number(ultima.trophies.continental) + Number(ultima.trophies.national)
+            : 0,
+          met: ultima.objective?.met ?? false,
+        }
+      : undefined,
+    coachName: state.coachId ? findCoach(state.coachId)?.name : undefined,
+    hasCoach: !!state.coachId,
+  });
+}
+
+/**
+ * Chiude il colloquio: obiettivo concordato, mezzi concordati, e sorte del mister.
+ *
+ * Un solo ingresso per tutte e tre le decisioni, perché al tavolo si prendono insieme — separarle
+ * significherebbe poter promettere il titolo e *poi* scoprire che il presidente voleva un altro
+ * allenatore, cioè decidere l'ambizione senza sapere chi la porterà in campo.
+ */
+export function settleBoardMeeting(
+  state: CareerState,
+  world: CareerWorld,
+  decision: {
+    objectiveLabel: string;
+    /** Quanti scalini di budget extra si sono chiesti (0 = nessuno). */
+    extraSteps?: number;
+    /** Solo se il colloquio poneva la questione panchina. */
+    coachChoice?: SackDemandChoice;
+  },
+): { state: CareerState; message: string } {
+  const meeting = boardMeeting(state, world);
+  const accordo = agreeWithBoard(state.board, meeting, decision.objectiveLabel, decision.extraSteps ?? 0);
+  const messaggi: string[] = [accordo.message];
+
+  const scelta =
+    meeting.options.find((o) => o.label === decision.objectiveLabel) ??
+    meeting.options.find((o) => o.stance === "minimo")!;
+
+  // L'obiettivo passa dal setter di sempre: è lui a muovere fatturato e cassa col moltiplicatore.
+  let next = setSeasonObjective(
+    { ...state, board: { ...accordo.board, sackDemand: undefined } },
+    { label: scelta.label as ObjectiveLabel, targetPosition: scelta.targetPosition },
+    world,
+  );
+
+  if (accordo.extraGranted > 0) {
+    next = {
+      ...next,
+      budget: next.budget + accordo.extraGranted,
+      seasonRevenue: (next.seasonRevenue ?? revenueOf(state, world)) + accordo.extraGranted,
+    };
+  }
+
+  // La panchina si decide qui, con la stessa funzione di sempre: cambia il posto, non la regola.
+  if (meeting.coachIssue && decision.coachChoice) {
+    const esito = answerBoardSackDemand({ ...next, board: { ...next.board!, sackDemand: state.board?.sackDemand } }, decision.coachChoice);
+    next = esito.state;
+    messaggi.push(esito.message);
+  }
+
+  return { state: next, message: messaggi.join(" ") };
 }
 
 /**
@@ -3543,6 +3777,21 @@ function closeSeason(
     cupOutcome: cupOutcome && cupOutcome !== "assente" ? cupOutcome : undefined,
     nationalCupOutcome:
       nationalOutcome && nationalOutcome !== "assente" ? nationalOutcome : undefined,
+    /**
+     * ⚠️ **Dove ci siamo fermati e contro chi** (richiesta dell'utente).
+     *
+     * `cupOutcome` diceva solo "quarti": per una competizione a eliminazione è metà della
+     * storia, e la metà meno interessante. Il nome dell'avversaria e il punteggio erano già
+     * dentro il log del tabellone — mancava solo qualcuno che li leggesse.
+     */
+    cupExit:
+      state.cup && world.cupTeams
+        ? ownCupExit(state.cup, world.cupTeams, state.clubId, state.seed, state.season)
+        : undefined,
+    nationalCupExit:
+      state.nationalCup && world.divisions
+        ? ownNationalCupExit(state.nationalCup, world.divisions.teams, state.clubId)
+        : undefined,
     trophies,
     treble,
     leagueName: world.leagueName,
@@ -3964,6 +4213,9 @@ function closeSeason(
       seasonNegotiationDone: false,
       seasonObjective: undefined,
       seasonObjectiveSet: false,
+      // Le coppe si dichiarano ogni anno: senza azzerarlo, la seconda stagione erediterebbe gli
+      // obiettivi della prima e nessuno li chiederebbe più.
+      seasonCupObjectives: undefined,
       // Contratti, impegni e rapporti sopravvivono alla stagione: sono la memoria della carriera.
       contracts: dopoContratti.contracts,
       commitments: dopoContratti.commitments,
@@ -4807,7 +5059,29 @@ export function signingDemandOf(
   const eta = world.market?.ageOf(playerId) ?? 25;
   const prestigioNostro = world.market?.valuation.clubPrestige[state.clubId] ?? 3;
   const prestigioSuo = world.market?.valuation.clubPrestige[fromClubId ?? pool.clubId] ?? 3;
-  const mediaRosa = averageOverall(state.roster);
+
+  /**
+   * ⚠️ **Pretende il posto solo chi lo prenderebbe davvero.**
+   *
+   * Segnalazione dell'utente: *"nove acquisti su dieci vogliono la titolarità, cosa che non
+   * posso garantire a tutti, e mi ritrovo giocatori scontenti in rosa"*. La causa era il metro:
+   * si confrontava l'Overall del bersaglio con la media della **rosa intera**, riserve comprese
+   * — una soglia che qualunque acquisto sensato supera per definizione, visto che non si compra
+   * per stare sotto il proprio fondo rosa.
+   *
+   * Il metro giusto è **chi ha davanti nella sua casella**: se arriva più forte del titolare di
+   * quel ruolo, chiedere il posto è legittimo e infatti lo chiede; se arriva alla pari o sotto,
+   * sa di doversi giocare il posto e non pretende nulla. `-1` (nessuno copre quel ruolo) vale
+   * come titolarità ovvia, ed è giusto: la casella è vuota.
+   */
+  const anagrafica = careerPlayers(state, world);
+  const titolareNelRuolo = state.roster.reduce((max, e) => {
+    const p = anagrafica[e.playerId];
+    if (!p || e.loan?.hostClubId) return max;
+    const copre = p.role === info.role || p.secondaryRoles.includes(info.role);
+    return copre ? Math.max(max, e.overall) : max;
+  }, -1);
+  const scalzerebbeIlTitolare = titolareNelRuolo < 0 || pool.overall >= titolareNelRuolo + 2;
 
   return renewalTerms({
     age: eta,
@@ -4818,7 +5092,7 @@ export function signingDemandOf(
     overUnderPerformance: 0,
     clubPrestige: prestigioNostro,
     personality: derivePlayerPersonality(playerId, eta, pool.overall, state.season, state.season),
-    playedShare: pool.overall >= mediaRosa ? 1 : 0.4,
+    playedShare: scalzerebbeIlTitolare ? 1 : 0.4,
   });
 }
 

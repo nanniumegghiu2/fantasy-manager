@@ -104,7 +104,7 @@ const SCARTO_MINIMO_RUOLO = 3;
  * casella. E accanto al conteggio si porta la **qualità** di chi la occuperebbe davvero, che è
  * l'informazione con cui un allenatore vero decide dove serve rinforzare.
  */
-interface CoperturaRuolo {
+export interface RoleCoverage {
   role: Role;
   /** Quante caselle il modulo chiede per questo ruolo. */
   richieste: number;
@@ -114,11 +114,11 @@ interface CoperturaRuolo {
   qualita: number;
 }
 
-function coperturaDelModulo(
+export function coverageOfFormation(
   formation: Formation,
   disponibili: readonly RosterEntry[],
   players: PlayerIndex,
-): CoperturaRuolo[] {
+): RoleCoverage[] {
   const richieste = new Map<Role, number>();
   for (const slot of formation.slots) {
     richieste.set(slot.role, (richieste.get(slot.role) ?? 0) + 1);
@@ -151,7 +151,7 @@ function coperturaDelModulo(
   );
 
   const usati = new Set<string>();
-  const risultato = new Map<Role, CoperturaRuolo>();
+  const risultato = new Map<Role, RoleCoverage>();
 
   for (const role of ordine) {
     const quante = richieste.get(role) ?? 0;
@@ -228,7 +228,7 @@ export function coachRequest({
   const livelloTitolari =
     undici.length > 0 ? undici.reduce((s, e) => s + e.overall, 0) / undici.length : media;
 
-  const copertura = coperturaDelModulo(formation, disponibili, players);
+  const copertura = coverageOfFormation(formation, disponibili, players);
 
   // 1. Le caselle che non riesce a riempire: nessuno le sa fare, o non abbastanza gente.
   const scoperte = copertura
@@ -381,7 +381,7 @@ const REPARTO_NOME: Record<string, string> = {
   ATT: "In attacco",
 };
 
-const ROLE_NOME: Record<Role, string> = {
+export const ROLE_NOME: Record<Role, string> = {
   POR: "portiere",
   TD: "terzino destro",
   DC: "difensore centrale",

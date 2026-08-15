@@ -127,8 +127,30 @@ describe("il flusso copre la partita, non solo sei clip", () => {
     expect(flow.phases.length).toBeGreaterThan(120);
     // Ma solo una parte merita il rallentatore: è ciò che rende guardabile una partita intera.
     const notevoli = flow.phases.filter((p) => p.notable);
-    expect(notevoli.length).toBeGreaterThanOrEqual(4);
+    expect(notevoli.length).toBeGreaterThan(0);
     expect(notevoli.length).toBeLessThan(flow.phases.length / 4);
+  });
+
+  /**
+   * ⚠️ **Al rallentatore si vedono i gol, e solo quelli** (richiesta dell'utente: *"nelle azioni
+   * voglio solo vedere i gol e poi la partita in modalità veloce"*).
+   *
+   * Prima erano `notable` anche parate, pali, cartellini e un terzo delle conclusioni fuori:
+   * una ventina di fermate a partita. Il test lega la regola al **numero di reti del
+   * tabellino**, non a una soglia: è l'unico modo perché resti vera anche se un domani si
+   * cambiassero le probabilità degli altri esiti.
+   */
+  it("al rallentatore ci vanno esattamente i gol, non parate e cartellini", () => {
+    for (const [gf, gs] of [
+      [2, 1],
+      [3, 3],
+      [0, 0],
+    ] as const) {
+      const flow = simulateMatchFlow(partita(gf, gs), `soligol-${gf}${gs}`, nomeDi, context);
+      const notevoli = flow.phases.filter((p) => p.notable);
+      expect(notevoli.every((p) => p.outcome === "gol")).toBe(true);
+      expect(notevoli.length).toBe(gf + gs);
+    }
   });
 
   it("ogni tocco sta dentro il campo e in ordine di tempo", () => {

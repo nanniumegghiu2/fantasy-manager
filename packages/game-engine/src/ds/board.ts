@@ -192,6 +192,241 @@ export function boardSeasonVerdict(input: BoardSeasonInput): BoardVerdict {
   };
 }
 
+/* -------------------------------------------------------------------------- */
+/* Il colloquio di inizio stagione                                             */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * **La dirigenza non manda più un avviso: ti riceve.**
+ *
+ * ⚠️ Segnalazione dell'utente: *"il meeting società è ancora troppo scarno, deve essere un
+ * colloquio dove loro mi espongono il loro obiettivo minimo e si trova un accordo di obiettivi e
+ * budget, e se mantenere o meno il mister"*. Prima esistevano **due cose separate** e nessuna
+ * era un colloquio: una richiesta di esonero che compariva solo dopo una stagione storta, e una
+ * schermata dell'obiettivo in cui il DS sceglieva da solo, senza che nessuno dall'altra parte
+ * dicesse cosa si aspettava. Il presidente non aveva mai una posizione propria da cui trattare.
+ *
+ * Adesso il colloquio si apre **ogni stagione** e ha tre argomenti in un tavolo solo: cosa
+ * pretendono, quanto mettono, e che ne è del mister. Il DS può alzare l'asticella per avere più
+ * mezzi, o abbassarla e pagarla in fiducia — ma non può ignorare la richiesta minima senza che
+ * costi qualcosa, che è ciò che rende l'obiettivo un accordo invece di una dichiarazione.
+ */
+export interface BoardObjectiveOption {
+  label: string;
+  targetPosition: number;
+  /** Rispetto al minimo preteso: più ambizioso, uguale, o più prudente. */
+  stance: "sopra" | "minimo" | "sotto";
+  /** Come cambia il fatturato accettando questo obiettivo. */
+  budgetMultiplier: number;
+  /** Variazione di fiducia all'accordo: l'ambizione piace, la prudenza no. */
+  confidenceDelta: number;
+  /** La battuta del presidente su questa proposta. */
+  reply: string;
+}
+
+export interface BoardMeeting {
+  season: number;
+  /** L'obiettivo **minimo** che la società pretende: la loro posizione di partenza. */
+  minimum: { label: string; targetPosition: number };
+  /** Il giudizio sull'annata appena chiusa, quando ce n'è una. */
+  review?: string;
+  /** Cosa si aspettano, detto da loro. */
+  speech: string;
+  /** Il fatturato prima di qualunque accordo. */
+  baseRevenue: number;
+  /** Le fasce proponibili, già annotate con l'effetto sul bilancio e la reazione. */
+  options: BoardObjectiveOption[];
+  /** Quanto extra si può chiedere sul mercato, e a quale prezzo in fiducia. */
+  extraBudget: { max: number; confidenceCostPerStep: number; step: number };
+  /** La questione panchina, se aperta. */
+  coachIssue?: {
+    coachName: string;
+    severity: "richiesta" | "ultimatum";
+    /** Perché la società la pensa così, in chiaro. */
+    reason: string;
+  };
+}
+
+export interface BoardMeetingInput {
+  board: BoardState | undefined;
+  season: number;
+  /** Le fasce che la rosa può ragionevolmente puntare (`suggestObjectiveTiers`), dalla più ambiziosa. */
+  tiers: readonly { label: string; targetPosition: number }[];
+  /** La fascia che il motore stima realistica per questa rosa. */
+  realistic: { label: string; targetPosition: number };
+  /** Quanto vale ciascuna fascia sul fatturato (`objectiveBudgetMultiplier`). */
+  budgetMultiplierOf: (tier: { label: string; targetPosition: number }) => number;
+  baseRevenue: number;
+  /** L'esito della stagione precedente, se ce n'è stata una. */
+  lastSeason?: { objectiveLabel?: string; finalPosition: number; trophies: number; met: boolean };
+  coachName?: string;
+  hasCoach: boolean;
+}
+
+/** Quanto extra si può strappare al presidente, come frazione del fatturato. */
+export const BOARD_EXTRA_BUDGET_SHARE = 0.22;
+/** Quanti scalini ha la richiesta di extra budget. */
+export const BOARD_EXTRA_BUDGET_STEPS = 4;
+
+/**
+ * Il colloquio di inizio stagione: cosa pretendono, cosa offrono, cosa pensano del mister.
+ *
+ * **Il minimo non è la fascia realistica.** Un presidente non chiede quel che la rosa vale: chiede
+ * quel che la rosa vale *più la sua impazienza*. Con la fiducia alta si accontenta di una fascia
+ * sotto la stima — si fida, e ti lascia margine; con la fiducia bassa pretende esattamente la
+ * stima o meglio, perché non ha più voglia di aspettare. È questo a rendere il colloquio diverso
+ * di stagione in stagione senza inventare nulla di nuovo.
+ */
+export function boardSeasonMeeting(input: BoardMeetingInput): BoardMeeting {
+  const attuale = input.board ?? defaultBoard();
+  const scala = [...input.tiers];
+  const indiceRealistico = Math.max(
+    0,
+    scala.findIndex((t) => t.label === input.realistic.label),
+  );
+
+  /**
+   * Lo scostamento del presidente dalla stima. `scala` va dalla più ambiziosa alla più prudente,
+   * quindi **indice minore = più esigente**.
+   *
+   * ⚠️ Il segno era invertito rispetto a questo commento, e l'ha colto il test: chi aveva perso
+   * fiducia chiedeva *meno*. È il contrario di come si comporta una società — un consiglio che
+   * non crede più nel direttore sportivo vuole risultati **adesso**, e uno che si fida lascia
+   * margine. Vale anche come regola di gioco: la stagione dopo un'annata storta dev'essere più
+   * dura, non più comoda.
+   */
+  const scostamento = attuale.confidence >= 72 ? -1 : attuale.confidence < 45 ? 1 : 0;
+  const indiceMinimo = Math.max(0, Math.min(scala.length - 1, indiceRealistico - scostamento));
+  const minimo = scala[indiceMinimo] ?? input.realistic;
+
+  const options: BoardObjectiveOption[] = scala.map((tier, i) => {
+    const stance: BoardObjectiveOption["stance"] =
+      i < indiceMinimo ? "sopra" : i === indiceMinimo ? "minimo" : "sotto";
+    const distanza = Math.abs(i - indiceMinimo);
+    return {
+      label: tier.label,
+      targetPosition: tier.targetPosition,
+      stance,
+      budgetMultiplier: input.budgetMultiplierOf(tier),
+      // Alzare l'asticella piace e viene ricompensato subito; abbassarla la irrita, e il conto
+      // arriva già adesso invece che a fine stagione — è il prezzo del ribasso.
+      confidenceDelta: stance === "sopra" ? 3 * distanza : stance === "minimo" ? 0 : -7 * distanza,
+      reply:
+        stance === "sopra"
+          ? `«${tier.label}? Questo sì che è parlare. Se ci credi tu, ci mettiamo i mezzi.»`
+          : stance === "minimo"
+            ? `«${tier.label}: è esattamente quello che ci aspettiamo. Siamo d'accordo.»`
+            : `«${tier.label}, dopo che ti abbiamo chiesto ${minimo.label}? Prendiamo nota, e non ce ne dimenticheremo.»`,
+    };
+  });
+
+  const review = input.lastSeason
+    ? input.lastSeason.trophies > 0
+      ? `L'anno scorso avete portato ${input.lastSeason.trophies === 1 ? "un trofeo" : `${input.lastSeason.trophies} trofei`} in bacheca. Da qui si riparte, e non per restare fermi.`
+      : input.lastSeason.met
+        ? `${input.lastSeason.objectiveLabel ? `"${input.lastSeason.objectiveLabel}"` : "L'obiettivo"} l'avete centrato, chiudendo ${input.lastSeason.finalPosition}º. Bene: adesso il metro si alza.`
+        : `${input.lastSeason.objectiveLabel ? `"${input.lastSeason.objectiveLabel}"` : "L'obiettivo"} non è arrivato: ${input.lastSeason.finalPosition}º posto. Non ce lo siamo dimenticati.`
+    : undefined;
+
+  const speech =
+    attuale.confidence >= 72
+      ? `Le abbiamo dato una squadra e le diamo fiducia. Il minimo che chiediamo è ${minimo.label}: sotto quello, avremmo sbagliato entrambi.`
+      : attuale.confidence < 45
+        ? `Siamo stati pazienti abbastanza. Il minimo, quest'anno, è ${minimo.label}. Non ci sono altri modi di dirlo.`
+        : `Il consiglio si aspetta ${minimo.label}. Se lei crede di poter fare di più, ci dica come — e vedremo di sostenerla.`;
+
+  return {
+    season: input.season,
+    minimum: { label: minimo.label, targetPosition: minimo.targetPosition },
+    review,
+    speech,
+    baseRevenue: input.baseRevenue,
+    options,
+    extraBudget: {
+      max: Math.round((input.baseRevenue * BOARD_EXTRA_BUDGET_SHARE) / 500_000) * 500_000,
+      confidenceCostPerStep: 3,
+      step: BOARD_EXTRA_BUDGET_STEPS,
+    },
+    coachIssue: attuale.sackDemand && input.hasCoach
+      ? {
+          coachName: attuale.sackDemand.coachName,
+          severity: attuale.sackDemand.severity,
+          reason: `Avevamo dichiarato "${attuale.sackDemand.objectiveLabel}" — entro la ${attuale.sackDemand.targetPosition}ª — e abbiamo chiuso ${attuale.sackDemand.finalPosition}º.`,
+        }
+      : input.hasCoach && input.coachName
+        ? undefined
+        : undefined,
+  };
+}
+
+/**
+ * L'esito dell'accordo: quanto budget, quanta fiducia, e cosa risponde il presidente.
+ *
+ * ⚠️ **L'extra budget non è gratis e non è illimitato.** Chiederlo consuma fiducia a scalini, e
+ * il presidente concede solo in proporzione a quanto in alto si è puntato: chi promette la
+ * salvezza e chiede i soldi del titolo si sente dire di no. Senza questo legame la leva sarebbe
+ * un pulsante "più soldi" da premere sempre, cioè non una decisione.
+ */
+export interface BoardAgreement {
+  board: BoardState;
+  /** Moltiplicatore da applicare al fatturato per l'obiettivo concordato. */
+  budgetMultiplier: number;
+  /** Extra concesso in euro, oltre al moltiplicatore. */
+  extraGranted: number;
+  /** Quanto era stato chiesto: se maggiore del concesso, il presidente ha limato. */
+  extraRequested: number;
+  message: string;
+}
+
+export function agreeWithBoard(
+  board: BoardState | undefined,
+  meeting: BoardMeeting,
+  chosenLabel: string,
+  extraSteps = 0,
+): BoardAgreement {
+  const attuale = board ?? defaultBoard();
+  const opzione =
+    meeting.options.find((o) => o.label === chosenLabel) ??
+    meeting.options.find((o) => o.stance === "minimo")!;
+
+  const passi = Math.max(0, Math.min(meeting.extraBudget.step, Math.round(extraSteps)));
+  const chiesto = Math.round((meeting.extraBudget.max / meeting.extraBudget.step) * passi);
+
+  /**
+   * Quanto sono disposti a concedere: l'ambizione dichiarata apre il portafoglio, la fiducia lo
+   * tiene aperto. Chi punta sotto il minimo non ottiene nulla in più, e non è una punizione: è
+   * che non c'è niente da finanziare.
+   */
+  const aperturaAmbizione = opzione.stance === "sopra" ? 1 : opzione.stance === "minimo" ? 0.6 : 0;
+  const aperturaFiducia = Math.max(0, Math.min(1, (attuale.confidence - 30) / 55));
+  const concesso =
+    Math.round((chiesto * aperturaAmbizione * aperturaFiducia) / 500_000) * 500_000;
+
+  const costoFiducia = passi * meeting.extraBudget.confidenceCostPerStep;
+  const confidence = Math.max(
+    0,
+    Math.min(100, attuale.confidence + opzione.confidenceDelta - costoFiducia),
+  );
+
+  let message = opzione.reply;
+  if (chiesto > 0) {
+    message +=
+      concesso >= chiesto
+        ? ` «E i fondi in più li avrà: ci fidiamo del progetto.»`
+        : concesso > 0
+          ? ` «Sui fondi in più arriviamo fin qui, non oltre. Il resto se lo guadagni sul campo.»`
+          : ` «Fondi in più, con questi presupposti, non se ne parla.»`;
+  }
+
+  return {
+    board: { ...attuale, confidence },
+    budgetMultiplier: opzione.budgetMultiplier,
+    extraGranted: concesso,
+    extraRequested: chiesto,
+    message,
+  };
+}
+
 export type SackDemandChoice = "esonera" | "difendi";
 
 export interface SackDemandOutcome {
