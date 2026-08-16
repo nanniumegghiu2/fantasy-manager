@@ -27,7 +27,7 @@ import {
   type RoleCandidate,
   type RosterEntry,
 } from "@app/game-engine";
-import type { Role } from "@app/shared-types";
+import { ROLE_LABELS, type Role } from "@app/shared-types";
 import { NationFlag } from "../classic/NationFlag";
 import { euro } from "./format";
 import { Button, Stepper, type Step } from "./ui";
@@ -37,16 +37,21 @@ import { Button, Stepper, type Step } from "./ui";
  * poi si parla di soldi e di durata. Erano due schede parallele — vedi il commento sulla
  * sequenza più sotto.
  */
+/**
+ * ⚠️ **Due passi, non tre** (segnalazione dell'utente: *"ricevo due schermate, una con
+ * l'analisi del mister e un'altra con richieste più specifiche; due schermate che
+ * fondamentalmente fanno la stessa cosa — uniscile"*).
+ *
+ * Aveva ragione: l'analisi elencava i punti deboli, gli intoccabili e i desideri sul gruppo, e
+ * il passo successivo ripresentava **le stesse cose** sotto forma di richieste negoziabili —
+ * "dove siamo corti" e "voglio uno specialista per quella casella" sono la stessa frase detta
+ * due volte. Ora c'è un solo tavolo: la sua lettura della rosa è il **contesto** che sta in
+ * cima, e subito sotto ci sono le richieste con le loro azioni. Il secondo passo resta solo per
+ * ciò che l'analisi non è: ingaggio e durata.
+ */
 const PASSI: Step[] = [
-  { key: "analisi", label: "La sua analisi" },
-  { key: "richieste", label: "Richieste" },
+  { key: "richieste", label: "Il mister" },
   { key: "contratto", label: "Ingaggio e durata" },
-];
-
-/** Senza contratto da discutere (ingaggio di un mister nuovo) i passi sono due. */
-const PASSI_SENZA_CONTRATTO: Step[] = [
-  { key: "analisi", label: "La sua analisi" },
-  { key: "richieste", label: "Richieste" },
 ];
 
 interface CoachNegotiationChatProps {
@@ -126,9 +131,7 @@ export function CoachNegotiationChat({
   onCancel,
 }: CoachNegotiationChatProps) {
   /** Le due schede del meeting: cosa chiede in campo, e cosa chiede per sé. */
-  const [scheda, setScheda] = useState<"analisi" | "richieste" | "contratto">(
-    report ? "analisi" : "richieste",
-  );
+  const [scheda, setScheda] = useState<"richieste" | "contratto">("richieste");
   /** Se il primo passo è stato affrontato: serve allo stepper per dire cosa è già fatto. */
   const [, setPassoRichiesteFatto] = useState(false);
   const [durataRinnovo, setDurataRinnovo] = useState(3);
@@ -169,8 +172,11 @@ export function CoachNegotiationChat({
       players,
       random,
       marketCandidates,
+      // ⚠️ Le caselle davvero deboli, dall'analisi: senza, `generateCoachPromises` prende il
+      // bersaglio dal primo elemento di una lista fissa e chiede lo stesso ruolo ogni stagione.
+      report?.weakSpots.map((w) => w.role),
     );
-  }, [coach, roster, season, players, seed, marketCandidates]);
+  }, [coach, roster, season, players, seed, marketCandidates, report]);
 
   // Stato trattativa con gestione delle reazioni umane del mister
   const [negState, setNegState] = useState<CoachNegotiationState>(() =>
@@ -218,7 +224,18 @@ export function CoachNegotiationChat({
   const currentTotalCost = negState.hireCost + buyoutFee;
 
   return (
-    <div className="flex min-h-svh flex-col bg-[var(--surface)] text-[var(--text-primary)]">
+    /**
+     * ⚠️ **Il tavolo copre lo schermo, non ci si aggiunge sotto.**
+     *
+     * Segnalazione dell'utente: *"la schermata delle richieste è difficile da navigare, sopra
+     * sono presenti i turni di coppa, messaggi su cosa fare, schermate che nel meeting col
+     * mister sono totalmente inutili"*. La causa era che la radice era un semplice `div` in
+     * flusso: dentro `CareerScreen` il componente veniva **accodato** alla pagina, quindi sopra
+     * di sé restavano testata, card del compito, striscia della coppa, risultati e classifica —
+     * e per arrivare al meeting bisognava scorrere tutta la stagione. Reso `fixed`, con il suo
+     * scorrimento: un colloquio è un momento, non una sezione della pagina.
+     */
+    <div className="fixed inset-0 z-[60] flex flex-col overflow-y-auto bg-[var(--surface)] text-[var(--text-primary)]">
       {/* **Testata compattata.**
 
           Prima prendeva 250px per dire cinque cose, e due di quelle andavano a capo su 360px:
@@ -284,126 +301,15 @@ export function CoachNegotiationChat({
 
           Si può tornare indietro su un passo già fatto — cambiare idea è legittimo — ma non
           saltare avanti: sarebbe di nuovo la barra a schede, con lo stesso difetto. */}
-      {(contract || report) && (
+      {contract && (
         <div className="mx-auto w-full max-w-2xl px-4 pt-3">
-          {(() => {
-            const passi = contract ? PASSI : PASSI_SENZA_CONTRATTO;
-            const offset = report ? 0 : 1; // senza analisi il primo passo è "richieste"
-            const indice = scheda === "analisi" ? 0 : scheda === "richieste" ? 1 : 2;
-            const visibili = report ? passi : passi.slice(1);
-            return (
-              <Stepper
-                steps={visibili}
-                current={Math.max(0, indice - offset)}
-                furthest={visibili.length - 1}
-                onGoTo={(i) => {
-                  const chiave = visibili[i]?.key;
-                  if (chiave === "analisi") setScheda("analisi");
-                  else if (chiave === "richieste") setScheda("richieste");
-                  else setScheda("contratto");
-                }}
-              />
-            );
-          })()}
+          <Stepper
+            steps={PASSI}
+            current={scheda === "contratto" ? 1 : 0}
+            furthest={1}
+            onGoTo={(i) => setScheda(i === 0 ? "richieste" : "contratto")}
+          />
         </div>
-      )}
-
-      {/* **La sua analisi**: cosa vede lui guardando questa rosa. Viene prima di tutto perché è
-          il motivo delle richieste che arrivano dopo — leggerle senza sapere da dove nascono era
-          esattamente ciò che le faceva sembrare arbitrarie. */}
-      {report && scheda === "analisi" && (
-        <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-3 px-4 py-5 pb-44">
-          <p className="rounded-card rounded-tl-sm border border-[var(--brand)]/30 bg-[var(--brand)]/8 p-4 text-body leading-relaxed">
-            «{report.headline}»
-          </p>
-
-          {report.objectiveTalk && (
-            <section className="rounded-card border border-[#ffc107]/40 bg-[#ffc107]/8 p-4">
-              <p className="flex items-center gap-2 text-micro font-extrabold tracking-widest text-[#b8860b] uppercase">
-                <ShieldAlert size={13} /> Perché non ci stiamo arrivando
-              </p>
-              <p className="mt-1.5 text-label leading-relaxed">«{report.objectiveTalk.diagnosis}»</p>
-              <p className="mt-2 text-label leading-relaxed font-semibold">
-                «{report.objectiveTalk.needed}»
-              </p>
-            </section>
-          )}
-
-          {report.weakSpots.length > 0 && (
-            <section>
-              <p className="mb-1.5 text-micro font-extrabold tracking-widest text-[var(--text-secondary)] uppercase">
-                Dove siamo corti
-              </p>
-              <ul className="flex flex-col gap-1.5">
-                {report.weakSpots.map((w) => (
-                  <li
-                    key={w.role}
-                    className="rounded-control border-l-3 border-[var(--surface-border)] bg-[var(--surface-raised)] px-3 py-2 text-label leading-relaxed"
-                    style={{ borderLeftColor: w.kind === "scoperto" ? "#ff4d4d" : "#ffab2e" }}
-                  >
-                    «{w.text}»
-                  </li>
-                ))}
-              </ul>
-            </section>
-          )}
-
-          {report.untouchables.length > 0 && (
-            <section>
-              <p className="mb-1.5 text-micro font-extrabold tracking-widest text-[var(--text-secondary)] uppercase">
-                Chi non si tocca
-              </p>
-              <ul className="flex flex-col gap-1.5">
-                {report.untouchables.map((u) => (
-                  <li
-                    key={u.playerId}
-                    className="rounded-control border-l-3 border-[#f5c518] bg-[var(--surface-raised)] px-3 py-2 text-label leading-relaxed"
-                  >
-                    «{u.text}»
-                  </li>
-                ))}
-              </ul>
-            </section>
-          )}
-
-          {(report.wanted || report.unwanted) && (
-            <section>
-              <p className="mb-1.5 text-micro font-extrabold tracking-widest text-[var(--text-secondary)] uppercase">
-                I nomi che fa
-              </p>
-              <ul className="flex flex-col gap-1.5">
-                {report.wanted && (
-                  <li className="rounded-control border-l-3 border-[#3ddc6b] bg-[var(--surface-raised)] px-3 py-2 text-label leading-relaxed">
-                    «{report.wanted.text}»
-                  </li>
-                )}
-                {report.unwanted && (
-                  <li className="rounded-control border-l-3 border-[#ff8a3d] bg-[var(--surface-raised)] px-3 py-2 text-label leading-relaxed">
-                    «{report.unwanted.text}»
-                  </li>
-                )}
-              </ul>
-            </section>
-          )}
-
-          <section>
-            <p className="mb-1.5 text-micro font-extrabold tracking-widest text-[var(--text-secondary)] uppercase">
-              Sul gruppo
-            </p>
-            <ul className="flex flex-col gap-1.5">
-              {report.wishes.map((w) => (
-                <li
-                  key={w.kind}
-                  className="rounded-control bg-[var(--surface-raised)] px-3 py-2 text-label leading-relaxed"
-                >
-                  «{w.text}»
-                </li>
-              ))}
-            </ul>
-          </section>
-
-          <Button onClick={() => setScheda("richieste")}>Passa alle sue richieste</Button>
-        </main>
       )}
 
       {contract && scheda === "contratto" && (
@@ -519,6 +425,11 @@ export function CoachNegotiationChat({
           scheda !== "richieste" ? "hidden" : "flex"
         }`}
       >
+        {/* La sua lettura della rosa: è il **contesto** delle richieste che seguono, non una
+            schermata a parte. Leggerle senza sapere da dove nascono era ciò che le faceva
+            sembrare arbitrarie; leggerle due volte era la ridondanza segnalata dall'utente. */}
+        {report && <AnalisiMister report={report} />}
+
         {/* Messaggio 1: Saluto del Mister */}
         <motion.div
           initial={{ opacity: 0, y: 12 }}
@@ -723,15 +634,7 @@ export function CoachNegotiationChat({
             primario **non descrive mai il problema** — o è abilitato, o dice *l'azione che lo
             sblocca* e ci porta. L'uscita scende a testo secondario, dove vanno le uscite. */}
         <div className="mx-auto w-full max-w-2xl">
-          {/* Sul passo dell'analisi l'unica azione è passare oltre: il footer non deve offrire
-              «ascolta le sue richieste» mentre le si sta ancora leggendo. */}
-          {scheda === "analisi" && (
-            <Button size="lg" block onClick={() => setScheda("richieste")}>
-              Passa alle sue richieste
-            </Button>
-          )}
-
-          {scheda !== "analisi" && step === "greeting" && (
+          {step === "greeting" && (
             <div className="flex flex-col gap-2">
               <Button size="lg" block onClick={() => setStep("demands")}>
                 Ascolta le sue richieste
@@ -742,7 +645,7 @@ export function CoachNegotiationChat({
             </div>
           )}
 
-          {scheda !== "analisi" && step === "demands" && negState.status === "in_corso" && (
+          {step === "demands" && negState.status === "in_corso" && (
             <div className="flex flex-col gap-2">
               {/* ⚠️ **Il primario avanza, non si blocca.**
 
@@ -818,5 +721,54 @@ export function CoachNegotiationChat({
         </div>
       </footer>
     </div>
+  );
+}
+
+/**
+ * **Cosa vede il mister guardando questa rosa**, in cima al tavolo delle sue richieste.
+ *
+ * ⚠️ È volutamente **compatta**: era una schermata a sé che ripeteva, in forma di discorso, le
+ * stesse cose che il passo dopo presentava come richieste negoziabili — la ridondanza segnalata
+ * dall'utente. Qui restano solo le informazioni che le richieste *non* portano: la sua lettura
+ * d'insieme, la spiegazione di un'annata storta, chi non gli si tocca, e l'elenco secco delle
+ * caselle deboli (i nomi, non tre frasi virgolettate).
+ */
+function AnalisiMister({ report }: { report: CoachReport }) {
+  return (
+    <section className="flex flex-col gap-2 rounded-card border border-[var(--brand)]/30 bg-[var(--brand)]/8 p-4">
+      <p className="text-micro font-extrabold tracking-widest text-[var(--text-secondary)] uppercase">
+        La sua lettura della rosa
+      </p>
+      <p className="text-body leading-relaxed">«{report.headline}»</p>
+
+      {report.objectiveTalk && (
+        <div className="rounded-control border border-[#ffc107]/40 bg-[#ffc107]/10 p-3">
+          <p className="text-label leading-relaxed">«{report.objectiveTalk.diagnosis}»</p>
+          <p className="mt-1.5 text-label leading-relaxed font-semibold">
+            «{report.objectiveTalk.needed}»
+          </p>
+        </div>
+      )}
+
+      {report.weakSpots.length > 0 && (
+        <p className="text-label leading-relaxed text-[var(--text-secondary)]">
+          <strong className="text-[var(--text-primary)]">Dove siamo corti:</strong>{" "}
+          {report.weakSpots.map((w) => ROLE_LABELS[w.role]).join(", ")}.
+        </p>
+      )}
+
+      {report.untouchables.length > 0 && (
+        <p className="text-label leading-relaxed text-[var(--text-secondary)]">
+          <strong className="text-[var(--text-primary)]">Non si toccano:</strong>{" "}
+          {report.untouchables.map((u) => u.name).join(", ")}.
+        </p>
+      )}
+
+      {report.unwanted && (
+        <p className="text-label leading-relaxed text-[var(--text-secondary)]">
+          «{report.unwanted.text}»
+        </p>
+      )}
+    </section>
   );
 }

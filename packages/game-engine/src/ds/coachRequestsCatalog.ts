@@ -68,6 +68,13 @@ export function generateCoachPromises(
   random: () => number = Math.random,
   /** Candidati reali di mercato per il ruolo scoperto (sez. "specialisti nominati"). */
   roleCandidates?: RoleCandidate[],
+  /**
+   * Le caselle davvero deboli, in ordine di gravità (`coachReport.ts`).
+   *
+   * È ciò che impedisce al mister di chiedere ogni anno lo stesso ruolo: senza, il bersaglio si
+   * prendeva dal primo elemento di una lista fissa e la rosa non contava nulla.
+   */
+  weakRoles?: Role[],
 ): CoachPromise[] {
   const candidates: CoachPromise[] = [];
   const repMultiplier = coach.reputation >= 4 ? 1.8 : 1.0;
@@ -102,7 +109,6 @@ export function generateCoachPromises(
   // mano formationId→ruolo che si disallinea ogni volta che uno schema cambia composizione.
   const formation = getFormation(coach.formationId);
   const roliInFormazione = new Set(formation?.slots.map((s) => s.role) ?? []);
-  const priorita: Role[] = ["ED", "ES", "QD", "QS", "TQD", "TQS", "CC", "MED", "DC"];
   // Il ruolo scelto deve avere **almeno un candidato reale** (principale o secondario) nel
   // pool passato — altrimenti si chiede un ruolo che letteralmente nessuno in database sa
   // coprire (es. QD, rarissimo come ruolo naturale). Senza candidati passati (es. ingaggio
@@ -111,9 +117,35 @@ export function generateCoachPromises(
   const roliConCopertura = new Set(
     (roleCandidates ?? []).flatMap((c) => [c.role, ...(c.secondaryRoles ?? [])]),
   );
+
+  /**
+   * ⚠️ **Il ruolo richiesto esce dall'analisi della rosa, non da una lista fissa.**
+   *
+   * Segnalazione dell'utente, ripetuta: *"richieste continue nello stesso ruolo ad ogni stagione
+   * nonostante sia già ampiamente coperto"*. La causa era una `priorita` scritta a mano
+   * (`["ED","ES","QD",…]`) da cui si prendeva **il primo ruolo che il modulo schierasse**: la
+   * rosa non veniva consultata affatto, quindi con un 4-4-2 usciva "esterno destro" ogni singola
+   * stagione, per dieci anni, anche dopo averne comprati tre.
+   *
+   * ⚠️ Ed è un difetto **distinto** da quello già corretto in `coachRequests.ts`: sono due
+   * generatori di richieste diversi, e sistemare il primo aveva lasciato intatto questo — la
+   * ragione per cui l'utente ha visto il bug sopravvivere alla correzione precedente.
+   *
+   * `weakRoles` arriva dal report del mister (`coachReport.ts`), che le caselle le misura per
+   * copertura esclusiva e qualità. Il ripiego sulla lista fissa resta solo per i chiamanti che
+   * il report non ce l'hanno (l'ingaggio di un tecnico nuovo, dove la rosa non è ancora sua).
+   */
+  const prioritaDiRipiego: Role[] = ["ED", "ES", "QD", "QS", "TQD", "TQS", "CC", "MED", "DC"];
+  const daAnalisi = (weakRoles ?? []).filter(
+    (r) => roliInFormazione.has(r) && (roliConCopertura.size === 0 || roliConCopertura.has(r)),
+  );
   const targetRole: Role =
-    priorita.find((r) => roliInFormazione.has(r) && (roliConCopertura.size === 0 || roliConCopertura.has(r))) ??
-    priorita.find((r) => roliInFormazione.has(r)) ??
+    daAnalisi[0] ??
+    (weakRoles ?? []).find((r) => roliInFormazione.has(r)) ??
+    prioritaDiRipiego.find(
+      (r) => roliInFormazione.has(r) && (roliConCopertura.size === 0 || roliConCopertura.has(r)),
+    ) ??
+    prioritaDiRipiego.find((r) => roliInFormazione.has(r)) ??
     "CC";
 
   const reqRoleOverall = Math.max(78, Math.min(85, analysis.topPlayerOverall - 1));

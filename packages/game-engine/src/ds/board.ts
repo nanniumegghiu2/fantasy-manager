@@ -296,7 +296,32 @@ export function boardSeasonMeeting(input: BoardMeetingInput): BoardMeeting {
    * dura, non più comoda.
    */
   const scostamento = attuale.confidence >= 72 ? -1 : attuale.confidence < 45 ? 1 : 0;
-  const indiceMinimo = Math.max(0, Math.min(scala.length - 1, indiceRealistico - scostamento));
+
+  /**
+   * ⚠️ **Chi ha appena vinto non si sente chiedere di meno** (segnalazione dell'utente: *"ho
+   * vinto nettamente il campionato e sono la squadra dominante, ma nei meeting mi suggeriscono
+   * sempre salvezza"*).
+   *
+   * Due regole, e la seconda è quella che mancava del tutto:
+   *  - lo scostamento non può portare il minimo **sotto la stima** di più di un gradino, e con
+   *    una rosa dominante (una sola fascia proponibile) non c'è nulla da abbassare;
+   *  - il **risultato dell'anno scorso è un pavimento**: se si è chiuso primi, o si è centrato
+   *    l'obiettivo, la società non riparte da un'asticella più bassa di quella già raggiunta.
+   *    Un presidente non chiede la salvezza a chi gli ha appena portato lo scudetto, ed è
+   *    esattamente ciò che rendeva irreale il colloquio.
+   */
+  let indiceMinimo = Math.max(0, Math.min(scala.length - 1, indiceRealistico - scostamento));
+
+  const ultima = input.lastSeason;
+  if (ultima) {
+    const fascaRaggiunta = scala.findIndex((t) => ultima.finalPosition <= t.targetPosition);
+    // `findIndex` torna −1 se nemmeno la fascia più prudente copre quel piazzamento: lì non
+    // c'è nessun pavimento da imporre, ed è giusto — è stata un'annata sotto ogni aspettativa.
+    if (fascaRaggiunta >= 0 && (ultima.met || ultima.finalPosition === 1)) {
+      indiceMinimo = Math.min(indiceMinimo, fascaRaggiunta);
+    }
+  }
+
   const minimo = scala[indiceMinimo] ?? input.realistic;
 
   const options: BoardObjectiveOption[] = scala.map((tier, i) => {

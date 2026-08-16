@@ -15,6 +15,8 @@ import {
   type BoardMeetingInput,
 } from "../ds/board";
 import { buildCoachReport } from "../ds/coachReport";
+import { generateCoachPromises } from "../ds/coachRequestsCatalog";
+import { findCoach } from "../ds/coaches";
 import { renewalTerms, type RenewalContext } from "../ds/contracts";
 import { freeAgentBidScore, type FreeAgent, type FreeAgentBid } from "../ds/freeAgents";
 import { aiSellableListings, type MarketWorld } from "../ds/careerMarket";
@@ -100,6 +102,38 @@ describe("il colloquio con la società", () => {
     const senza = agreeWithBoard({ ...defaultBoard(), confidence: 80 }, m, sopra.label, 0);
     const con = agreeWithBoard({ ...defaultBoard(), confidence: 80 }, m, sopra.label, 4);
     expect(con.board.confidence).toBeLessThan(senza.board.confidence);
+  });
+
+  /**
+   * ⚠️ **Segnalazione dell'utente**: *"ho vinto nettamente il campionato e sono la squadra
+   * dominante, ma nei meeting mi suggeriscono sempre salvezza"*.
+   *
+   * Due difetti sovrapposti, e li misuro separati perché hanno cause diverse: `career.ts`
+   * scambiava la lista di **una sola fascia** (il caso "la più forte deve vincere") per una
+   * lista troppo corta e la sostituiva con l'intera scala; e la società non teneva conto di
+   * cosa fosse stato ottenuto l'anno prima.
+   */
+  it("a chi domina non si propone nulla sotto il titolo", () => {
+    const soloTitolo = boardSeasonMeeting({ ...meetingCon(65), tiers: [scala[0]!], realistic: scala[0]! });
+    expect(soloTitolo.minimum.label).toBe("Titolo");
+    expect(soloTitolo.options.map((o) => o.label)).toEqual(["Titolo"]);
+  });
+
+  it("chi ha vinto il campionato non si sente chiedere di meno l'anno dopo", () => {
+    const dopoLoScudetto = boardSeasonMeeting({
+      ...meetingCon(90), // fiducia alta: senza il pavimento il presidente sarebbe più permissivo
+      lastSeason: { objectiveLabel: "Titolo", finalPosition: 1, trophies: 1, met: true },
+    });
+    // Il minimo non può scendere sotto la fascia che il piazzamento dell'anno prima copriva.
+    expect(dopoLoScudetto.minimum.targetPosition).toBe(1);
+  });
+
+  it("…ma dopo un'annata sotto le attese il pavimento non scatta", () => {
+    const dopoUnDisastro = boardSeasonMeeting({
+      ...meetingCon(90),
+      lastSeason: { objectiveLabel: "Europa", finalPosition: 14, trophies: 0, met: false },
+    });
+    expect(dopoUnDisastro.minimum.targetPosition).toBeGreaterThan(1);
   });
 
   it("la questione panchina entra nello stesso colloquio, quando è aperta", () => {
@@ -231,6 +265,73 @@ describe("l'analisi del mister sulla rosa", () => {
 
     const maturi = buildCoachReport({ ...base, players, roster, goodWithYouth: false, ageOf: () => 30 });
     expect(maturi.wishes.some((w) => w.kind === "giovane")).toBe(false);
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/* 2bis. Le richieste del mister non si ripetono sullo stesso ruolo            */
+/* -------------------------------------------------------------------------- */
+
+describe("il ruolo che il mister chiede", () => {
+  const coach = findCoach("c-10")!;
+
+  /**
+   * `generateCoachPromises` restituisce **2 o 3 candidati su nove**, scelti dal seme: cercare
+   * `formation_fit` in una singola chiamata può legittimamente non trovarlo. Si guarda quindi
+   * su più semi e si raccolgono tutti i bersagli usciti — è anche la forma giusta per la
+   * proprietà da verificare, che è *"non chiede mai un ruolo diverso da quelli deboli"*.
+   */
+  function bersagli(weakRoles?: Role[]): Role[] {
+    const squad = Array.from({ length: 20 }, (_, i) =>
+      createRosterEntry({ playerId: `p${i}`, overall: 78, potential: 82, sinceSeason: 1 }),
+    );
+    const out: Role[] = [];
+    for (let seme = 1; seme <= 25; seme++) {
+      const promesse = generateCoachPromises(
+        coach,
+        squad,
+        {
+          squadSize: squad.length,
+          avgAge: 26,
+          topPlayerOverall: 84,
+          under22Count: 2,
+          over30Count: 3,
+          domesticCount: 5,
+          hasSecondKeeper: true,
+          missingRolesCount: 0,
+        },
+        3,
+        undefined,
+        mulberry32(seme),
+        undefined,
+        weakRoles,
+      );
+      for (const p of promesse) {
+        if (p.kind === "formation_fit" && p.targetRole) out.push(p.targetRole);
+      }
+    }
+    return out;
+  }
+
+  /**
+   * ⚠️ **Il bug sopravvissuto alla correzione precedente.** `coachRequests.ts` e
+   * `coachRequestsCatalog.ts` sono **due generatori diversi**: sistemare il primo aveva lasciato
+   * intatto il secondo, che sceglieva il bersaglio dal primo elemento di una lista scritta a
+   * mano (`["ED","ES","QD",…]`) **senza guardare la rosa**. Con un modulo fisso usciva sempre lo
+   * stesso ruolo, stagione dopo stagione, anche dopo averlo coperto tre volte.
+   */
+  it("segue l'analisi della rosa, non una lista fissa", () => {
+    const usciti = bersagli(["DC"]);
+    expect(usciti.length).toBeGreaterThan(0);
+    expect(usciti.every((r) => r === "DC")).toBe(true);
+  });
+
+  it("caselle deboli diverse producono richieste diverse", () => {
+    expect(new Set(bersagli(["DC"]))).not.toEqual(new Set(bersagli(["CC"])));
+  });
+
+  it("senza analisi resta il vecchio ripiego: meglio una richiesta cieca che nessuna", () => {
+    expect(bersagli(undefined).length).toBeGreaterThan(0);
   });
 });
 

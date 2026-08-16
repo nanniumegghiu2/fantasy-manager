@@ -184,7 +184,8 @@ import {
   objectiveBudgetMultiplier,
   seasonVerdictScore,
   suggestObjectiveTiers,
-  thresholdsFor,
+  estimateLeaguePosition,
+  tierFor,
   type CupObjectiveLabel,
   type CupObjectiveTier,
   type ObjectiveLabel,
@@ -2656,17 +2657,40 @@ export function coachSquadReport(state: CareerState, world: CareerWorld): CoachR
 export function boardMeeting(state: CareerState, world: CareerWorld): BoardMeeting {
   const seconda = inSecondDivision(state, world);
   const fasce = seasonObjectiveChoices(state, world);
-  const scala = thresholdsFor(seconda);
-  // Le fasce proponibili sono quelle stimate; se la stima ne restituisce una sola, si apre
-  // comunque il ventaglio a tutta la scala, altrimenti non ci sarebbe niente da negoziare.
-  const proponibili = fasce.length >= 2 ? fasce : [...scala];
   const ultima = state.history[state.history.length - 1];
+
+  /**
+   * ⚠️ **Le fasce proponibili sono quelle che la rosa merita, punto.**
+   *
+   * Il difetto segnalato dall'utente — *"sono la squadra dominante ma mi suggeriscono sempre
+   * salvezza"* — nasceva tutto da qui. `suggestObjectiveTiers` fa già la cosa giusta e per una
+   * rosa dominante restituisce **una sola** fascia ("Titolo"): non c'è niente da scegliere, chi
+   * ha la squadra migliore deve vincere. Ma qui, per avere "qualcosa da negoziare", quel caso
+   * veniva scambiato per una lista troppo corta e sostituito con **l'intera scala** — e da lì
+   * uscivano le opzioni fino alla salvezza. Peggio: la fascia realistica veniva presa come
+   * l'elemento *di mezzo della lista* invece che dalla forza vera, quindi al club più forte del
+   * campionato risultava "Metà classifica", e lo scostamento del presidente la spostava ancora
+   * più in basso.
+   *
+   * La stima ora viene dai numeri (`estimateLeaguePosition` + `tierFor`), e le opzioni sono
+   * quelle proposte: se sono una sola, il colloquio si negozia **sui mezzi**, che è esattamente
+   * come va quando l'obiettivo non è in discussione.
+   */
+  const posizioneStimata = estimateLeaguePosition(
+    bestElevenRating(state, world),
+    world.opponents,
+    world.opponents.length + 1,
+  );
+  const realistica = tierFor(posizioneStimata, seconda);
 
   return boardSeasonMeeting({
     board: state.board,
     season: state.season,
-    tiers: proponibili,
-    realistic: proponibili[Math.floor(proponibili.length / 2)] ?? proponibili[0]!,
+    tiers: fasce,
+    // La stima deve essere una delle proponibili, altrimenti il minimo partirebbe dall'indice 0
+    // per il solo fatto di non essere stata trovata: `suggestObjectiveTiers` la include sempre,
+    // il ripiego copre il caso limite di una scala vuota.
+    realistic: fasce.find((t) => t.label === realistica.label) ?? fasce[0] ?? realistica,
     budgetMultiplierOf: (t) =>
       objectiveBudgetMultiplier({ label: t.label as ObjectiveLabel, targetPosition: t.targetPosition }, seconda),
     baseRevenue: revenueOf(state, world),

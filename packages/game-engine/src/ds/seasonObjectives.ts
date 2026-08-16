@@ -95,6 +95,23 @@ export function tierFor(position: number, secondDivision = false): ObjectiveTier
  * Agli estremi (rosa già da titolo, o già la più debole) alcuni scaglioni coincidono e le scelte
  * proposte scendono a due invece di tre — non c'è uno scaglione in più da inventare.
  */
+/**
+ * Dove finirebbe questa rosa, stimato dal confronto omogeneo con le avversarie.
+ *
+ * Estratta perché serve **anche al colloquio con la società** (`board.ts`): il presidente parte
+ * da dove la squadra vale davvero, e prima quel numero non era ricavabile da fuori — chi lo
+ * voleva doveva dedurlo dalla lista delle fasce proposte, che è esattamente l'errore da cui
+ * nasceva il difetto "alla squadra dominante suggeriscono la salvezza".
+ */
+export function estimateLeaguePosition(
+  ourRating: number,
+  opponents: readonly LeagueTeam[],
+  teamsInLeague: number,
+): number {
+  const piuForti = opponents.filter((o) => o.rating > ourRating).length;
+  return Math.max(1, Math.min(teamsInLeague, piuForti + 1));
+}
+
 export function suggestObjectiveTiers(
   ourRating: number,
   opponents: readonly LeagueTeam[],
@@ -104,7 +121,7 @@ export function suggestObjectiveTiers(
   const scala = thresholdsFor(secondDivision);
   // Quante avversarie sono più forti di noi: è la stima grezza di dove finiremmo.
   const piuForti = opponents.filter((o) => o.rating > ourRating).length;
-  const posizioneStimata = Math.max(1, Math.min(teamsInLeague, piuForti + 1));
+  const posizioneStimata = estimateLeaguePosition(ourRating, opponents, teamsInLeague);
 
   const indiceRealistico = scala.findIndex((t) => posizioneStimata <= t.targetPosition);
   const r = indiceRealistico === -1 ? scala.length - 1 : indiceRealistico;
