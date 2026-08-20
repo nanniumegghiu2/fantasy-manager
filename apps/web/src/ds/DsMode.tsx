@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from "react";
-import { ArrowLeft, Briefcase, Play, Trash2 } from "lucide-react";
+import { ArrowLeft, Briefcase, History, Play, Trash2 } from "lucide-react";
 import {
   careerPlayers,
   createCareer,
@@ -20,7 +20,13 @@ import {
   startingBudget,
 } from "./buildCareerWorld";
 import { euro, ordinale } from "./format";
-import { deleteCareerSave, useCareerPersistence, useCareerSaves } from "./useCareerSave";
+import {
+  createCheckpoint,
+  deleteCareerSave,
+  useCareerCheckpoints,
+  useCareerPersistence,
+  useCareerSaves,
+} from "./useCareerSave";
 import { useDsWorld } from "./useDsWorld";
 
 /**
@@ -38,6 +44,56 @@ type Step =
   | { kind: "dossier"; clubId: string }
   | { kind: "allenatore"; clubId: string }
   | { kind: "carriera"; state: CareerState; saveId: string | null };
+
+/**
+ * **I punti di ripristino di una carriera.**
+ *
+ * ⚠️ Richiesta dell'utente: poter tornare indietro, con **al massimo due salvataggi per
+ * stagione**. Fino a qui esisteva una riga sola per carriera, sovrascritta dall'autosave: si
+ * poteva riprendere da dove si era rimasti, mai tornare a prima di una decisione sbagliata.
+ *
+ * Caricare un punto **sovrascrive la testa** della carriera, quindi si chiede conferma: è
+ * l'unica azione di questa schermata che butta via qualcosa.
+ */
+function PuntiDiRipristino({
+  careerId,
+  onLoad,
+}: {
+  careerId: string;
+  onLoad: (state: CareerState) => void;
+}) {
+  const { checkpoints } = useCareerCheckpoints(careerId);
+  const [conferma, setConferma] = useState<string | null>(null);
+  if (checkpoints.length === 0) return null;
+
+  return (
+    <ul className="mt-1.5 flex flex-col gap-1 border-l-2 border-[var(--surface-border)] pl-3">
+      {checkpoints.map((c) => (
+        <li key={c.id} className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => (conferma === c.id ? onLoad(c.state) : setConferma(c.id))}
+            className="flex min-h-9 min-w-0 flex-1 items-center gap-2 text-left"
+          >
+            <History size={13} className="shrink-0 text-[var(--text-secondary)]" />
+            <span className="min-w-0 flex-1 truncate text-label text-[var(--text-secondary)]">
+              {c.label}
+              {c.kind === "automatico" && " · automatico"}
+            </span>
+            <span
+              className="shrink-0 text-label font-bold"
+              style={{
+                color: conferma === c.id ? "var(--danger)" : "var(--brand)",
+              }}
+            >
+              {conferma === c.id ? "sovrascrive: confermi?" : "carica"}
+            </span>
+          </button>
+        </li>
+      ))}
+    </ul>
+  );
+}
 
 export function DsMode({ userId, onExit }: { userId: string | null; onExit: () => void }) {
   const { data: world, loading, error } = useDsWorld();
@@ -58,8 +114,20 @@ export function DsMode({ userId, onExit }: { userId: string | null; onExit: () =
         current.kind === "carriera" ? { ...current, state: next } : current,
       );
       persistence.persist(next, immediate);
+
+      /**
+       * **Il punto automatico di fine stagione.**
+       *
+       * `immediate` è vero nei due momenti che nessuno vuole rigiocare — fine stagione e uscita
+       * dalla modalità — ed è esattamente il punto a cui uno vorrebbe poter tornare: prima del
+       * mercato, con la squadra dell'anno appena chiuso. La rete di sicurezza salva sempre la
+       * testa; qui, in più, si lascia una pietra miliare.
+       */
+      if (immediate && userId && persistence.saveId && next.phase !== "conclusa") {
+        void createCheckpoint(persistence.saveId, userId, next, "automatico");
+      }
     },
-    [persistence],
+    [persistence, userId],
   );
 
   /**
@@ -192,6 +260,18 @@ export function DsMode({ userId, onExit }: { userId: string | null; onExit: () =
         }}
         saving={persistence.saving}
         saveEnabled={!!userId}
+        onSaveCheckpoint={
+          userId && persistence.saveId
+            ? async () => {
+                // Prima la testa, poi il punto: se il punto arrivasse per primo, un salvataggio
+                // riuscito potrebbe convivere con una testa vecchia.
+                persistence.persist(step.state, true);
+                const esito = await createCheckpoint(persistence.saveId!, userId, step.state);
+                void refetch();
+                return esito;
+              }
+            : undefined
+        }
       />
     );
   }
@@ -260,8 +340,9 @@ export function DsMode({ userId, onExit }: { userId: string | null; onExit: () =
                 return (
                   <li
                     key={save.id}
-                    className="flex items-center gap-3 rounded-card border border-[var(--surface-border)] bg-[var(--surface-raised)] p-3"
+                    className="flex flex-col rounded-card border border-[var(--surface-border)] bg-[var(--surface-raised)] p-3"
                   >
+                    <div className="flex items-center gap-3">
                     <button
                       type="button"
                       onClick={() =>
@@ -296,6 +377,13 @@ export function DsMode({ userId, onExit }: { userId: string | null; onExit: () =
                     >
                       <Trash2 size={15} />
                     </button>
+                    </div>
+                    {/* I punti di ripristino della carriera: al massimo due per stagione, e il
+                        vincolo lo tiene un trigger Postgres, non questa lista. */}
+                    <PuntiDiRipristino
+                      careerId={save.id}
+                      onLoad={(state) => setStep({ kind: "carriera", state, saveId: save.id })}
+                    />
                   </li>
                 );
               })}

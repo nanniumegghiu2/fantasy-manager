@@ -1,5 +1,6 @@
 import { motion } from "framer-motion";
-import { Eye, FastForward, Flame } from "lucide-react";
+import { Eye, FastForward, Flame, Film } from "lucide-react";
+import type { MatchViewMode } from "@app/game-engine";
 
 /**
  * **"Questa vuoi vederla?"**
@@ -10,6 +11,11 @@ import { Eye, FastForward, Flame } from "lucide-react";
  *
  * Il risultato è **già deciso** dal motore: guardare o saltare non cambia nulla di ciò che
  * succede, cambia solo se lo si vede succedere.
+ *
+ * ⚠️ **Le due modalità si scelgono qui**, non dentro il teatro: sono la domanda "quanto tempo ci
+ * metto?", e va risposta prima di entrare. La durata attesa è dichiarata accanto a ciascuna —
+ * novanta minuti di gioco vero non si comprimono, e far scoprire dopo che una dura sei minuti
+ * sarebbe una sorpresa spiacevole.
  */
 export function KeyMatchPrompt({
   opponent,
@@ -19,7 +25,7 @@ export function KeyMatchPrompt({
 }: {
   opponent: string;
   reason: string;
-  onWatch: () => void;
+  onWatch: (mode: MatchViewMode) => void;
   onSkip: () => void;
 }) {
   return (
@@ -54,11 +60,25 @@ export function KeyMatchPrompt({
         <div className="flex flex-col gap-2 p-4">
           <button
             type="button"
-            onClick={onWatch}
-            className="flex w-full items-center justify-center gap-2 rounded-card bg-[var(--brand)] py-3.5 text-body font-extrabold text-[var(--brand-contrast)] transition-transform active:scale-[0.98]"
+            onClick={() => onWatch("salienti")}
+            className="flex w-full items-center justify-between gap-2 rounded-card bg-[var(--brand)] px-4 py-3.5 text-body font-extrabold text-[var(--brand-contrast)] transition-transform active:scale-[0.98]"
           >
-            <Eye size={17} />
-            Guarda le azioni
+            <span className="flex items-center gap-2">
+              <Eye size={17} />
+              Guarda i gol
+            </span>
+            <span className="text-label font-bold opacity-75">~2 min</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => onWatch("estesa")}
+            className="flex w-full items-center justify-between gap-2 rounded-card border border-[var(--brand)]/50 bg-[var(--brand)]/10 px-4 py-3 text-body font-bold text-[var(--brand)] transition-transform active:scale-[0.98]"
+          >
+            <span className="flex items-center gap-2">
+              <Film size={16} />
+              Guarda la partita
+            </span>
+            <span className="text-label font-bold opacity-75">~7 min</span>
           </button>
           <button
             type="button"

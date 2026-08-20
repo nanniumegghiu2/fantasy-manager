@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { agreeWithBoard, boardSeasonMeeting } from "../ds/board";
 import {
   BOARD_CONFIDENCE_FLOOR,
   boardMidSeasonWarning,
@@ -163,5 +164,86 @@ describe("richiamo di metà stagione", () => {
   it("arriva una volta sola per stagione", () => {
     const primo = boardMidSeasonWarning(arg)!;
     expect(boardMidSeasonWarning({ ...arg, board: primo.board, matchday: 30 })).toBeNull();
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/* Un tavolo solo: campionato e coppe                                          */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * ⚠️ Segnalazione dell'utente: *"nel meeting con la società devo decidere tutti gli obiettivi,
+ * campionati e coppe, cosa che al momento si fa inutilmente in due fasi diverse"*.
+ *
+ * Prima il colloquio riguardava solo il campionato, e le coppe si dichiaravano in una schermata
+ * successiva dove il presidente **non c'era**: una dichiarazione unilaterale, non un accordo. I
+ * test qui verificano che la società abbia una posizione anche sulle coppe e che l'accordo sia
+ * uno solo.
+ */
+describe("il colloquio copre anche le coppe", () => {
+  const coppe = [
+    {
+      key: "continental" as const,
+      competition: "Corona Continentale",
+      tiers: [
+        { label: "Semifinale", roundsFromWin: 2 },
+        { label: "Quarti", roundsFromWin: 3 },
+      ],
+    },
+  ];
+
+  const base = {
+    board: undefined,
+    season: 2,
+    tiers: [
+      { label: "Titolo" as const, targetPosition: 1 },
+      { label: "Europa" as const, targetPosition: 4 },
+      { label: "Metà classifica" as const, targetPosition: 9 },
+    ],
+    realistic: { label: "Europa" as const, targetPosition: 4 },
+    budgetMultiplierOf: () => 1,
+    baseRevenue: 100_000_000,
+    hasCoach: true,
+  };
+
+  it("la società dichiara un minimo anche in coppa", () => {
+    const meeting = boardSeasonMeeting({ ...base, cups: coppe });
+    expect(meeting.cups).toHaveLength(1);
+    expect(meeting.cups[0]!.competition).toBe("Corona Continentale");
+    expect(meeting.cups[0]!.minimum.label).toBeTruthy();
+    // E lo dice: senza una frase, il minimo è un numero che nessuno legge.
+    expect(meeting.cups[0]!.speech.length).toBeGreaterThan(10);
+  });
+
+  it("senza coppe il tavolo non ne parla, invece di mostrarne una vuota", () => {
+    expect(boardSeasonMeeting(base).cups).toEqual([]);
+  });
+
+  it("puntare più in alto in coppa piace, puntare più in basso no", () => {
+    const meeting = boardSeasonMeeting({ ...base, cups: coppe });
+    const minimo = meeting.cups[0]!.minimum.label;
+    const ambiziosa = meeting.cups[0]!.options.find((o) => o.label !== minimo)!;
+
+    const alMinimo = agreeWithBoard(undefined, meeting, meeting.minimum.label, 0, {
+      continental: minimo,
+    });
+    const piuSu = agreeWithBoard(undefined, meeting, meeting.minimum.label, 0, {
+      continental: ambiziosa.label,
+    });
+
+    // Fra le due opzioni una è più ambiziosa dell'altra: quella deve muovere la fiducia nella
+    // direzione giusta, qualunque delle due sia il minimo preteso.
+    const piuAmbiziosa = ambiziosa.roundsFromWin < meeting.cups[0]!.minimum.roundsFromWin;
+    if (piuAmbiziosa) expect(piuSu.board.confidence).toBeGreaterThan(alMinimo.board.confidence);
+    else expect(piuSu.board.confidence).toBeLessThan(alMinimo.board.confidence);
+  });
+
+  it("chi non sceglie accetta il minimo: non è uno stato senza obiettivo", () => {
+    const meeting = boardSeasonMeeting({ ...base, cups: coppe });
+    const senzaScelta = agreeWithBoard(undefined, meeting, meeting.minimum.label, 0);
+    const colMinimo = agreeWithBoard(undefined, meeting, meeting.minimum.label, 0, {
+      continental: meeting.cups[0]!.minimum.label,
+    });
+    expect(senzaScelta.board.confidence).toBe(colMinimo.board.confidence);
   });
 });

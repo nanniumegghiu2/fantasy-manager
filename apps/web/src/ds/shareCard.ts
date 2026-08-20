@@ -20,6 +20,7 @@
  * L'immagine nasce e resta sul dispositivo: nessuna chiamata, nessun servizio esterno, nessun
  * dato che parte da solo. Se ne va solo quando è l'utente a condividerla.
  */
+import { seasonYearLabel } from "@app/game-engine";
 
 /** I due formati: uno per il feed, uno per le storie a tutto schermo. */
 export type ShareFormat = "post" | "storia";
@@ -167,7 +168,7 @@ export async function renderShareCard(
   // Stagione e campionato.
   ctx.fillStyle = "rgba(255,255,255,0.62)";
   ctx.font = "600 34px Manrope, system-ui, sans-serif";
-  centrato(ctx, `${data.leagueName.toUpperCase()} · STAGIONE ${data.season}`, top + 40, w * 0.8);
+  centrato(ctx, `${data.leagueName.toUpperCase()} · ${seasonYearLabel(data.season)}`, top + 40, w * 0.8);
 
   // Il club.
   ctx.fillStyle = "#ffffff";
@@ -268,7 +269,7 @@ export async function renderShareCard(
 export function shareText(data: ShareCardData): string {
   const etichette = trophyLabels(data.trophies);
   const parte = etichette.length > 0 ? `Abbiamo vinto: ${etichette.join(", ")}.` : "Che stagione.";
-  return `${data.clubName} — stagione ${data.season}. ${parte} #FantasyManager`;
+  return `${data.clubName} — ${seasonYearLabel(data.season)}. ${parte} #FantasyManager`;
 }
 
 /** Esito di un tentativo di condivisione, per dire all'utente cosa è successo davvero. */
@@ -293,7 +294,7 @@ export async function shareTriumph(
     return "errore";
   }
 
-  const file = new File([blob], `fantasy-manager-${data.clubName}-${data.season}.png`, {
+  const file = new File([blob], `fantasy-manager-${data.clubName}-${seasonYearLabel(data.season).replace("/", "-")}.png`, {
     type: "image/png",
   });
   const testo = shareText(data);
@@ -331,7 +332,7 @@ export async function downloadTriumph(
 ): Promise<ShareOutcome> {
   try {
     const blob = await renderShareCard(data, format);
-    scaricaBlob(blob, `fantasy-manager-${data.clubName}-${data.season}.png`);
+    scaricaBlob(blob, `fantasy-manager-${data.clubName}-${seasonYearLabel(data.season).replace("/", "-")}.png`);
     return "scaricato";
   } catch {
     return "errore";

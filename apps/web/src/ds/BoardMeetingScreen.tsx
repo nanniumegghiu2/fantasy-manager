@@ -7,10 +7,11 @@ import {
   ShieldCheck,
   Target,
   TrendingDown,
+  Trophy,
   TrendingUp,
   UserMinus,
 } from "lucide-react";
-import { boardConfidenceLabel, type BoardMeeting, type BoardState } from "@app/game-engine";
+import { boardConfidenceLabel, seasonYearLabel, type BoardMeeting, type BoardState } from "@app/game-engine";
 import { Button, Stepper, type Step } from "./ui";
 import { euro } from "./format";
 
@@ -39,6 +40,15 @@ export function BoardMeetingScreen({
     objectiveLabel: string;
     extraSteps: number;
     coachChoice?: "esonera" | "difendi";
+    /**
+     * ⚠️ **Le coppe si concordano qui**, non in una seconda schermata.
+     *
+     * Prima esistevano due tavoli: questo per campionato, mezzi e panchina, e subito dopo una
+     * schermata a parte per le coppe — dove il presidente non c'era affatto, quindi erano una
+     * dichiarazione unilaterale invece che un accordo. Un obiettivo è uno solo: si tratta in
+     * un posto solo.
+     */
+    cupChoices?: Partial<Record<"continental" | "national", string>>;
   }) => void;
 }) {
   const fiducia = boardConfidenceLabel(board.confidence);
@@ -46,24 +56,26 @@ export function BoardMeetingScreen({
     () => meeting.options.find((o) => o.stance === "minimo")?.label ?? meeting.options[0]?.label ?? "",
   );
   const [extra, setExtra] = useState(0);
+  /** Le fasce di coppa: si parte da quella pretesa, cioè da un accordo già valido. */
+  const [coppe, setCoppe] = useState<Partial<Record<"continental" | "national", string>>>(() =>
+    Object.fromEntries(meeting.cups.map((c) => [c.key, c.minimum.label])),
+  );
   const [coach, setCoach] = useState<"esonera" | "difendi" | null>(null);
   const [passo, setPasso] = useState(0);
   const [massimo, setMassimo] = useState(0);
 
-  const passi: Step[] = useMemo(
-    () =>
-      meeting.coachIssue
-        ? [
-            { key: "ascolto", label: "Il consiglio" },
-            { key: "accordo", label: "L'accordo" },
-            { key: "mister", label: "La panchina" },
-          ]
-        : [
-            { key: "ascolto", label: "Il consiglio" },
-            { key: "accordo", label: "L'accordo" },
-          ],
-    [meeting.coachIssue],
-  );
+  const passi: Step[] = useMemo(() => {
+    const out: Step[] = [{ key: "ascolto", label: "Il consiglio" }, { key: "accordo", label: "L'accordo" }];
+    if (meeting.cups.length > 0) out.push({ key: "coppe", label: "Le coppe" });
+    if (meeting.coachIssue) out.push({ key: "mister", label: "La panchina" });
+    return out;
+  }, [meeting.cups.length, meeting.coachIssue]);
+
+  /** Gli indici dei passi variabili: dipendono da quante competizioni si giocano. */
+  const passoCoppe = meeting.cups.length > 0 ? 2 : -1;
+  const passoMister = meeting.coachIssue ? (meeting.cups.length > 0 ? 3 : 2) : -1;
+  const chiudi = () =>
+    onAgree({ objectiveLabel: scelta, extraSteps: extra, cupChoices: coppe });
 
   const opzione = meeting.options.find((o) => o.label === scelta);
   const passoExtra = meeting.extraBudget.max / meeting.extraBudget.step;
@@ -95,7 +107,7 @@ export function BoardMeetingScreen({
           </span>
           <div className="min-w-0 flex-1">
             <p className="text-micro font-extrabold tracking-widest text-[var(--text-secondary)] uppercase">
-              Colloquio con la società · Stagione {meeting.season}
+              Colloquio con la società · Stagione {meeting.season} · {seasonYearLabel(meeting.season)}
             </p>
             <p className="text-body leading-tight font-extrabold">Obiettivi, mezzi e panchina</p>
           </div>
@@ -251,17 +263,74 @@ export function BoardMeetingScreen({
                 <span className="num text-body font-extrabold">{euro(fatturatoStimato)}</span>
               </div>
 
-              {meeting.coachIssue ? (
-                <Button onClick={() => vai(2)}>Passa alla panchina</Button>
+              {passoCoppe >= 0 ? (
+                <Button onClick={() => vai(passoCoppe)}>Passa alle coppe</Button>
+              ) : passoMister >= 0 ? (
+                <Button onClick={() => vai(passoMister)}>Passa alla panchina</Button>
               ) : (
-                <Button onClick={() => onAgree({ objectiveLabel: scelta, extraSteps: extra })}>
-                  Chiudi l'accordo
-                </Button>
+                <Button onClick={chiudi}>Chiudi l'accordo</Button>
               )}
             </>
           )}
 
-          {passo === 2 && meeting.coachIssue && (
+          {/* ⚠️ **Le coppe, allo stesso tavolo.** Il presidente dichiara il minimo anche qui:
+              è ciò che le trasforma da dichiarazione d'intenti a pezzo dell'accordo. */}
+          {passo === passoCoppe && (
+            <>
+              <p className="text-label leading-relaxed text-[var(--text-secondary)]">
+                Anche in coppa il consiglio si aspetta qualcosa. Puntare più in alto porta mezzi e
+                fiducia; puntare più in basso non è gratis.
+              </p>
+
+              {meeting.cups.map((coppa) => (
+                <div key={coppa.key} className="flex flex-col gap-2">
+                  <div className="flex items-center gap-2">
+                    <Trophy size={15} className="shrink-0 text-[var(--accent)]" />
+                    <span className="text-micro font-bold tracking-widest text-[var(--text-secondary)] uppercase">
+                      {coppa.competition}
+                    </span>
+                  </div>
+                  <p className="text-label leading-relaxed italic text-[var(--text-secondary)]">
+                    «{coppa.speech}»
+                  </p>
+                  <ul className="flex flex-col gap-2">
+                    {coppa.options.map((o) => {
+                      const attiva = coppe[coppa.key] === o.label;
+                      const sopra = o.roundsFromWin < coppa.minimum.roundsFromWin;
+                      const sotto = o.roundsFromWin > coppa.minimum.roundsFromWin;
+                      const colore = sopra ? "#3ddc6b" : sotto ? "#ff8a3d" : "var(--brand)";
+                      return (
+                        <li key={o.label}>
+                          <button
+                            type="button"
+                            onClick={() => setCoppe((c) => ({ ...c, [coppa.key]: o.label }))}
+                            className="flex min-h-tap w-full items-center justify-between gap-3 rounded-card border p-3 text-left transition-transform active:scale-98"
+                            style={{
+                              borderColor: attiva ? colore : "var(--surface-border)",
+                              backgroundColor: attiva ? `${colore}14` : "var(--surface-raised)",
+                            }}
+                          >
+                            <span className="text-body font-extrabold">{o.label}</span>
+                            <span className="text-label font-bold" style={{ color: colore }}>
+                              {sopra ? "più di quanto chiedano" : sotto ? "sotto la richiesta" : "come chiedono"}
+                            </span>
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              ))}
+
+              {passoMister >= 0 ? (
+                <Button onClick={() => vai(passoMister)}>Passa alla panchina</Button>
+              ) : (
+                <Button onClick={chiudi}>Chiudi l'accordo</Button>
+              )}
+            </>
+          )}
+
+          {passo === passoMister && meeting.coachIssue && (
             <>
               <p className="rounded-card bg-[var(--surface-raised)] p-3 text-label leading-relaxed">
                 «{meeting.coachIssue.reason}{" "}
@@ -323,7 +392,8 @@ export function BoardMeetingScreen({
               <Button
                 disabled={!coach}
                 onClick={() =>
-                  coach && onAgree({ objectiveLabel: scelta, extraSteps: extra, coachChoice: coach })
+                  coach &&
+                  onAgree({ objectiveLabel: scelta, extraSteps: extra, cupChoices: coppe, coachChoice: coach })
                 }
               >
                 {coach ? "Chiudi il colloquio" : "Scegli cosa fare della panchina"}

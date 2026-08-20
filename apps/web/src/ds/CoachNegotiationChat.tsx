@@ -3,6 +3,7 @@ import { motion } from "framer-motion";
 import {
   ArrowLeft,
   Banknote,
+  Handshake,
   CheckCircle2,
   HeartHandshake,
   Hourglass,
@@ -21,6 +22,7 @@ import {
   openCoachNegotiation,
   proposePromiseCompromise,
   type Coach,
+  type CounterDemand,
   type CoachNegotiationState,
   type CoachPromise,
   type CoachReport,
@@ -208,17 +210,40 @@ export function CoachNegotiationChat({
           ? "#ffc107"
           : "#ff4d4d";
 
-  // Gestione dell'azione di compromesso o del bonus ingaggio su una richiesta
+  /**
+   * ⚠️ **La contropartita che il mister chiede quando non cede.**
+   *
+   * Richiesta dell'utente: *«tutte le opzioni a schermo devono portare a un risultato
+   * tangibile»*. Un no che chiude la porta non è un risultato; un no che dice **cosa
+   * servirebbe** sì, perché lascia una mossa da fare — ed è quella mossa che compare qui
+   * sotto come pulsante, invece di restare una frase nella chat.
+   */
+  const [contropartite, setContropartite] = useState<Record<string, CounterDemand>>({});
+
   const handleAction = (
     promiseId: string,
     action: "reduce_target" | "remove_promise" | "boost_salary" | "offer_alternative" | "delay",
   ) => {
-    const { state: newState } = proposePromiseCompromise(negState, promiseId, action, marketCandidates);
-    setNegState(newState);
+    const esito = proposePromiseCompromise(negState, promiseId, action, marketCandidates);
+    setNegState(esito.state);
+    setContropartite((c) => {
+      const next = { ...c };
+      if (esito.counterDemand) next[promiseId] = esito.counterDemand;
+      else delete next[promiseId];
+      return next;
+    });
 
-    if (newState.status === "arenata") {
+    if (esito.state.status === "arenata") {
       setStep("rejected");
     }
+  };
+
+  /** Esegue la contropartita: sono tutte mosse che il motore già sa applicare. */
+  const accettaContropartita = (promiseId: string, richiesta: CounterDemand) => {
+    if (richiesta.kind === "rimanda") return handleAction(promiseId, "delay");
+    if (richiesta.kind === "bonus_ingaggio") return handleAction(promiseId, "boost_salary");
+    // Scambio: si stralcia l'altra richiesta, e questa resta com'è.
+    if (richiesta.otherPromiseId) handleAction(richiesta.otherPromiseId, "remove_promise");
   };
 
   const currentTotalCost = negState.hireCost + buyoutFee;
@@ -564,8 +589,36 @@ export function CoachNegotiationChat({
                         Chiedi di toglierla
                       </Button>
 
+                      {/* ⚠️ La contropartita dichiarata: è ciò che trasforma un no in una
+                          mossa. Il testo è del mister, il bottone la esegue. */}
+                      {contropartite[p.id] && (
+                        <div className="flex flex-col gap-1.5 rounded-control border border-[var(--accent)]/40 bg-[var(--accent)]/8 p-2.5">
+                          <p className="text-label leading-relaxed text-[var(--text-secondary)]">
+                            {contropartite[p.id]!.text}
+                          </p>
+                          <Button
+                            variant="secondary"
+                            icon={Handshake}
+                            block
+                            onClick={() => accettaContropartita(p.id, contropartite[p.id]!)}
+                            blockedReason={
+                              contropartite[p.id]!.kind === "bonus_ingaggio" &&
+                              budget < currentTotalCost + (contropartite[p.id]!.amount ?? 0)
+                                ? `La cassa non copre il bonus: mancano ${euro(currentTotalCost + (contropartite[p.id]!.amount ?? 0) - budget)}.`
+                                : undefined
+                            }
+                          >
+                            {contropartite[p.id]!.kind === "rimanda"
+                              ? "Va bene, se ne riparla alla prossima finestra"
+                              : contropartite[p.id]!.kind === "stralcia_altra"
+                                ? "Accetto lo scambio"
+                                : `Glielo riconosco: ${euro(contropartite[p.id]!.amount ?? 0)}`}
+                          </Button>
+                        </div>
+                      )}
+
                       {/* Se la richiesta è stata RIFIUTATA dal mister, sblocca la proposta di aumento ingaggio */}
-                      {p.rejectedOffer && (
+                      {p.rejectedOffer && !contropartite[p.id] && (
                         <Button
                           variant="secondary"
                           icon={Banknote}

@@ -661,19 +661,32 @@ export function evolveWorld({
   const ritiratiPerClub = new Map<string, WorldPlayer[]>();
 
   for (const player of players) {
+    /**
+     * **Dove sta adesso**, non dove stava nel database.
+     *
+     * ⚠️ Il confronto era su `player.clubId`, cioè l'appartenenza della prima stagione, e questo
+     * rendeva inefficace il trasferimento per chiunque fosse **nato in casa nostra**: venduto un
+     * giocatore del nostro club, il `continue` scattava prima che `clubDi` venisse consultato,
+     * quindi non tornava da noi (giusto) ma non arrivava nemmeno al compratore — spariva dal
+     * mondo. L'ha trovato il test della cessione, non un ragionamento.
+     *
+     * Per chi è ancora in rosa non cambia nulla (`ownedByUser` lo copre comunque), e per un
+     * salvataggio precedente nemmeno: senza un trasferimento registrato `casa` è ancora il club
+     * del database, cioè il comportamento di prima, riga per riga.
+     */
+    const casa = clubDi.get(player.id) ?? player.clubId;
+
     // La rosa dell'utente è gestita dalla carriera, non dal mondo.
-    if (player.clubId === ownClubId || ownedByUser.has(player.id)) continue;
+    if (casa === ownClubId || ownedByUser.has(player.id)) continue;
 
     if (isRetiredBySeason(player.birthDate, season)) {
       retired++;
-      const casa = clubDi.get(player.id) ?? player.clubId;
       const elenco = ritiratiPerClub.get(casa);
       if (elenco) elenco.push(player);
       else ritiratiPerClub.set(casa, [player]);
       continue;
     }
 
-    const casa = clubDi.get(player.id) ?? player.clubId;
     const evoluto: WorldPlayer = {
       ...player,
       clubId: casa,

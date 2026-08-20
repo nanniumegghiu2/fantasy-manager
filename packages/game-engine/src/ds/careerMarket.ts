@@ -103,6 +103,19 @@ export interface MarketSnapshot {
    * messaggi di giornata. Vuota nella stragrande maggioranza delle finestre.
    */
   clauseSales?: ClauseSale[];
+  /**
+   * **Chi abbiamo lasciato andare in questa finestra**, e quindi non si può ricomprare adesso.
+   *
+   * ⚠️ Richiesta esplicita dell'utente: *"i giocatori venduti non devono essere riacquistati
+   * nella stessa sessione di mercato"*. Non è solo una regola di buon gusto: senza, si poteva
+   * vendere per fare cassa e ricomprare lo stesso uomo un minuto dopo a prezzo pieno o — peggio
+   * — a saldo, che è un modo di stampare denaro.
+   *
+   * Vive nella **finestra** e non nella carriera perché il divieto dura una sessione: alla
+   * riapertura si può tornare sui propri passi, ma trattando col club che l'ha preso e al suo
+   * prezzo. Si azzera da solo quando la finestra successiva costruisce un nuovo snapshot.
+   */
+  soldThisWindow?: string[];
 }
 
 /**
@@ -479,10 +492,7 @@ export function buildClauseSales(
     const probabilita = Math.max(0, Math.min(0.8, 0.95 - (rapporto - 0.7) * 0.62));
     if (probabilita <= 0) continue;
 
-    const plausibili = compratori.filter((club) => {
-      if (livelloClub(club) < entry.overall - MAX_BUYER_GAP) return false;
-      return clausola <= budgetPlausibile(club, world);
-    });
+    const plausibili = compratori.filter((club) => credibile(club, world, entry.overall, clausola));
     if (plausibili.length === 0) continue;
 
     // Un tiro per giocatore: l'ordine di scorrimento non deve decidere chi è a rischio.
@@ -507,6 +517,39 @@ export function buildClauseSales(
   return [
     candidati.sort((a, b) => a.fee / a.marketValue - b.fee / b.marketValue)[0]!,
   ];
+}
+
+/** Questo club è un compratore credibile per quel giocatore a quella cifra? */
+function credibile(club: MarketClub, world: MarketWorld, overall: number, fee: number): boolean {
+  if (livelloClub(club) < overall - MAX_BUYER_GAP) return false;
+  return fee <= budgetPlausibile(club, world);
+}
+
+/**
+ * **Dove va chi lascia il club.**
+ *
+ * Serve a ogni uscita che non nomina già un compratore — la vendita rapida, in particolare, che
+ * incassa e basta. Senza una destinazione il giocatore non potrebbe essere registrato come
+ * trasferito, e ricadremmo esattamente nel difetto segnalato: rimane al club d'origine e si può
+ * ricomprare.
+ *
+ * Il ripiego è deliberato e non è un caso limite da ignorare: se nessuno è alla sua portata la
+ * cessione **avviene lo stesso** (l'ha decisa il direttore sportivo, non il mercato), e va al
+ * club più forte disponibile. Un venduto deve sempre avere un posto dove andare.
+ */
+export function pickPlausibleBuyer(
+  world: MarketWorld,
+  ownClubId: string,
+  overall: number,
+  fee: number,
+  random: () => number,
+): MarketClub | undefined {
+  const altri = Object.values(world.clubs).filter((c) => c.id !== ownClubId);
+  const plausibili = altri.filter((club) => credibile(club, world, overall, fee));
+  if (plausibili.length > 0) {
+    return plausibili[Math.floor(random() * plausibili.length)];
+  }
+  return [...altri].sort((a, b) => livelloClub(b) - livelloClub(a))[0];
 }
 
 /**
@@ -756,6 +799,12 @@ export interface MarketState {
   budget: number;
   snapshot: MarketSnapshot;
   lists: SquadLists;
+  /**
+   * Il nostro club. Serve solo a non sceglierci come acquirenti di un nostro stesso giocatore
+   * quando una cessione non nomina un compratore (la vendita rapida). Opzionale perché i test
+   * che verificano liste e vincoli non hanno bisogno di un mondo completo.
+   */
+  ownClubId?: string;
 }
 
 export interface MarketActionResult extends MarketState {
@@ -763,6 +812,30 @@ export interface MarketActionResult extends MarketState {
   message: string;
   /** L'operazione non è andata a buon fine: la UI lo segnala in modo diverso. */
   rejected?: boolean;
+  /**
+   * **Un giocatore ha lasciato il club, e questa è la sua destinazione.**
+   *
+   * ⚠️ Il campo che mancava, ed era la causa di due segnalazioni distinte dell'utente: «un
+   * giocatore perso per clausola lo ritrovo nella squadra di origine» e «i venduti si possono
+   * ricomprare nella stessa sessione». Nessuna uscita dalla rosa registrava mai un
+   * `WorldTransfer`, quindi `evolveWorld` ricostruiva il mondo dal database e rimetteva il
+   * giocatore **al suo club d'origine** — e non essendo più fra i nostri, tornava anche fra gli
+   * acquistabili.
+   *
+   * Il modulo del mercato non conosce `worldTransfers` (è stato di carriera, non di finestra):
+   * qui si **dichiara** la partenza, e `career.ts` la registra. È la stessa divisione di sempre
+   * fra chi sa negoziare e chi tiene lo stato.
+   */
+  departure?: PlayerDeparture;
+}
+
+/** Un giocatore che ha lasciato la rosa, con dove va e per quanto. */
+export interface PlayerDeparture {
+  playerId: string;
+  playerName: string;
+  toClubId: string;
+  toClubName: string;
+  fee: number;
 }
 
 /**
@@ -795,6 +868,13 @@ export function applyMarketAction(
         // Chi se ne va esce anche dalle liste: lasciarcelo produrrebbe offerte per un
         // giocatore che non è più nostro.
         lists: rimuoviDalleListe(lists, action.playerId),
+        departure: {
+          playerId: action.playerId,
+          playerName: offer.playerName,
+          toClubId: offer.fromClubId,
+          toClubName: offer.fromClubName,
+          fee: offer.fee,
+        },
         message: `${offer.playerName} ceduto per ${formatEuro(offer.fee)} (${offer.fromClubName}).`,
       };
     }
@@ -840,6 +920,13 @@ export function applyMarketAction(
         budget: budget + (decision.fee ?? offer.fee),
         snapshot: { ...snapshot, offers: snapshot.offers.filter((o) => o.playerId !== action.playerId) },
         lists: rimuoviDalleListe(lists, action.playerId),
+        departure: {
+          playerId: action.playerId,
+          playerName: offer.playerName,
+          toClubId: offer.fromClubId,
+          toClubName: offer.fromClubName,
+          fee: decision.fee ?? offer.fee,
+        },
         message: `${offer.playerName} ceduto per ${formatEuro(decision.fee ?? offer.fee)}.`,
       };
     }
@@ -997,11 +1084,32 @@ export function applyMarketAction(
         world.valuation,
       );
       const incasso = quickSalePrice(valore);
+      /**
+       * La vendita rapida non nomina un compratore — si incassa e basta — ma **una destinazione
+       * serve comunque**: senza, il giocatore non può essere registrato come trasferito e resta
+       * nel limbo del club d'origine, che è esattamente il difetto segnalato.
+       */
+      const acquirente = pickPlausibleBuyer(
+        world,
+        state.ownClubId ?? "",
+        entry.overall,
+        incasso,
+        derivedRandom(seed, "saldo", season, action.playerId),
+      );
       return {
         roster: roster.filter((e) => e.playerId !== action.playerId),
         budget: budget + incasso,
         snapshot: { ...snapshot, offers: snapshot.offers.filter((o) => o.playerId !== action.playerId) },
         lists: rimuoviDalleListe(lists, action.playerId),
+        departure: acquirente
+          ? {
+              playerId: action.playerId,
+              playerName: world.nameOf(action.playerId),
+              toClubId: acquirente.id,
+              toClubName: acquirente.name,
+              fee: incasso,
+            }
+          : undefined,
         message: `${world.nameOf(action.playerId)} ceduto subito per ${formatEuro(incasso)}: chi ha fretta incassa meno.`,
       };
     }

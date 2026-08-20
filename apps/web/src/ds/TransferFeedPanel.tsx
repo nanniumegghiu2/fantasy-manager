@@ -10,6 +10,7 @@ import {
   Tag,
   TrendingDown,
 } from "lucide-react";
+import { seasonYearLabel } from "@app/game-engine";
 import type {
   AiSellableListing,
   CareerState,
@@ -244,7 +245,7 @@ export function TransferFeedPanel({ state, world, dsWorld, aiSellable }: Transfe
           {perStagione.map(([stagione, elenco]) => (
             <section key={stagione} className="flex flex-col gap-2">
               <p className="flex items-center gap-1.5 px-1 text-micro font-bold tracking-widest text-[var(--text-secondary)] uppercase">
-                Stagione {stagione}
+                {seasonYearLabel(stagione)}
                 {stagione === state.season && (
                   <span className="rounded-full bg-[var(--accent)]/15 px-2 py-0.5 text-label text-[var(--accent)]">
                     in corso

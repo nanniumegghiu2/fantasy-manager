@@ -50,7 +50,9 @@ import { advanceSeasonOveralls, ageInSeason, shouldRetire } from "./aging";
 import { computeCohesion } from "./cohesion";
 import { findCoach } from "./coaches";
 import { emptyCupSave, ownCupExit, ownCupOutcome, playCupRound, type CupExit, type CupSave } from "./careerCup";
-import { isKeyMatch } from "./highlights";
+import { isKeyMatch, keyMatchReason } from "./highlights";
+import { ASSIST_WEIGHT, matchRating, pickAssistId } from "./matchRatings";
+import { accumulateMatchday, recordOwn, type CompetitionStats } from "./leagueStats";
 import {
   applyMarketAction,
   buildClauseSales,
@@ -62,6 +64,7 @@ import {
   type MarketSnapshot,
   type MarketWindow,
   type MarketWorld,
+  type PlayerDeparture,
   type SquadLists,
 } from "./careerMarket";
 import {
@@ -184,8 +187,9 @@ import {
   objectiveBudgetMultiplier,
   seasonVerdictScore,
   suggestObjectiveTiers,
+  suggestCupObjectiveTiers,
   estimateLeaguePosition,
-  tierFor,
+  tierFor,
   type CupObjectiveLabel,
   type CupObjectiveTier,
   type ObjectiveLabel,
@@ -429,6 +433,21 @@ export interface CareerState {
    * comprato tu. Servono comunque alla schermata "Mercato dal mondo".
    */
   worldTransfers: WorldTransfer[];
+  /**
+   * **Le statistiche di tutta la lega**: marcatori, assist e voti, nostri e altrui.
+   *
+   * ⚠️ Richiesta dell'utente: *"voglio poter vedere le statistiche di campionati e coppe"*. I gol
+   * delle partite fra squadre IA non hanno un marcatore — `simulateOpponentMatch` restituisce due
+   * numeri — quindi si attribuiscono a valle (`leagueStats.ts`) e si accumulano qui: **non sono
+   * derivabili**, dipendono dalle estrazioni di ogni giornata.
+   *
+   * Poche centinaia di voci per stagione (solo chi ha fatto qualcosa), azzerate a ogni stagione:
+   * il salvataggio resta ben sotto il tetto dei 100 KB.
+   */
+  leagueStats?: CompetitionStats;
+  /** Le stesse statistiche, per le due coppe: tabelloni diversi, classifiche diverse. */
+  cupStats?: CompetitionStats;
+  nationalCupStats?: CompetitionStats;
   /**
    * Chi allena chi, fra i club di cui il motore calcola un segnale vero (sez. `aiCoaches.ts`).
    * Come `worldTransfers`, è storia e non si può derivare: si salva.
@@ -938,6 +957,17 @@ export function squadStrengthOf(state: CareerState, world: CareerWorld) {
 /* Avanzamento                                                                 */
 /* -------------------------------------------------------------------------- */
 
+/** La partita decisiva di una settimana, già scelta dal motore e pronta per l'invito. */
+export interface KeyMatchReport {
+  competition: "campionato" | "corona" | "tricolore";
+  result: MatchResult;
+  opponent: string;
+  /** Perché conta: la UI lo mostra nell'invito a guardarla. */
+  reason: string;
+  /** Presente solo se la sfida si è decisa dal dischetto. */
+  penalties?: { weWon: boolean };
+}
+
 export interface WeekReport {
   week: number;
   season: number;
@@ -960,6 +990,21 @@ export interface WeekReport {
     weWonPenalties?: boolean;
   };
   standings?: StandingRow[];
+  /**
+   * **La partita che vale la pena guardare, se questa settimana ce n'è una.**
+   *
+   * ⚠️ Prima la decisione veniva presa **due volte**: qui `advanceToNextStop` per decidere se
+   * fermarsi, e in `CareerScreen` per decidere se proporre l'invito — con criteri **diversi**,
+   * perché la UI passava anche `opponentPosition` (lo scontro diretto) e il motore no. Due
+   * implementazioni della stessa regola divergono sempre, e qui divergevano in un modo che si
+   * vedeva: la UI poteva marcare come chiave una partita a metà coda che il motore non aveva
+   * usato come punto d'arresto, quindi le settimane successive continuavano a scorrere e
+   * l'invito arrivava alla fine — per una partita di dodici giornate prima, con tutto il resto
+   * già successo.
+   *
+   * Ora il criterio è **uno solo** e sta dove ha i dati per essere applicato bene. La UI legge.
+   */
+  keyMatch?: KeyMatchReport;
   injuries: Injury[];
   /** Richiesta di cessione appena aperta: è una decisione, la UI deve fermarsi. */
   request?: PendingRequest;
@@ -1334,11 +1379,32 @@ export function advanceWeek(
   if (round !== undefined) {
     const random = derivedRandom(next.seed, "md", next.leagueId, next.season, round);
     const lineup = currentLineup(next, world);
-    const { followedResult, followedOpponent } = simulateMatchday(league, random, {
+    const { results, followedResult, followedOpponent } = simulateMatchday(league, random, {
       followedIndex: 0,
       followedScorers: scorerPoolOf(next, lineup, world),
     });
     if (followedResult) match = { result: followedResult, opponent: followedOpponent ?? "" };
+
+    /**
+     * **Le statistiche di tutta la lega**, non solo le nostre.
+     *
+     * I gol delle partite fra squadre IA non hanno un marcatore — `simulateOpponentMatch`
+     * restituisce due numeri e basta — quindi si attribuiscono **qui a valle**, con un flusso
+     * casuale separato: `simulateMatchday` e il suo characterization test restano intatti, e con
+     * loro la calibrazione del 38-0-0 della Modalità Classica.
+     */
+    next = {
+      ...next,
+      leagueStats: accumulateMatchday({
+        stats: { ...(next.leagueStats ?? {}) },
+        results,
+        teams: league.teams,
+        followedIndex: 0,
+        seed: next.seed,
+        season: next.season,
+        round,
+      }),
+    };
 
     // L'obiettivo stagionale (sez. seasonObjectives.ts) finalmente popola
     // `MoraleContext.positionsBelowTarget`, un campo che il tipo aveva già ma che nessun codice
@@ -1413,6 +1479,10 @@ export function advanceWeek(
       round,
       posizioneSottoObiettivo,
       partiteSettimana,
+      world,
+      // La forza dell avversaria di giornata: e il contesto che rende un pareggio in casa della
+      // prima un voto diverso da un pareggio con l ultima.
+      league.teams.find((t) => t.name === followedOpponent)?.rating,
     );
     next.league = { round: league.round, tallies: league.tallies };
 
@@ -1462,7 +1532,11 @@ export function advanceWeek(
       next.season,
       cupSlot.round,
     );
-    next = { ...next, cup: outcome.save };
+    next = {
+      ...next,
+      cup: outcome.save,
+      cupStats: registraCoppa(next.cupStats, outcome.ownMatch?.result, next, world, "corona", cupSlot.round),
+    };
     if (outcome.ownMatch) cupMatch = { ...outcome.ownMatch, stage: cupSlot.stage };
     if (outcome.eliminated) messages.push("Eliminati dalla Corona Continentale.");
     if (outcome.won) messages.push("Abbiamo vinto la Corona Continentale!");
@@ -1491,7 +1565,18 @@ export function advanceWeek(
       next.season,
       nazionaleSlot.round,
     );
-    next = { ...next, nationalCup: esito.save };
+    next = {
+      ...next,
+      nationalCup: esito.save,
+      nationalCupStats: registraCoppa(
+        next.nationalCupStats,
+        esito.ownMatch?.result,
+        next,
+        world,
+        "tricolore",
+        nazionaleSlot.round,
+      ),
+    };
     if (esito.ownMatch) nationalCupMatch = esito.ownMatch;
     if (esito.eliminated) messages.push("Eliminati dalla Coppa Tricolore.");
     if (esito.won) messages.push("Abbiamo vinto la Coppa Tricolore!");
@@ -1585,25 +1670,29 @@ export function advanceWeek(
     careerEnded = next.phase === "conclusa";
   }
 
+  const report: WeekReport = {
+    week: week.index,
+    season: state.season,
+    match,
+    cupMatch,
+    nationalCupMatch,
+    incident: daMostrare,
+    standings: buildStandings(league, 0),
+    injuries,
+    request: request ?? undefined,
+    coachResigned: coachResigned || undefined,
+    marketWindow: hasMarketWindow(week),
+    market: next.market ?? null,
+    seasonEnded,
+    careerEnded,
+    messages,
+  };
+
   return {
     state: next,
-    report: {
-      week: week.index,
-      season: state.season,
-      match,
-      cupMatch,
-      nationalCupMatch,
-      incident: daMostrare,
-      standings: buildStandings(league, 0),
-      injuries,
-      request: request ?? undefined,
-      coachResigned: coachResigned || undefined,
-      marketWindow: hasMarketWindow(week),
-      market: next.market ?? null,
-      seasonEnded,
-      careerEnded,
-      messages,
-    },
+    // Decisa qui e non da chi legge: è l'unico punto che ha insieme le tre partite e la
+    // classifica aggiornata, cioè tutto ciò che serve per applicare la regola una volta sola.
+    report: { ...report, keyMatch: keyMatchOf(report, world.leagueRounds) },
   };
 }
 
@@ -1669,30 +1758,14 @@ export function advanceToNextStop(
     if (report.incident) return { state: current, reports, reason: "imprevisto" };
 
     /**
-     * **Una partita decisiva (coppa o volata titolo) ferma la corsa.**
+     * **Una partita decisiva ferma la corsa**, così l'utente può scegliere se guardarla.
      *
-     * Permette all'utente di scegliere se guardare la gara saliente in 2D (Match Theatre)
-     * prima di proseguire con le giornate successive.
+     * Si legge `report.keyMatch` invece di ricalcolare: prima qui e nella UI vivevano due
+     * versioni della stessa regola, e quella del motore non conosceva lo scontro diretto. La
+     * conseguenza non era teorica — l'invito poteva arrivare per una partita già superata da
+     * dodici giornate, con i risultati successivi già a schermo.
      */
-    const nostra = report.standings?.find((r) => r.isUser);
-    const primo = report.standings?.[0];
-    const ePartitaChiave =
-      (report.cupMatch && isKeyMatch({ cupStage: report.cupMatch.stage, totalRounds: world.leagueRounds })) ||
-      (report.nationalCupMatch &&
-        isKeyMatch({
-          nationalCupStage: report.nationalCupMatch.stage,
-          totalRounds: world.leagueRounds,
-        })) ||
-      (report.match &&
-        nostra &&
-        isKeyMatch({
-          leagueRound: report.week,
-          totalRounds: world.leagueRounds,
-          position: nostra.position,
-          gapFromFirst: (primo?.points ?? nostra.points) - nostra.points,
-        }));
-
-    if (ePartitaChiave) return { state: current, reports, reason: "partita_chiave" };
+    if (report.keyMatch) return { state: current, reports, reason: "partita_chiave" };
   }
 
   return { state: current, reports, reason: "calendario" };
@@ -1815,6 +1888,20 @@ function eseguiClausole(
       ],
     };
 
+    /**
+     * ⚠️ Segnalazione dell'utente: *"quando perdo un giocatore per clausola lo ritrovo nella
+     * lista dei giocatori nella squadra di origine, come se il trasferimento non fosse mai
+     * successo"*. Era letteralmente vero: la clausola toglieva il giocatore dalla rosa e non
+     * diceva a nessuno dove fosse andato, quindi il mondo lo rimetteva dove stava nel database.
+     */
+    next = registraPartenza(next, {
+      playerId: vendita.playerId,
+      playerName: vendita.playerName,
+      toClubId: vendita.toClubId,
+      toClubName: vendita.toClubName,
+      fee: vendita.fee,
+    });
+
     messages.push(
       `Clausola pagata: ${vendita.playerName} lascia il club per ${formatEuro(vendita.fee)} (${vendita.toClubName}). Non c'era nulla da trattare.`,
     );
@@ -1843,6 +1930,47 @@ function apriRichiestaAllenatore(
     previous: state.lastCoachRequest,
   });
   return request ? { request, fulfilled: false } : null;
+}
+
+/**
+ * **Chi lascia il club se ne va davvero.**
+ *
+ * ⚠️ Il punto unico che mancava, e da cui nascevano due segnalazioni distinte dell'utente: «un
+ * giocatore perso per clausola lo ritrovo nella squadra di origine» e «i venduti si possono
+ * ricomprare nella stessa sessione di mercato».
+ *
+ * La causa era una sola. Nessuna uscita dalla rosa — clausola, cessione in trattativa,
+ * accettazione di un'offerta, vendita rapida — registrava un `WorldTransfer`. `evolveWorld`
+ * ricostruisce il mondo dal database applicando i trasferimenti noti: senza il nostro, il
+ * giocatore tornava al **club del database** (il nostro, o quello da cui l'avevamo comprato), e
+ * non essendo più in `ownedByUser` ricompariva anche fra gli acquistabili.
+ *
+ * Due effetti, quindi, e vanno insieme: il trasferimento è **vero** (alla prossima ricostruzione
+ * del mondo lo si trova nella rosa di chi l'ha preso) e il giocatore è **bloccato per la
+ * finestra corrente**, perché rivenderselo e ricomprarselo nella stessa sessione non è una
+ * decisione, è una scorciatoia.
+ */
+function registraPartenza(state: CareerState, partenza: PlayerDeparture): CareerState {
+  return {
+    ...state,
+    worldTransfers: [
+      ...(state.worldTransfers ?? []),
+      {
+        playerId: partenza.playerId,
+        playerName: partenza.playerName,
+        fromClubId: state.clubId,
+        toClubId: partenza.toClubId,
+        fee: partenza.fee,
+        season: state.season,
+      },
+    ],
+    market: state.market
+      ? {
+          ...state.market,
+          soldThisWindow: [...(state.market.soldThisWindow ?? []), partenza.playerId],
+        }
+      : state.market,
+  };
 }
 
 /**
@@ -1882,6 +2010,7 @@ export function applyMarket(
       budget: state.budget,
       snapshot: state.market ?? { window: "estiva", offers: [], shortlist: [], loanOffers: [], aiSellable: [] },
       lists,
+      ownClubId: state.clubId,
     },
     action,
     world.market,
@@ -2093,18 +2222,26 @@ export function applyMarket(
     }
   }
 
+  let prossimo: CareerState = {
+    ...state,
+    roster,
+    budget: result.budget,
+    // Fuori dalla finestra non esiste una fotografia da aggiornare: si tocca solo la lista.
+    market: snapshot,
+    coachRequest,
+    coachHarmony,
+    lists: result.lists,
+    sessionDeals,
+  };
+
+  // Chi se n'è andato va **registrato nel mondo**, non solo tolto dalla rosa: vedi
+  // `registraPartenza`. Vale per ogni forma di cessione, perché il difetto era comune a tutte.
+  if (result.departure && !result.rejected) {
+    prossimo = registraPartenza(prossimo, result.departure);
+  }
+
   return {
-    state: {
-      ...state,
-      roster,
-      budget: result.budget,
-      // Fuori dalla finestra non esiste una fotografia da aggiornare: si tocca solo la lista.
-      market: snapshot,
-      coachRequest,
-      coachHarmony,
-      lists: result.lists,
-      sessionDeals,
-    },
+    state: prossimo,
     result: {
       ...result,
       roster,
@@ -2143,9 +2280,21 @@ export function searchMarket(
    */
   const svincolati = new Set(freeAgentMarket(state, world).map((a) => a.id));
 
+  /**
+   * ⚠️ **Chi hai venduto in questa finestra non si ricompra.**
+   *
+   * Richiesta esplicita dell'utente. Il filtro serve *qui* e non solo nel mondo: il
+   * trasferimento registrato (`registraPartenza`) lo sposta subito nella rosa del compratore,
+   * quindi senza questa riga ricomparirebbe nella ricerca il minuto dopo — con la sua nuova
+   * maglia, ma comprabile. Vendere per fare cassa e ricomprare lo stesso uomo non è una
+   * decisione di mercato, è un modo di stampare denaro.
+   */
+  const cedutiOra = new Set(state.market?.soldThisWindow ?? []);
+
   const players: SearchablePlayer[] = [];
   for (const player of world.market.transferPool) {
     if (svincolati.has(player.playerId)) continue;
+    if (cedutiOra.has(player.playerId)) continue;
     const info = anagrafica[player.playerId];
     if (!info) continue;
     players.push({
@@ -2171,8 +2320,18 @@ export function searchMarket(
 /* Trattative                                                                  */
 /* -------------------------------------------------------------------------- */
 
-/** La trattativa per questo giocatore è già saltata in questa finestra? */
+/**
+ * Non si tratta per questo giocatore in questa finestra.
+ *
+ * Due ragioni, e vale la pena tenerle nello stesso posto perché per chi gioca sono la stessa
+ * cosa — «di lui non se ne parla adesso»:
+ *  - la trattativa è già **saltata** (senza, basterebbe riaprire finché non esce il risultato
+ *    voluto, e la pazienza non costerebbe nulla);
+ *  - l'abbiamo **venduto proprio ora** (`soldThisWindow`): il divieto sta anche qui e non solo
+ *    nella ricerca, perché la trattativa si può aprire anche da altre superfici.
+ */
 export function isNegotiationBlocked(state: CareerState, playerId: string): boolean {
+  if ((state.market?.soldThisWindow ?? []).includes(playerId)) return true;
   return (state.negotiationBlocked ?? []).includes(playerId);
 }
 
@@ -2654,6 +2813,43 @@ export function coachSquadReport(state: CareerState, world: CareerWorld): CoachR
  * il giudizio sull'anno appena chiuso, **l'obiettivo minimo preteso** (che nessuno dichiarava
  * mai), la contrattazione su obiettivo e mezzi, e la questione panchina.
  */
+/**
+ * **Le coppe a cui si partecipa quest'anno, con le fasce proponibili.**
+ *
+ * ⚠️ Viveva in `CareerScreen` (`coppeDaDichiarare`), cioè nell'app: leggeva le iscritte, contava
+ * quante sono più forti di noi e chiamava `suggestCupObjectiveTiers`. È simulazione, non
+ * presentazione — quindi sta nel motore, dove un test la copre senza montare un componente
+ * (regola di confine, CLAUDE.md §9). Serve comunque qui, perché il colloquio con la società ora
+ * la deve avere.
+ */
+export function cupObjectiveChoices(
+  state: CareerState,
+  world: CareerWorld,
+): { key: "continental" | "national"; competition: string; tiers: CupObjectiveTier[] }[] {
+  const out: { key: "continental" | "national"; competition: string; tiers: CupObjectiveTier[] }[] = [];
+  const nostra = bestElevenRating(state, world);
+
+  if (state.cup && world.cupTeams) {
+    const iscritte = Object.values(world.cupTeams);
+    const piuForti = iscritte.filter((t) => t.rating > nostra).length;
+    out.push({
+      key: "continental",
+      competition: "Corona Continentale",
+      tiers: suggestCupObjectiveTiers(piuForti + 1, iscritte.length),
+    });
+  }
+  if (state.nationalCup && world.divisions) {
+    const iscritte = Object.values(world.divisions.teams);
+    const piuForti = iscritte.filter((t) => t.rating > nostra).length;
+    out.push({
+      key: "national",
+      competition: "Coppa Tricolore",
+      tiers: suggestCupObjectiveTiers(piuForti + 1, iscritte.length),
+    });
+  }
+  return out;
+}
+
 export function boardMeeting(state: CareerState, world: CareerWorld): BoardMeeting {
   const seconda = inSecondDivision(state, world);
   const fasce = seasonObjectiveChoices(state, world);
@@ -2694,6 +2890,8 @@ export function boardMeeting(state: CareerState, world: CareerWorld): BoardMeeti
     budgetMultiplierOf: (t) =>
       objectiveBudgetMultiplier({ label: t.label as ObjectiveLabel, targetPosition: t.targetPosition }, seconda),
     baseRevenue: revenueOf(state, world),
+    // Le coppe arrivano al tavolo insieme al campionato: un accordo solo, non due schermate.
+    cups: cupObjectiveChoices(state, world),
     lastSeason: ultima
       ? {
           objectiveLabel: ultima.objective?.label,
@@ -2725,10 +2923,18 @@ export function settleBoardMeeting(
     extraSteps?: number;
     /** Solo se il colloquio poneva la questione panchina. */
     coachChoice?: SackDemandChoice;
+    /** Le fasce di coppa concordate, per competizione. */
+    cupChoices?: Partial<Record<"continental" | "national", string>>;
   },
 ): { state: CareerState; message: string } {
   const meeting = boardMeeting(state, world);
-  const accordo = agreeWithBoard(state.board, meeting, decision.objectiveLabel, decision.extraSteps ?? 0);
+  const accordo = agreeWithBoard(
+    state.board,
+    meeting,
+    decision.objectiveLabel,
+    decision.extraSteps ?? 0,
+    decision.cupChoices ?? {},
+  );
   const messaggi: string[] = [accordo.message];
 
   const scelta =
@@ -2741,6 +2947,24 @@ export function settleBoardMeeting(
     { label: scelta.label as ObjectiveLabel, targetPosition: scelta.targetPosition },
     world,
   );
+
+  /**
+   * **Gli obiettivi di coppa si scrivono qui**, insieme a quello di campionato: un accordo solo,
+   * un passaggio solo. Chi non ha scelto prende il minimo preteso — non dire niente e accettare
+   * quello che ti è stato chiesto sono la stessa cosa.
+   */
+  if (meeting.cups.length > 0) {
+    const scelte: { continental?: CupObjectiveTier; national?: CupObjectiveTier } = {};
+    for (const coppa of meeting.cups) {
+      const etichetta = decision.cupChoices?.[coppa.key] ?? coppa.minimum.label;
+      const tier = coppa.options.find((o) => o.label === etichetta) ?? coppa.minimum;
+      scelte[coppa.key] = {
+        label: tier.label as CupObjectiveTier["label"],
+        roundsFromWin: tier.roundsFromWin,
+      };
+    }
+    next = setSeasonCupObjectives(next, scelte);
+  }
 
   if (accordo.extraGranted > 0) {
     next = {
@@ -3019,32 +3243,42 @@ export function playNegotiation(
         stalled: true,
       };
     }
-    return {
-      state: {
-        ...state,
-        negotiation: dopo,
-        roster: state.roster.filter((e) => e.playerId !== dopo.playerId),
-        budget: state.budget + dopo.amount,
-        lists: {
-          transferList: (state.lists?.transferList ?? []).filter((id) => id !== dopo.playerId),
-          loanList: (state.lists?.loanList ?? []).filter((id) => id !== dopo.playerId),
-        },
-        // Chi se ne va sparisce anche dalle proposte di prestito: erano righe morte.
-        market: state.market
-          ? {
-              ...state.market,
-              offers: state.market.offers.filter((o) => o.playerId !== dopo.playerId),
-              loanOffers: state.market.loanOffers.filter((l) => l.playerId !== dopo.playerId),
-            }
-          : state.market,
-        // Il bug del recap: chiudere una trattativa in chat non finiva mai qui, quindi era
-        // invisibile nel meeting di fine mercato — il flusso centrale del mercato (sez.
-        // 3.7.5) non compariva mai nel suo stesso resoconto.
-        sessionDeals: [
-          ...(state.sessionDeals ?? []),
-          { playerId: dopo.playerId, playerName: dopo.playerName, kind: "cessione", amount: dopo.amount },
-        ],
+    const cedente: CareerState = {
+      ...state,
+      negotiation: dopo,
+      roster: state.roster.filter((e) => e.playerId !== dopo.playerId),
+      budget: state.budget + dopo.amount,
+      lists: {
+        transferList: (state.lists?.transferList ?? []).filter((id) => id !== dopo.playerId),
+        loanList: (state.lists?.loanList ?? []).filter((id) => id !== dopo.playerId),
       },
+      // Chi se ne va sparisce anche dalle proposte di prestito: erano righe morte.
+      market: state.market
+        ? {
+            ...state.market,
+            offers: state.market.offers.filter((o) => o.playerId !== dopo.playerId),
+            loanOffers: state.market.loanOffers.filter((l) => l.playerId !== dopo.playerId),
+          }
+        : state.market,
+      // Il bug del recap: chiudere una trattativa in chat non finiva mai qui, quindi era
+      // invisibile nel meeting di fine mercato — il flusso centrale del mercato (sez.
+      // 3.7.5) non compariva mai nel suo stesso resoconto.
+      sessionDeals: [
+        ...(state.sessionDeals ?? []),
+        { playerId: dopo.playerId, playerName: dopo.playerName, kind: "cessione", amount: dopo.amount },
+      ],
+    };
+
+    return {
+      // Il trasferimento è vero: alla prossima ricostruzione del mondo lo si trova nella rosa
+      // del club che l'ha comprato, e in questa finestra non si può ricomprare.
+      state: registraPartenza(cedente, {
+        playerId: dopo.playerId,
+        playerName: dopo.playerName,
+        toClubId: dopo.clubId,
+        toClubName: dopo.clubName,
+        fee: dopo.amount,
+      }),
       message: `${dopo.playerName} ceduto per ${formatEuro(dopo.amount)} (${dopo.clubName}).`,
       closed: true,
     };
@@ -3225,6 +3459,67 @@ export function hireCoach(
 /* Pezzi interni                                                               */
 /* -------------------------------------------------------------------------- */
 
+/**
+ * **La partita da guardare di questa settimana, decisa una volta sola.**
+ *
+ * Tutto ciò che serve sta nel referto: le tre partite possibili, la classifica dopo la giornata
+ * (da cui escono la nostra posizione, il distacco dal primo e — la parte che alla UI serviva e
+ * al motore mancava — **la posizione dell'avversaria**, cioè lo scontro diretto).
+ *
+ * L'ordine di precedenza è quello dell'importanza: una sera di Corona batte una di Tricolore, e
+ * entrambe battono una giornata di campionato. In una settimana con due impegni si propone il
+ * più pesante, non il primo che capita.
+ */
+function keyMatchOf(report: WeekReport, totalRounds: number): KeyMatchReport | undefined {
+  if (report.cupMatch && isKeyMatch({ cupStage: report.cupMatch.stage, totalRounds })) {
+    return {
+      competition: "corona",
+      result: report.cupMatch.result,
+      opponent: report.cupMatch.opponent,
+      reason: keyMatchReason({ cupStage: report.cupMatch.stage, totalRounds }),
+      penalties: report.cupMatch.wentToPenalties
+        ? { weWon: !!report.cupMatch.weWonPenalties }
+        : undefined,
+    };
+  }
+
+  if (
+    report.nationalCupMatch &&
+    isKeyMatch({ nationalCupStage: report.nationalCupMatch.stage, totalRounds })
+  ) {
+    return {
+      competition: "tricolore",
+      result: report.nationalCupMatch.result,
+      opponent: report.nationalCupMatch.opponent,
+      reason: keyMatchReason({ nationalCupStage: report.nationalCupMatch.stage, totalRounds }),
+      penalties: report.nationalCupMatch.wentToPenalties
+        ? { weWon: !!report.nationalCupMatch.weWonPenalties }
+        : undefined,
+    };
+  }
+
+  const nostra = report.standings?.find((r) => r.isUser);
+  if (!report.match || !nostra) return undefined;
+
+  const primo = report.standings?.[0];
+  const avversaria = report.standings?.find((r) => r.name === report.match!.opponent);
+  const input = {
+    leagueRound: report.week,
+    totalRounds,
+    position: nostra.position,
+    gapFromFirst: (primo?.points ?? nostra.points) - nostra.points,
+    opponentPosition: avversaria?.position,
+  };
+  if (!isKeyMatch(input)) return undefined;
+
+  return {
+    competition: "campionato",
+    result: report.match.result,
+    opponent: report.match.opponent,
+    reason: keyMatchReason(input),
+  };
+}
+
 function emptyReport(state: CareerState, over: Partial<WeekReport> = {}): WeekReport {
   return {
     week: state.week,
@@ -3271,6 +3566,41 @@ function stillInNationalCup(save: NonNullable<CareerState["nationalCup"]>, clubI
   return save.bracket.includes(i) || save.byes.includes(i);
 }
 
+/**
+ * **I marcatori e gli assist di una nostra partita di coppa.**
+ *
+ * ⚠️ Limite dichiarato: si registrano **solo i nostri**. Gli altri accoppiamenti del tabellone
+ * li risolve `playCupRound`, che non espone i loro marcatori — esporli richiederebbe di
+ * cambiare la forma del turno di coppa, e non e questo il momento. La classifica marcatori di
+ * coppa e quindi quella della propria squadra, e la schermata lo dice.
+ */
+function registraCoppa(
+  attuali: CompetitionStats | undefined,
+  result: MatchResult | undefined,
+  state: CareerState,
+  world: CareerWorld,
+  competizione: string,
+  round: number,
+): CompetitionStats {
+  const stats: CompetitionStats = { ...(attuali ?? {}) };
+  if (!result) return stats;
+
+  const players = careerPlayers(state, world);
+  const titolari = Object.values(currentLineup(state, world).starters);
+  const candidati = titolari.map((id) => ({
+    id,
+    weight: ASSIST_WEIGHT[players[id]?.role ? ROLE_DEPARTMENT[players[id]!.role] : "CC"],
+  }));
+  const random = derivedRandom(state.seed, "coppa-assist", competizione, state.season, round);
+
+  for (const marcatore of result.scorerIds) {
+    recordOwn(stats, marcatore, { goals: 1 });
+    const assistman = pickAssistId(marcatore, candidati, random);
+    if (assistman) recordOwn(stats, assistman, { assists: 1 });
+  }
+  return stats;
+}
+
 function applyMatchdayToRoster(
   state: CareerState,
   lineup: Lineup,
@@ -3287,20 +3617,81 @@ function applyMatchdayToRoster(
    * precisione su un dato che non esiste.
    */
   matchesThisWeek = 1,
+  /** Serve ai voti: ruolo di ciascuno e forza dell'avversaria di giornata. */
+  world?: CareerWorld,
+  opponentStrength?: number,
 ): CareerState {
   const startersIds = new Set(Object.values(lineup.starters));
   const scorers = new Set(result?.scorerIds ?? []);
   const squadAverage = averageOverall(state.roster);
   const availableMinutes = (round + 1) * 90;
 
+  const players = world ? careerPlayers(state, world) : {};
+  const repartoDi = (id: string): Department => {
+    const role = players[id]?.role;
+    return role ? ROLE_DEPARTMENT[role] : "CC";
+  };
+
+  /**
+   * **Gli assist, finalmente attribuiti.**
+   *
+   * ⚠️ `stats.assists` esisteva dal primo giorno e **non veniva mai incrementato**: restava a
+   * zero per tutte e dieci le stagioni di ogni carriera. Non è invisibile — entra nella
+   * componente di produzione di `applySeasonAdjustment`, quindi rifinitori e centrocampisti
+   * venivano valutati come se non avessero mai servito un pallone.
+   *
+   * Si attribuiscono qui e non in `simulateMatch` perché quella è condivisa con la Modalità
+   * Classica: consumare estrazioni lì cambierebbe ogni risultato già calibrato.
+   */
+  const assistRandom = derivedRandom(state.seed, "assist", state.season, round);
+  const candidatiAssist = [...startersIds].map((id) => ({
+    id,
+    weight: ASSIST_WEIGHT[repartoDi(id)],
+  }));
+  const assistPerGiocatore = new Map<string, number>();
+  for (const marcatore of result?.scorerIds ?? []) {
+    const assistman = pickAssistId(marcatore, candidatiAssist, assistRandom);
+    if (assistman) assistPerGiocatore.set(assistman, (assistPerGiocatore.get(assistman) ?? 0) + 1);
+  }
+
+  const votoRandom = derivedRandom(state.seed, "voti", state.season, round);
+  /** Cosa ha fatto ciascuno oggi: serve sia alla rosa sia alla classifica di lega. */
+  const contributi = new Map<string, { goals: number; assists: number; rating: number | null }>();
+  const nostraForza = world ? (squadStrengthOf(state, world).attack + squadStrengthOf(state, world).defence) / 2 : squadAverage;
+
   let roster = state.roster.map((entry) => {
     const played = startersIds.has(entry.playerId);
+    const goals = played
+      ? (result?.scorerIds.filter((id) => id === entry.playerId).length ?? 0)
+      : 0;
+    const assists = played ? (assistPerGiocatore.get(entry.playerId) ?? 0) : 0;
+    const voto = matchRating({
+      department: repartoDi(entry.playerId),
+      played: played && !!result,
+      goals,
+      assists,
+      teamGoals: result?.goalsFor ?? 0,
+      opponentGoals: result?.goalsAgainst ?? 0,
+      ownStrength: nostraForza,
+      opponentStrength: opponentStrength ?? nostraForza,
+      noise: votoRandom(),
+    });
+
+    if (played) contributi.set(entry.playerId, { goals, assists, rating: voto });
+
     const stats = played
       ? {
           ...entry.stats,
           appearances: entry.stats.appearances + 1,
           minutes: entry.stats.minutes + 90,
-          goals: entry.stats.goals + (result?.scorerIds.filter((id) => id === entry.playerId).length ?? 0),
+          goals: entry.stats.goals + goals,
+          assists: entry.stats.assists + assists,
+          ratingSum: (entry.stats.ratingSum ?? 0) + (voto ?? 0),
+          ratedAppearances: (entry.stats.ratedAppearances ?? 0) + (voto === null ? 0 : 1),
+          // La porta inviolata è del portiere: è la componente che `overallV2` sa già usare.
+          cleanSheets:
+            (entry.stats.cleanSheets ?? 0) +
+            (repartoDi(entry.playerId) === "POR" && result && result.goalsAgainst === 0 ? 1 : 0),
         }
       : entry.stats;
 
@@ -3360,7 +3751,18 @@ function applyMatchdayToRoster(
     minutesPromises = aggiornate;
   }
 
-  return { ...state, roster, minutesPromises };
+  /**
+   * **Anche i nostri entrano nelle classifiche di lega.**
+   *
+   * Senza questa riga i capocannonieri del campionato conterebbero solo i giocatori delle altre
+   * squadre, e il proprio bomber non comparirebbe nella classifica in cui sta correndo.
+   */
+  const leagueStats: CompetitionStats = { ...(state.leagueStats ?? {}) };
+  for (const [playerId, contributo] of contributi) {
+    recordOwn(leagueStats, playerId, contributo);
+  }
+
+  return { ...state, roster, minutesPromises, leagueStats };
 }
 
 function maybeOpenRequest(
@@ -4212,6 +4614,12 @@ function closeSeason(
       ),
       roster,
       league: { round: 0, tallies: [] },
+      // Le classifiche di marcatori, assist e medie voto sono **di stagione**: si azzerano
+      // insieme alla classifica, altrimenti alla decima annata il capocannoniere sarebbe chi ha
+      // giocato di piu, non chi ha segnato di piu quest anno.
+      leagueStats: {},
+      cupStats: {},
+      nationalCupStats: {},
       cup,
       // Nuova edizione della Coppa Tricolore: ci sono dentro tutti, ogni anno, quindi non c'è
       // nulla da qualificare — si ricompone il tabellone con le due divisioni aggiornate dai

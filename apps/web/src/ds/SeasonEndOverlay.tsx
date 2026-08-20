@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { useState } from "react";
 import { motion } from "framer-motion";
 import { ArrowUpCircle, Check, Crown, Shield, Handshake, Home, MessagesSquare, Share2, Smile, Swords, Target, TrendingDown, Trophy, Wallet } from "lucide-react";
-import { PROMOTION_SLOTS, type CareerState, type SeasonSummary } from "@app/game-engine";
+import { PROMOTION_SLOTS, seasonYearLabel, type CareerState, type SeasonSummary } from "@app/game-engine";
 import { CUP_STAGE_LABEL, euro, ordinale } from "./format";
 import { CelebrationConfetti } from "./CelebrationConfetti";
 import { shareTriumph, type ShareCardData } from "./shareCard";
@@ -146,7 +146,7 @@ export function SeasonEndOverlay({
             <Icona size={34} />
           </motion.span>
           <p className="text-micro font-bold tracking-widest text-[var(--text-secondary)] uppercase">
-            Stagione {summary.season}
+            Stagione {summary.season} · {seasonYearLabel(summary.season)}
           </p>
           <h2 className="text-display leading-tight font-extrabold" style={{ color: tono }}>
             {titolo}

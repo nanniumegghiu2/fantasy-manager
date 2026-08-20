@@ -193,10 +193,19 @@ export function clubWouldRenew(
    * tarati su una sola proprietà misurabile: la vetrina deve restare fatta soprattutto di
    * veterani e comprimari, con il colpo grosso raro (`dsFreeAgents.test.ts`).
    */
+  /**
+   * ⚠️ **Ritarato misurando la vetrina, non a occhio** (segnalazione dell'utente: *"mercato
+   * svincolati ancora totalmente inutile"*).
+   *
+   * Con i valori di prima la sonda contava, alla quarta stagione, **13 giocatori da 78 in su su
+   * 382 svincolati**, e uno solo sopra 84 in cinque stagioni. Una vetrina così non è "rara": è
+   * vuota, e aprirla non serve a niente. I fuoriclasse restano difficili da trovare liberi, ma
+   * smettono di essere impossibili.
+   */
   let probabilita = 0.82;
-  if (overall >= 84) probabilita = 0.97; // i fuoriclasse quasi non sfuggono
-  else if (overall >= 78) probabilita = 0.93;
-  else if (overall >= 72) probabilita = 0.86;
+  if (overall >= 84) probabilita = 0.93;
+  else if (overall >= 78) probabilita = 0.88;
+  else if (overall >= 72) probabilita = 0.84;
   else probabilita = 0.7; // il fondo rosa si lascia andare volentieri
 
   // L'età morde più del livello: è il vero motivo per cui un buon giocatore finisce libero.
@@ -561,14 +570,18 @@ function buildCounter(
   gap: number,
 ): FreeAgentCounter | undefined {
   const soloSoldi = wageToReach(agent, ourBid, bersaglio);
-  if (soloSoldi !== null && soloSoldi <= agent.askingWage * 2.2) {
+  // ⚠️ Il tetto di quanto ha senso offrire, alzato da 2,2 a 3: con la soglia precedente un club
+  // ricco non poteva **materialmente** coprire l offerta di un rivale forte, e il verdetto usciva
+  // "fuori dalla vostra portata" anche quando i soldi c erano. Chi ha i mezzi deve poter vincere
+  // la corsa — e pagarla.
+  if (soloSoldi !== null && soloSoldi <= agent.askingWage * 3) {
     return { wage: soloSoldi, needsStarter: ourBid.guaranteedStarter, gap };
   }
 
   if (!ourBid.guaranteedStarter) {
     const conCampo = { ...ourBid, guaranteedStarter: true };
     const conStarter = wageToReach(agent, conCampo, bersaglio);
-    if (conStarter !== null && conStarter <= agent.askingWage * 2.2) {
+    if (conStarter !== null && conStarter <= agent.askingWage * 3) {
       return { wage: conStarter, needsStarter: true, gap };
     }
   }
@@ -577,7 +590,7 @@ function buildCounter(
   if (ourBid.seasons !== agent.askingSeasons) {
     const conDurata = { ...ourBid, guaranteedStarter: true, seasons: agent.askingSeasons };
     const finale = wageToReach(agent, conDurata, bersaglio);
-    if (finale !== null && finale <= agent.askingWage * 2.4) {
+    if (finale !== null && finale <= agent.askingWage * 3.2) {
       return { wage: finale, needsStarter: true, seasons: agent.askingSeasons, gap };
     }
   }
@@ -773,7 +786,13 @@ export function rivalBidsFor(
     // Meno club si muovono su ciascuno: con la vecchia soglia quasi ogni svincolato aveva un
     // pretendente, e la corsa si vinceva solo strapagando. La concorrenza resta, non è più
     // sistematica.
-    if (random() > 0.45) continue;
+    //
+    // ⚠️ Sceso ancora (0,45 → 0,3) **dopo aver misurato la popolazione giusta**: sul totale
+    // degli svincolati l accordo usciva all 83%, ma su quelli da 78 in su — gli unici che uno
+    // prova davvero a prendere — piu della meta finiva "fuori dalla vostra portata". Su un
+    // giocatore forte i club plausibili sono tanti, e il massimo di tante offerte e sempre alto:
+    // bastava questo a rendere la vetrina inutile proprio dove conta.
+    if (random() > 0.3) continue;
 
     const generosita = 0.9 + random() * 0.45;
     bids.push({
@@ -790,4 +809,105 @@ export function rivalBidsFor(
   }
 
   return bids;
+}
+
+/* -------------------------------------------------------------------------- */
+/* L'interesse, dichiarato prima di trattare                                   */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * **Quanto gli interessa venire da noi, detto prima di aprire il tavolo.**
+ *
+ * ⚠️ Scelta dell'utente dopo la segnalazione *"mercato svincolati ancora totalmente inutile"*:
+ * non basta ritarare i numeri, bisogna **vedere** con chi vale la pena provarci. Prima l'esito si
+ * scopriva solo dopo aver presentato un'offerta, quindi ogni tentativo era al buio e una vetrina
+ * da centinaia di nomi diventava una lotteria.
+ *
+ * Si calcola con **gli stessi pesi** di `freeAgentBidScore`, valutati su un'offerta di
+ * riferimento — la sua richiesta piena, senza garanzie. Non è quindi un secondo modello che può
+ * divergere dal primo: è il primo, interrogato prima.
+ */
+export interface FreeAgentInterest {
+  /** 0 = non se ne parla, 4 = verrebbe subito. */
+  level: 0 | 1 | 2 | 3 | 4;
+  /** Su cosa si gioca la trattativa: è il consiglio pratico. */
+  lever: "soldi" | "campo" | "ambizione" | "progetto";
+  /** Cosa direbbe il suo agente, in una riga. */
+  text: string;
+}
+
+export function freeAgentInterest(
+  agent: FreeAgent,
+  club: { prestige: number; ambitionTarget?: number; clubId?: string; clubName?: string },
+): FreeAgentInterest {
+  const riferimento: FreeAgentBid = {
+    clubId: club.clubId ?? "mio",
+    clubName: club.clubName ?? "il club",
+    prestige: club.prestige,
+    wage: agent.askingWage,
+    seasons: agent.askingSeasons,
+    guaranteedStarter: false,
+    captain: false,
+    ambitionTarget: club.ambitionTarget,
+  };
+
+  // Il veto viene prima anche qui: se il progetto non lo riguarda, non c'è punteggio che tenga.
+  if (!wouldConsider(agent, riferimento)) {
+    return {
+      level: 0,
+      lever: "progetto",
+      text: "Non è il progetto che cerca: non verrebbe nemmeno pagandolo.",
+    };
+  }
+
+  const punteggio = freeAgentBidScore(agent, riferimento);
+  const level: FreeAgentInterest["level"] =
+    punteggio >= 82 ? 4 : punteggio >= 68 ? 3 : punteggio >= 54 ? 2 : punteggio >= 40 ? 1 : 0;
+
+  /**
+   * **Su cosa si gioca**: si prova a migliorare un asse alla volta e si guarda quale sposta di
+   * più il punteggio. È il modo onesto di dirlo — la leva è quella che *nel modello* pesa di
+   * più per lui, non una frase generica sulla sua personalità.
+   */
+  const conCampo = freeAgentBidScore(agent, { ...riferimento, guaranteedStarter: true });
+  const conSoldi = freeAgentBidScore(agent, { ...riferimento, wage: agent.askingWage * 1.3 });
+  const conRuolo = freeAgentBidScore(agent, { ...riferimento, captain: true });
+  const guadagni: [FreeAgentInterest["lever"], number][] = [
+    ["campo", conCampo - punteggio],
+    ["soldi", conSoldi - punteggio],
+    ["ambizione", conRuolo - punteggio],
+  ];
+  guadagni.sort((a, b) => b[1] - a[1]);
+  const lever = guadagni[0]![0];
+
+  const frasi: Record<FreeAgentInterest["lever"], string[]> = {
+    campo: [
+      "Vuole giocare: garantitegli il posto e il resto conta poco.",
+      "Il campo prima di tutto: senza garanzie non si muove.",
+    ],
+    soldi: [
+      "Guarda la cifra: su quella si convince, sul resto meno.",
+      "È l'ingaggio a decidere: alzate quello e ci siamo.",
+    ],
+    ambizione: [
+      "Cerca un posto dove contare: dategli un ruolo e vi ascolta.",
+      "Vuole sentirsi importante, più che ricco.",
+    ],
+    progetto: ["Il progetto non lo convince."],
+  };
+  const opzioni = frasi[lever];
+  const frase = opzioni[agent.id.length % opzioni.length]!;
+
+  const apertura =
+    level >= 4
+      ? "Verrebbe volentieri."
+      : level === 3
+        ? "Ci pensa seriamente."
+        : level === 2
+          ? "Ascolta, ma senza entusiasmo."
+          : level === 1
+            ? "Freddo: servirà molto per convincerlo."
+            : "Non è interessato.";
+
+  return { level, lever, text: `${apertura} ${frase}` };
 }

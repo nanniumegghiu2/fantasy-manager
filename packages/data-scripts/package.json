@@ -18,7 +18,10 @@
     "import-birthdates": "tsx src/importBirthDates.ts",
     "calibrate-piccola": "tsx src/calibrateSmallClub.ts",
     "probe-coppa": "tsx src/probeCup.ts",
-    "import-showcase": "tsx src/importShowcase.ts"
+    "import-showcase": "tsx src/importShowcase.ts",
+    "probe-riproduzione": "tsx src/probeMatchPlayback.mts",
+    "probe-svincolati": "tsx src/probeFreeAgents.ts",
+    "probe-crescita": "tsx src/probeCrescita.mts"
   },
   "dependencies": {
     "@app/game-engine": "workspace:*",

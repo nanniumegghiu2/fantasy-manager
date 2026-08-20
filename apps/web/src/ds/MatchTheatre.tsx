@@ -8,7 +8,9 @@ import {
   Play,
   Radio,
   ShieldAlert,
+  SkipForward,
   Square,
+  Swords,
   Target,
   X,
 } from "lucide-react";
@@ -16,14 +18,18 @@ import {
   GOAL_MOUTH,
   MATCH_SECONDS,
   ballAt,
+  buildHighlightReel,
   buildShootout,
+  minutoDi,
   phaseIndexAt,
+  pressingTarget,
   simulateMatchFlow,
   tacticalPosition,
   type BallState,
   type MatchFlow,
   type MatchResult,
   type MatchTheatreContext,
+  type MatchViewMode,
   type PhaseFlash,
   type PitchPlayer,
   type PlayPhase,
@@ -40,14 +46,23 @@ import { CelebrationConfetti } from "./CelebrationConfetti";
  * il pallone e dove sta ciascuno dei ventidue, e disegna. Nessun calcolo di gioco vive qui — è
  * la stessa regola di confine fra motore e app che vale per tutto il progetto.
  *
- * ## Il problema del tempo, e come è risolto
+ * ## Il problema del tempo, e come è risolto — sul modello di FM09
  *
- * Novanta minuti di gioco continuo non stanno in novanta secondi: se si comprimesse tutto in
- * modo uniforme il pallone si muoverebbe sessanta volte troppo veloce e non si vedrebbe un
- * passaggio. La soluzione è un **orologio a velocità variabile**: i possessi che contano (gol,
- * parate, pali, cartellini rossi) scorrono a ritmo quasi naturale, mentre sul resto della
- * partita l'orologio corre — e mentre corre il campo lo dichiara, invece di fingere che nulla
- * stia succedendo. È il modo in cui si guarda davvero una partita in differita.
+ * ⚠️ Novanta minuti di gioco continuo non stanno in novanta secondi. La soluzione precedente era
+ * un orologio a velocità variabile che **attraversava** il gioco insignificante a 330×: quando
+ * `notable` è stato ristretto ai soli gol, quel 330× ha coperto 5.300 secondi su 5.400 — a
+ * sessanta fotogrammi al secondo sono 5,5 secondi di gioco per fotogramma, cioè il pallone che
+ * teletrasporta e i ventidue fermi sulle posizioni base. È la segnalazione dell'utente: *"non
+ * c'è più il pallone e le azioni sono pallini che si muovono a caso nel campo"*.
+ *
+ * Adesso si fa come in Football Manager, che è il riferimento che l'utente ha indicato: la
+ * partita è **una sequenza di finestre** (`buildHighlightReel`), ognuna riprodotta a **velocità
+ * reale** — si vede ogni passaggio, ogni contrasto, ogni cross — e fra una e l'altra
+ * **l'orologio salta**, dichiarandolo a schermo. Niente più riempitivo da attraversare, quindi
+ * niente più blur.
+ *
+ * Due modalità, scelta dell'utente: *Salienti* (solo i gol) ed *Estesa* (i gol più le azioni
+ * importanti). Cambia cosa si guarda, non come.
  */
 
 /* -------------------------------------------------------------------------- */
@@ -63,16 +78,16 @@ import { CelebrationConfetti } from "./CelebrationConfetti";
  * cinque minuti di gioco dopo dodici secondi reali. Così sta sotto il minuto e mezzo a 1x, e
  * chi vuole di più ha il 2x e il 4x.
  */
-const RATE_LIVE = 4.5;
-/** ...e durante il resto della partita, che scorre via. */
-const RATE_SKIP = 330;
+const RATE_LIVE = 1;
 /**
  * ...e attorno a un gol, che è l'unica cosa che conta davvero in una partita.
  *
  * Rallenta **prima** che la palla arrivi (vedi `GOAL_SLOWDOWN_LEAD`), non dopo: il tiro, il
  * portiere superato e la palla che entra devono potersi vedere uno per uno.
  */
-const RATE_GOAL = 1.15;
+const RATE_GOAL = 0.75;
+/** Quanto dura la transizione fra due highlight, in secondi reali. */
+const JUMP_SECONDS = 1.1;
 /** Quanti secondi di gioco prima della rete si comincia a rallentare. */
 const GOAL_SLOWDOWN_LEAD = 3;
 /** Un fotogramma non può mai far saltare più di così: protegge dalle schede in secondo piano. */
@@ -91,6 +106,8 @@ interface MatchTheatreProps {
   nameOf: (playerId: string | null) => string;
   context?: MatchTheatreContext;
   penalties?: { weWon: boolean };
+  /** Cosa si guarda: solo i gol, oppure i gol piu le azioni importanti. */
+  mode: MatchViewMode;
   onClose: () => void;
 }
 
@@ -102,6 +119,11 @@ interface Frame {
   correndo: boolean;
 }
 
+/** Il minuto di gioco mostrato in testata. */
+function minutoDa(second: number): number {
+  return minutoDi(second);
+}
+
 export function MatchTheatre({
   result,
   opponent,
@@ -111,6 +133,7 @@ export function MatchTheatre({
   nameOf,
   context,
   penalties,
+  mode,
   onClose,
 }: MatchTheatreProps) {
   const flow: MatchFlow = useMemo(
@@ -122,14 +145,35 @@ export function MatchTheatre({
     [penalties, seed],
   );
 
-  const [frame, setFrame] = useState<Frame>(() => primoFrame(flow));
+  /**
+   * Le finestre da guardare, decise dal motore. La vista non sceglie cosa mostrare: chiede.
+   */
+  const reel = useMemo(() => {
+    const scelto = buildHighlightReel(flow, mode);
+    /**
+     * ⚠️ **Uno 0-0 in modalità Salienti non ha gol da mostrare.**
+     *
+     * Senza questo ripiego il teatro si aprirebbe e si chiuderebbe subito: si è scelto di
+     * guardare una partita e non si vedrebbe niente, che è il modo peggiore di rispondere a un
+     * invito. Si passa alla modalità più ricca invece di mostrare il vuoto.
+     */
+    if (scelto.length > 0) return scelto;
+    return buildHighlightReel(flow, "estesa");
+  }, [flow, mode]);
+
+  const [frame, setFrame] = useState<Frame>(() => primoFrame(flow, reel));
   const [inPausa, setInPausa] = useState(false);
   const [velocita, setVelocita] = useState<Velocita>(1);
   const [finita, setFinita] = useState(false);
   const [rigoreIndex, setRigoreIndex] = useState(0);
+  /** Quale finestra si sta guardando, e se si sta saltando alla successiva. */
+  const [indiceFinestra, setIndiceFinestra] = useState(0);
+  const [salto, setSalto] = useState<{ da: number; a: number } | null>(null);
 
-  const orologio = useRef(0);
+  const orologio = useRef(reel[0]?.from ?? 0);
   const ultimoFrame = useRef<number | null>(null);
+  const finestraRef = useRef(0);
+  const saltoRef = useRef(0);
 
   /**
    * L'anello di animazione. Sta tutto qui perché è una cosa sola: far avanzare l'orologio e
@@ -141,33 +185,67 @@ export function MatchTheatre({
       ultimoFrame.current = null;
       return;
     }
+    if (reel.length === 0) {
+      // Nessuna finestra da guardare (una modalita Salienti su uno 0-0): non c e partita da
+      // mostrare, e fingere di riprodurla sarebbe peggio che dirlo.
+      setFinita(true);
+      return;
+    }
+
     let handle = 0;
     const tick = (now: number) => {
       const precedente = ultimoFrame.current ?? now;
       ultimoFrame.current = now;
       const delta = Math.min(MAX_STEP_SECONDS, (now - precedente) / 1000);
 
-      const indice = phaseIndexAt(flow.phases, orologio.current);
-      const fase = flow.phases[indice] ?? null;
-      const dentro = !!fase && orologio.current <= fase.endSecond;
-      const correndo = !(dentro && fase!.notable);
-      const versoIlGol =
-        dentro && fase!.goalSecond !== undefined && orologio.current >= fase!.goalSecond - GOAL_SLOWDOWN_LEAD;
-      const rate = (versoIlGol ? RATE_GOAL : correndo ? RATE_SKIP : RATE_LIVE) * velocita;
+      const finestra = reel[finestraRef.current]!;
 
-      orologio.current += delta * rate;
-      if (orologio.current >= MATCH_SECONDS) {
-        orologio.current = MATCH_SECONDS;
-        setFrame(costruisciFrame(flow, MATCH_SECONDS));
-        setFinita(true);
+      // Fase di salto: l orologio non avanza, si mostra il cartello e si aspetta.
+      if (saltoRef.current > 0) {
+        saltoRef.current -= delta * velocita;
+        if (saltoRef.current <= 0) {
+          saltoRef.current = 0;
+          setSalto(null);
+          orologio.current = finestra.from;
+        }
+        setFrame(costruisciFrame(flow, orologio.current));
+        handle = requestAnimationFrame(tick);
         return;
       }
+
+      const fase = flow.phases[finestra.phaseIndex];
+      const versoIlGol =
+        !!fase &&
+        fase.goalSecond !== undefined &&
+        orologio.current >= fase.goalSecond - GOAL_SLOWDOWN_LEAD &&
+        orologio.current <= fase.endSecond;
+      const rate = (versoIlGol ? RATE_GOAL : RATE_LIVE) * velocita;
+
+      orologio.current += delta * rate;
+
+      if (orologio.current >= finestra.to) {
+        const prossima = reel[finestraRef.current + 1];
+        if (!prossima) {
+          orologio.current = finestra.to;
+          setFrame(costruisciFrame(flow, finestra.to));
+          setFinita(true);
+          return;
+        }
+        // **Il salto e dichiarato**: da che minuto a che minuto, invece di un taglio muto.
+        setSalto({ da: minutoDi(finestra.to), a: prossima.minute });
+        finestraRef.current += 1;
+        setIndiceFinestra(finestraRef.current);
+        saltoRef.current = JUMP_SECONDS;
+        handle = requestAnimationFrame(tick);
+        return;
+      }
+
       setFrame(costruisciFrame(flow, orologio.current));
       handle = requestAnimationFrame(tick);
     };
     handle = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(handle);
-  }, [flow, finita, inPausa, velocita]);
+  }, [flow, reel, finita, inPausa, velocita]);
 
   // I rigori scorrono uno alla volta, a partita finita.
   useEffect(() => {
@@ -180,10 +258,29 @@ export function MatchTheatre({
     orologio.current = MATCH_SECONDS;
     setFrame(costruisciFrame(flow, MATCH_SECONDS));
     setFinita(true);
+    setSalto(null);
     setRigoreIndex(rigori.length);
-  }, [flow, rigori.length]);
+  }, [flow, reel, rigori.length]);
 
-  const minuto = Math.min(90, Math.floor(frame.second / 60) + (frame.second > 0 ? 1 : 0));
+  /**
+   * **Alla prossima azione**, senza aspettare la fine di questa.
+   *
+   * È il controllo che l'utente ha chiesto di avere in mano invece di una velocità decisa da
+   * me una volta per tutte: chi vuole guardare guarda, chi ha fretta salta.
+   */
+  const prossimaAzione = useCallback(() => {
+    const prossima = reel[finestraRef.current + 1];
+    if (!prossima) {
+      salta();
+      return;
+    }
+    setSalto({ da: minutoDi(orologio.current), a: prossima.minute });
+    finestraRef.current += 1;
+    setIndiceFinestra(finestraRef.current);
+    saltoRef.current = JUMP_SECONDS;
+  }, [reel, salta]);
+
+  const minuto = minutoDa(frame.second);
 
   /**
    * Cronaca, statistiche e inerzia scorrono tutte e tre l'elenco dei possessi: ricalcolarle a
@@ -289,7 +386,12 @@ export function MatchTheatre({
             nameOf={nameOf}
           />
 
-          <Orologio minuto={minuto} correndo={frame.correndo} />
+          <Orologio
+            minuto={minuto}
+            correndo={frame.correndo}
+            azione={indiceFinestra + 1}
+            azioni={reel.length}
+          />
 
           <AnimatePresence>
             {golAdesso && (
@@ -306,6 +408,13 @@ export function MatchTheatre({
               frame.second >= frame.phase.endSecond - 1.2 && (
                 <Lampo key={`${frame.phase.index}-${frame.phase.flash}`} flash={frame.phase.flash} />
               )}
+          </AnimatePresence>
+
+          {/* ⚠️ **Il salto è dichiarato, non è un taglio muto.** Fra un highlight e l'altro
+              l'orologio avanza di minuti: dirlo è ciò che rende la sequenza leggibile invece
+              che sconnessa — è quello che fa Football Manager, ed è il riferimento indicato. */}
+          <AnimatePresence>
+            {salto && <CartelloSalto key={`${salto.da}-${salto.a}`} da={salto.da} a={salto.a} />}
           </AnimatePresence>
 
           {finita && rigori.length > 0 && (
@@ -355,14 +464,24 @@ export function MatchTheatre({
                 Torna alla stagione
               </button>
             ) : (
-              <button
-                type="button"
-                onClick={salta}
-                className="flex w-full items-center justify-center gap-2 rounded-card border border-white/15 bg-white/5 py-2.5 text-body font-bold text-slate-300 transition-colors hover:bg-white/10 hover:text-white"
-              >
-                <FastForward size={16} />
-                Salta al finale
-              </button>
+              <div className="flex w-full gap-2">
+                <button
+                  type="button"
+                  onClick={prossimaAzione}
+                  className="flex min-w-0 flex-1 items-center justify-center gap-2 rounded-card border border-emerald-400/40 bg-emerald-500/10 py-2.5 text-body font-bold text-emerald-300 transition-colors hover:bg-emerald-500/20"
+                >
+                  <SkipForward size={16} />
+                  <span className="truncate">Prossima azione</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={salta}
+                  aria-label="Salta al finale"
+                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-card border border-white/15 bg-white/5 text-slate-300 transition-colors hover:bg-white/10 hover:text-white"
+                >
+                  <FastForward size={16} />
+                </button>
+              </div>
             )}
           </div>
         </footer>
@@ -375,8 +494,8 @@ export function MatchTheatre({
 /* Il fotogramma: dove sono pallone e ventidue in questo istante               */
 /* -------------------------------------------------------------------------- */
 
-function primoFrame(flow: MatchFlow): Frame {
-  return costruisciFrame(flow, 0);
+function primoFrame(flow: MatchFlow, reel: readonly { from: number }[]): Frame {
+  return costruisciFrame(flow, reel[0]?.from ?? 0);
 }
 
 /**
@@ -398,13 +517,31 @@ function costruisciFrame(flow: MatchFlow, second: number): Frame {
   const phase = flow.phases[indice] ?? null;
   const dentro = !!phase && second <= phase.endSecond;
   const ball = phase ? ballAt(phase, second) : { x: 50, y: 50, height: 0, carrierId: null, receiverId: null, progress: 0, kind: "inizio" as const };
-  const correndo = !(dentro && phase!.notable);
+  // Ogni fotogramma appartiene ormai a una finestra che si guarda a velocità reale: non
+  // esiste più il "correndo" del vecchio riempitivo a 330×.
+  const correndo = !dentro;
 
   const positions = new Map<string, { x: number; y: number }>();
+  const possesso = (phase?.team ?? "for") as "for" | "against";
+  /**
+   * ⚠️ **L'intensità non dipende più da `notable`.**
+   *
+   * Valeva 0,45 su ogni possesso non notevole, cioè su quasi tutta la partita: i ventidue
+   * restavano praticamente fermi sulle posizioni base con la sola oscillazione individuale.
+   * È metà della segnalazione *"pallini che si muovono a caso nel campo"*. Adesso dipende da
+   * dove sta il pallone — più è vicino alla porta, più la scena è concitata — che è la cosa
+   * che si vede davvero guardando una partita.
+   */
+  const vicinoAllArea = Math.abs(ball.x - 50) / 50;
   const ctx = {
     ball: { x: ball.x, y: ball.y },
-    possession: (phase?.team ?? "for") as "for" | "against",
-    intensity: phase?.notable ? 1 : 0.45,
+    possession: possesso,
+    intensity: 0.55 + 0.45 * vicinoAllArea,
+    carrierId: ball.carrierId,
+    // Il pressing ha un nome: uno solo va addosso al portatore, gli altri coprono.
+    presserId: pressingTarget(flow.players, { x: ball.x, y: ball.y }, possesso),
+    // Sul cross le punte attaccano i pali invece di restare dove il blocco le aveva lasciate.
+    crossing: ball.kind === "cross",
   };
 
   // Il portiere che sta per essere battuto si tuffa **dalla parte sbagliata**: è ciò che rende
@@ -854,11 +991,28 @@ function Intestazione({
   );
 }
 
-function Orologio({ minuto, correndo }: { minuto: number; correndo: boolean }) {
+function Orologio({
+  minuto,
+  correndo,
+  azione,
+  azioni,
+}: {
+  minuto: number;
+  correndo: boolean;
+  azione: number;
+  azioni: number;
+}) {
   return (
-    <div className="absolute top-3 left-3 z-20 flex items-center gap-1.5 rounded-control border border-emerald-400/40 bg-black/80 px-3 py-1 shadow-lg backdrop-blur">
+    <div className="absolute top-3 left-3 z-20 flex items-center gap-2 rounded-control border border-emerald-400/40 bg-black/80 px-3 py-1 shadow-lg backdrop-blur">
       <Radio size={11} className={correndo ? "text-slate-500" : "animate-pulse text-emerald-400"} />
       <span className="text-label font-black text-white tabular-nums">{minuto}&apos;</span>
+      {/* A che azione siamo, delle quante: senza, una sequenza a salti non ha orizzonte e non
+          si sa se manca molto. */}
+      {azioni > 0 && (
+        <span className="num border-l border-white/20 pl-2 text-micro font-bold text-slate-400">
+          {Math.min(azione, azioni)}/{azioni}
+        </span>
+      )}
     </div>
   );
 }
@@ -953,6 +1107,7 @@ const LAMPO: Record<Exclude<PhaseFlash, null>, { testo: string; colore: string; 
   FUORI: { testo: "Fuori", colore: "#94a3b8", icona: Target },
   GIALLO: { testo: "Ammonizione", colore: "#facc15", icona: Square },
   ROSSO: { testo: "Espulsione", colore: "#ef4444", icona: Square },
+  CONTRASTO: { testo: "Contrasto", colore: "#a3e635", icona: Swords },
 };
 
 function Lampo({ flash }: { flash: Exclude<PhaseFlash, null> }) {
@@ -1070,5 +1225,30 @@ function Segno({ kick, visto }: { kick: ShootoutKick; visto: boolean }) {
       style={{ backgroundColor: kick.scored ? "#3ddc6b" : "#ff4d4d" }}
       aria-label={kick.scored ? "Rigore realizzato" : "Rigore sbagliato"}
     />
+  );
+}
+
+/**
+ * **Il salto dell'orologio fra un highlight e l'altro.**
+ *
+ * Non è decorazione: è l'unica cosa che distingue una sequenza di azioni da una partita
+ * tagliata male. Chi guarda deve sapere che fra quello che ha appena visto e quello che sta
+ * per vedere sono passati otto minuti in cui non è successo niente di importante.
+ */
+function CartelloSalto({ da, a }: { da: number; a: number }) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, scale: 0.9 }}
+      animate={{ opacity: 1, scale: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.18 }}
+      className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center bg-slate-950/70 backdrop-blur-[2px]"
+    >
+      <div className="flex items-center gap-3 rounded-card border border-white/15 bg-slate-900/90 px-5 py-3 shadow-2xl">
+        <span className="num text-title font-black text-slate-400">{da}&#8242;</span>
+        <SkipForward size={18} className="text-emerald-400" />
+        <span className="num text-title font-black text-white">{a}&#8242;</span>
+      </div>
+    </motion.div>
   );
 }

@@ -49,6 +49,23 @@ export const MIN_BY_DEPARTMENT: Record<Department, number> = {
  * Basata sulle valutazioni maturate sul campo, presenze, gol ed assist.
  */
 export function computeAvgRating(entry: RosterEntry): number {
+  /**
+   * ⚠️ **Adesso la media voto è vera.**
+   *
+   * Questa funzione **fabbricava** un voto dall'Overall più un bonus per gol e assist: due
+   * giocatori con lo stesso Overall e la stessa produzione avevano per forza lo stesso "MV",
+   * qualunque cosa fosse successa in campo. Non era una media di niente, era l'Overall
+   * riscritto con la virgola.
+   *
+   * Da quando la partita produce un voto vero (`matchRatings.ts`) si legge quello. La vecchia
+   * formula resta **solo** come ripiego per i salvataggi precedenti, che non hanno i voti: senza,
+   * una carriera già avviata mostrerebbe "--" su tutta la rosa fino a fine stagione.
+   */
+  const valutate = entry.stats.ratedAppearances ?? 0;
+  if (valutate > 0) {
+    return Number(((entry.stats.ratingSum ?? 0) / valutate).toFixed(1));
+  }
+
   if (entry.stats.appearances === 0) return 0;
 
   const base = 6.0 + (entry.overall - 70) * 0.035;

@@ -4,6 +4,7 @@ import {
   ArrowLeft,
   Cloud,
   CloudOff,
+  Save,
   Crown,
   FastForward,
   History,
@@ -25,7 +26,6 @@ import {
   signCoachContract,
   coachContractSeasonsLeft,
   coachSeveranceNow,
-  bestElevenRating,
   buildStandings,
   financesOf,
   openPlayerDialogue,
@@ -55,23 +55,18 @@ import {
   FORMATION_RESIGN_HARMONY,
   FORMATION_REFUSAL_HARMONY_COST,
   defaultBoard,
-  seasonObjectiveChoices,
   inSecondDivision,
-  setSeasonObjective,
-  setSeasonCupObjectives,
-  suggestCupObjectiveTiers,
   coachChoices,
   currentLineup,
   findCoach,
   hireCoach,
-  isKeyMatch,
-  keyMatchReason,
   rebuildLeagueState,
   resolveIncidentDecision,
   searchMarket,
+  seasonYearLabel,
+  type MatchViewMode,
   seasonCalendar,
   type CareerState,
-  type CupObjectiveTier,
   type CareerWorld,
   type Coach,
   type CoachPromise,
@@ -97,7 +92,6 @@ import { CoachNegotiationChat } from "./CoachNegotiationChat";
 import { PlayerDialogueChat } from "./PlayerDialogueChat";
 import { RenewalModal } from "./RenewalModal";
 import { ContractOfferForm } from "./ContractOfferForm";
-import { SeasonObjectiveScreen } from "./SeasonObjectiveScreen";
 import { BoardMeetingScreen } from "./BoardMeetingScreen";
 import { CoachPickerScreen } from "./CoachPickerScreen";
 import { StandingsTable } from "../classic/StandingsTable";
@@ -112,6 +106,7 @@ import { MarketPanel } from "./MarketPanel";
 import { NegotiationChat } from "./NegotiationChat";
 import type { DsWorldData } from "./useDsWorld";
 import { MiniStandings } from "./MiniStandings";
+import { StatsPanel } from "./StatsPanel";
 import { NextTaskCard } from "./NextTaskCard";
 import { SeasonEndOverlay } from "./SeasonEndOverlay";
 import { SeasonSquadReportModal } from "./SeasonSquadReportModal";
@@ -183,6 +178,15 @@ interface CareerScreenProps {
   onExit: () => void;
   saving: boolean;
   saveEnabled: boolean;
+  /**
+   * **Salva la partita adesso**, creando un punto di ripristino.
+   *
+   * Scelta dell'utente: il salvataggio principale lo decide lui. L'autosave resta come rete di
+   * sicurezza (`useCareerPersistence`) ma **non crea punti** — se lo facesse, la tabella si
+   * riempirebbe di istantanee che nessuno ha chiesto e i due per stagione sarebbero sempre gli
+   * ultimi due secondi giocati.
+   */
+  onSaveCheckpoint?: () => Promise<{ ok: boolean; message: string }> | void;
 }
 
 export function CareerScreen({
@@ -193,10 +197,13 @@ export function CareerScreen({
   onExit,
   saving,
   saveEnabled,
+  onSaveCheckpoint,
 }: CareerScreenProps) {
   const [tab, setTab] = useState<Tab>("stagione");
   const [report, setReport] = useState<WeekReport | null>(null);
   const [results, setResults] = useState<RisultatoScorso[]>([]);
+  /** Squadre o individuali nella scheda *Classifica*. */
+  const [vistaClassifica, setVistaClassifica] = useState<"squadre" | "individuali">("squadre");
   /** Quale coppa si sta guardando nella scheda *Coppe*. */
   const [coppa, setCoppa] = useState<Coppa>("corona");
   const [deal, setDeal] = useState<Deal | null>(null);
@@ -215,8 +222,18 @@ export function CareerScreen({
   const [ripartire, setRipartire] = useState(false);
   /** La partita decisiva su cui si è fermata la corsa, in attesa della risposta dell'utente. */
   const [keyMatch, setKeyMatch] = useState<PartitaChiave | null>(null);
-  /** La partita che si sta guardando in 2D. */
+  /** La partita che si sta guardando in 2D, e come la si sta guardando. */
   const [teatro, setTeatro] = useState<PartitaChiave | null>(null);
+  const [modalitaTeatro, setModalitaTeatro] = useState<MatchViewMode>("salienti");
+  /**
+   * **Sotto il velo non si guarda niente.**
+   *
+   * C'è un invito da accettare o una partita in scena: lo stato dietro contiene già il
+   * tabellino, la riga nei risultati, la classifica e il tabellone di coppa aggiornati — perché
+   * il motore ha già simulato, ed è la garanzia che guardare o saltare non cambi nulla. Finché
+   * la domanda «vuoi vederla?» è aperta, la risposta non deve essere leggibile da nessuna parte.
+   */
+  const sottoVelo = !!keyMatch || !!teatro;
   const [seasonEnd, setSeasonEnd] = useState<number | null>(null);
   const [squadReportSummary, setSquadReportSummary] = useState<SeasonSummary | null>(null);
   const [correndo, setCorrendo] = useState(false);
@@ -277,37 +294,6 @@ export function CareerScreen({
   }, [state.cup, state.nationalCup, world.cupTeams, world.divisions]);
   const coppaAttiva = coppeDisponibili.includes(coppa) ? coppa : coppeDisponibili[0];
 
-  /**
-   * Le coppe su cui **dichiarare un obiettivo** a inizio stagione.
-   *
-   * Il rango stimato è quello che serve a `suggestCupObjectiveTiers` per non chiedere il trofeo a
-   * un outsider né concedere "partecipare" alla favorita: si ricava dalla nostra posizione fra le
-   * iscritte per forza, la stessa grandezza con cui si stima il campionato.
-   */
-  const coppeDaDichiarare = useMemo(() => {
-    const out: { key: "continental" | "national"; label: string; tiers: CupObjectiveTier[] }[] = [];
-    const nostra = bestElevenRating(state, world);
-
-    if (state.cup && world.cupTeams) {
-      const iscritte = Object.values(world.cupTeams);
-      const piuForti = iscritte.filter((t) => t.rating > nostra).length;
-      out.push({
-        key: "continental",
-        label: "Corona Continentale",
-        tiers: suggestCupObjectiveTiers(piuForti + 1, iscritte.length),
-      });
-    }
-    if (state.nationalCup && world.divisions) {
-      const iscritte = Object.values(world.divisions.teams);
-      const piuForti = iscritte.filter((t) => t.rating > nostra).length;
-      out.push({
-        key: "national",
-        label: "Coppa Tricolore",
-        tiers: suggestCupObjectiveTiers(piuForti + 1, iscritte.length),
-      });
-    }
-    return out;
-  }, [state, world]);
 
   /**
    * Scorre la coda dei referti a ritmo costante.
@@ -339,7 +325,7 @@ export function CareerScreen({
        * Si valuta **mentre** i risultati scorrono, non dopo, perché l'invito ha senso solo
        * accanto alla partita a cui si riferisce.
        */
-      const chiave = partitaChiave(prossimo, world.leagueRounds);
+      const chiave = partitaChiave(prossimo);
       if (chiave) setKeyMatch(chiave);
       if (coda.current.length === 0) {
         setCorrendo(false);
@@ -859,8 +845,10 @@ export function CareerScreen({
             <div className="min-w-0 flex-1">
               <p className="truncate text-title leading-tight">{world.clubName}</p>
               <p className="text-label text-[var(--text-secondary)]">
+                {/* L'annata accanto al numero: «Stagione 3/10» dice a che punto sei della
+                    carriera, «2028/29» dice in che anno stai giocando. Servono entrambe. */}
                 <span className="num">
-                  Stagione {state.season}/{CAREER_SEASONS}
+                  {seasonYearLabel(state.season)} · {state.season}/{CAREER_SEASONS}
                 </span>
                 {" · "}
                 {/* A settimana zero «0ª di 34» non vuol dire niente: il campionato non è
@@ -930,7 +918,31 @@ export function CareerScreen({
                 Sintonia {state.coachHarmony ?? 75}%
               </span>
             )}
-            <span className="ml-auto flex items-center gap-1 text-label text-[var(--text-secondary)]">
+            {/* Il tasto Salva sta accanto allo stato del salvataggio: è lì che si guarda per
+                sapere se il lavoro è al sicuro. */}
+            {saveEnabled && onSaveCheckpoint && (
+              <button
+                type="button"
+                onClick={async () => {
+                  const esito = await onSaveCheckpoint();
+                  if (esito) {
+                    setDeal({
+                      id: Date.now(),
+                      kind: esito.ok ? "acquisto" : "errore",
+                      message: esito.message,
+                      delta: 0,
+                    });
+                  }
+                }}
+                className="ml-auto flex min-h-8 items-center gap-1.5 rounded-full border border-[var(--brand)]/50 bg-[var(--brand)]/10 px-2.5 text-label font-bold text-[var(--brand)] active:scale-95"
+              >
+                <Save size={12} />
+                Salva
+              </button>
+            )}
+            <span
+              className={`${saveEnabled && onSaveCheckpoint ? "" : "ml-auto "}flex items-center gap-1 text-label text-[var(--text-secondary)]`}
+            >
               {saveEnabled ? (
                 <>
                   <Cloud size={12} className={saving ? "animate-pulse" : undefined} />
@@ -969,10 +981,13 @@ export function CareerScreen({
             la riga nella lista dei risultati e, peggio, la striscia della coppa aggiornata con
             l'eliminazione. Il velo del modale non basta: la striscia si legge lo stesso.
 
-            Finché l'invito è aperto (o il teatro è in scena) la scheda Stagione non si disegna
-            affatto. Non è un espediente visivo: è l'unico modo per cui la domanda «vuoi
-            vederla?» abbia ancora senso quando la risposta è già scritta nello stato. */}
-        {tab === "stagione" && (keyMatch || teatro) && (
+            ⚠️ **Il velo copriva solo la scheda Stagione**, e non bastava: il tabellone di coppa
+            vive nella scheda *Coppe* e la classifica nella sua, entrambe già aggiornate. Bastava
+            trovarsi lì — o arrivarci — per leggere l'esito. Adesso, finché l'invito è aperto o il
+            teatro è in scena, **nessuna** scheda si disegna e la barra in fondo è disattivata.
+            Non è un espediente visivo: è l'unico modo per cui la domanda «vuoi vederla?» abbia
+            ancora senso quando la risposta è già scritta nello stato. */}
+        {sottoVelo && (
           <div className="flex items-center justify-center px-6 py-16 text-center">
             <p className="text-body leading-relaxed text-[var(--text-secondary)] text-balance">
               Il campo ti aspetta. Il risultato lo scoprirai guardando.
@@ -980,7 +995,7 @@ export function CareerScreen({
           </div>
         )}
 
-        {tab === "stagione" && !keyMatch && !teatro && (
+        {tab === "stagione" && !sottoVelo && (
           /* Due colonne su schermo largo: i risultati scorrono a sinistra, la classifica resta
              ferma a destra. Su telefono la classifica sta sopra, compatta, perché è il dato che
              si vuole sotto controllo mentre le giornate passano. */
@@ -1095,14 +1110,19 @@ export function CareerScreen({
                 <CupProgress state={state} world={world} />
                 <NationalCupProgress state={state} world={world} />
                 {standings.length > 0 && (
-                  <MiniStandings standings={standings} state={state} world={world} />
+                  <MiniStandings
+                    standings={standings}
+                    state={state}
+                    world={world}
+                    onOpenClub={(id, name) => setClubVisto({ id, name })}
+                  />
                 )}
               </div>
             )}
           </div>
         )}
 
-        {tab === "rosa" && (
+        {tab === "rosa" && !sottoVelo && (
           <SquadPanel
             state={state}
             world={world}
@@ -1113,24 +1133,55 @@ export function CareerScreen({
           />
         )}
 
-        {tab === "classifica" &&
-          (standings.length > 0 ? (
-            <StandingsTable
-              standings={standings}
-              title={
-                state.phase === "conclusa"
-                  ? "Classifica finale"
-                  : `Classifica · stagione ${state.season}`
-              }
-              onOpenClub={(id, name) => setClubVisto({ id, name })}
-            />
-          ) : (
-            <p className="py-10 text-center text-body text-[var(--text-secondary)]">
-              La classifica compare dopo la prima giornata.
-            </p>
-          ))}
+        {tab === "classifica" && !sottoVelo && (
+          <div className="flex flex-col gap-3">
+            {/* ⚠️ **Le statistiche individuali stanno qui, non in una sesta scheda.**
+                Cinque voci a 360px lasciano 72px l'una; una sesta le porta a 60 e l'etichetta
+                verrebbe troncata (§ 8.2). E poi è il posto giusto: si guardano accanto alla
+                classifica di squadra, non in un'altra sezione. */}
+            <div className="flex gap-1 rounded-full bg-[var(--surface-raised)] p-1">
+              {(["squadre", "individuali"] as const).map((v) => (
+                <button
+                  key={v}
+                  type="button"
+                  onClick={() => setVistaClassifica(v)}
+                  className={`relative min-h-9 flex-1 rounded-full px-3 py-1.5 text-label font-bold transition-colors ${
+                    vistaClassifica === v ? "text-[var(--brand-contrast)]" : "text-[var(--text-secondary)]"
+                  }`}
+                >
+                  {vistaClassifica === v && (
+                    <motion.span
+                      layoutId="ds-classifica-tab"
+                      className="absolute inset-0 rounded-full bg-[var(--brand)]"
+                      transition={{ type: "spring", stiffness: 420, damping: 34 }}
+                    />
+                  )}
+                  <span className="relative">{v === "squadre" ? "Classifica" : "Individuali"}</span>
+                </button>
+              ))}
+            </div>
 
-        {tab === "coppe" && (
+            {vistaClassifica === "individuali" ? (
+              <StatsPanel stats={state.leagueStats} state={state} world={world} />
+            ) : standings.length > 0 ? (
+              <StandingsTable
+                standings={standings}
+                title={
+                  state.phase === "conclusa"
+                    ? "Classifica finale"
+                    : `Classifica · ${seasonYearLabel(state.season)}`
+                }
+                onOpenClub={(id, name) => setClubVisto({ id, name })}
+              />
+            ) : (
+              <p className="py-10 text-center text-body text-[var(--text-secondary)]">
+                La classifica compare dopo la prima giornata.
+              </p>
+            )}
+          </div>
+        )}
+
+        {tab === "coppe" && !sottoVelo && (
           <div className="flex flex-col gap-3">
             {coppeDisponibili.length > 1 && (
               <div className="flex gap-1 rounded-full bg-[var(--surface-raised)] p-1">
@@ -1168,14 +1219,25 @@ export function CareerScreen({
                 </p>
               </div>
             ) : coppaAttiva === "tricolore" ? (
-              <NationalCupPanel state={state} world={world} />
+              <>
+                <NationalCupPanel state={state} world={world} />
+                <StatsPanel
+                  stats={state.nationalCupStats}
+                  state={state}
+                  world={world}
+                  soloNostri
+                />
+              </>
             ) : (
-              <CupPanel state={state} world={world} />
+              <>
+                <CupPanel state={state} world={world} />
+                <StatsPanel stats={state.cupStats} state={state} world={world} soloNostri />
+              </>
             )}
           </div>
         )}
 
-        {tab === "storico" && (
+        {tab === "storico" && !sottoVelo && (
           <ul className="flex flex-col gap-2">
             {[...state.history].reverse().map((summary) => (
               <li
@@ -1242,6 +1304,9 @@ export function CareerScreen({
         items={TABS}
         value={tab}
         onChange={setTab}
+        /* Sotto il velo la barra è spenta: senza, bastava toccare *Coppe* per leggere il
+           tabellone aggiornato con l'eliminazione, che è metà della segnalazione. */
+        disabled={sottoVelo}
         action={
           inCorso && !bloccato ? (
             correndo ? (
@@ -1273,6 +1338,7 @@ export function CareerScreen({
             nameOf={(id) => (id ? (nameById[id] ?? "Un giocatore") : "Un giocatore")}
             context={buildTheatreContext(state, world, teatro.opponent)}
             penalties={teatro.penalties}
+            mode={modalitaTeatro}
             onClose={() => setTeatro(null)}
           />
         )}
@@ -1284,7 +1350,8 @@ export function CareerScreen({
             key="invito-partita"
             opponent={keyMatch.opponent}
             reason={keyMatch.reason}
-            onWatch={() => {
+            onWatch={(mode) => {
+              setModalitaTeatro(mode);
               setTeatro(keyMatch);
               setKeyMatch(null);
             }}
@@ -1585,36 +1652,6 @@ export function CareerScreen({
           </div>
         )}
 
-        {/* Le **coppe** restano da dichiarare dopo il colloquio: il campionato è già concordato
-            al tavolo con la società, qui si aggiungono i traguardi delle competizioni a cui si
-            partecipa davvero. Se non ce n'è nessuna la schermata non compare affatto. */}
-        {!correndo &&
-          !incident &&
-          !teatro &&
-          !keyMatch &&
-          !riepilogo &&
-          !bisognaObiettivo &&
-          !bisognaRinnovare &&
-          coppeDaDichiarare.length > 0 &&
-          !state.seasonCupObjectives && (
-            <SeasonObjectiveScreen
-              key="obiettivi-coppa"
-              season={state.season}
-              choices={seasonObjectiveChoices(state, world)}
-              finances={finanze}
-              secondDivision={inSecondDivision(state, world)}
-              cups={coppeDaDichiarare}
-              agreed={state.seasonObjective}
-              onChoose={(tier, cupTiers) => {
-                let next = state.seasonObjective ? state : setSeasonObjective(state, tier, world);
-                next = setSeasonCupObjectives(next, {
-                  continental: cupTiers.continental,
-                  national: cupTiers.national,
-                });
-                onChange(next);
-              }}
-            />
-          )}
         {/**
          * ⚠️ **Una sola schermata di fine stagione** (segnalazione dell utente).
          *
@@ -1676,65 +1713,28 @@ interface PartitaChiave {
 /**
  * La partita decisiva di questo referto, se ce n'è una.
  *
- * Prima le coppe — Corona e, dai quarti in poi, Coppa Tricolore: nel tabellone ogni gara è
- * un'eliminazione, quindi conta sempre. Poi il campionato — scontro diretto per il vertice, o
- * volata scudetto. La regola vive nel motore (`isKeyMatch`), qui si passano soltanto i dati,
- * incluso dove sta in classifica l'avversaria.
+ * ⚠️ **Non decide più niente: legge.** La regola viveva in due posti — qui e in
+ * `advanceToNextStop` — con criteri diversi: questa passava anche la posizione dell'avversaria
+ * (lo scontro diretto), quella del motore no. Due versioni della stessa regola divergono
+ * sempre, e qui divergevano in modo visibile: la UI marcava come chiave una partita a metà
+ * coda che il motore non aveva usato come punto d'arresto, la corsa proseguiva, e l'invito
+ * arrivava alla fine per una gara di dodici giornate prima — con tutto il resto già a schermo.
  *
- * L'ordine di precedenza fra le due coppe è nominale: nella stessa settimana non si giocano un
- * turno di Corona e uno di Tricolore, ma se accadesse la Corona è la competizione più pesante.
+ * Ora il motore decide (`WeekReport.keyMatch`) e qui si aggiunge soltanto la chiave React, che
+ * è l'unica cosa di cui il motore non ha bisogno.
  */
-function partitaChiave(report: WeekReport, totalRounds: number): PartitaChiave | null {
-  const nostra = report.standings?.find((r) => r.isUser);
-  const primo = report.standings?.[0];
-
-  if (report.cupMatch && isKeyMatch({ cupStage: report.cupMatch.stage, totalRounds })) {
-    return {
-      result: report.cupMatch.result,
-      opponent: report.cupMatch.opponent,
-      reason: keyMatchReason({ cupStage: report.cupMatch.stage, totalRounds }),
-      key: `c-${report.season}-${report.week}`,
-      penalties: report.cupMatch.wentToPenalties
-        ? { weWon: !!report.cupMatch.weWonPenalties }
-        : undefined,
-    };
-  }
-
-  if (
-    report.nationalCupMatch &&
-    isKeyMatch({ nationalCupStage: report.nationalCupMatch.stage, totalRounds })
-  ) {
-    return {
-      result: report.nationalCupMatch.result,
-      opponent: report.nationalCupMatch.opponent,
-      reason: keyMatchReason({ nationalCupStage: report.nationalCupMatch.stage, totalRounds }),
-      key: `t-${report.season}-${report.week}`,
-      penalties: report.nationalCupMatch.wentToPenalties
-        ? { weWon: !!report.nationalCupMatch.weWonPenalties }
-        : undefined,
-    };
-  }
-
-  if (report.match && nostra) {
-    const avversaria = report.standings?.find((r) => r.name === report.match!.opponent);
-    const input = {
-      leagueRound: report.week,
-      totalRounds,
-      position: nostra.position,
-      gapFromFirst: (primo?.points ?? nostra.points) - nostra.points,
-      opponentPosition: avversaria?.position,
-    };
-    if (isKeyMatch(input)) {
-      return {
-        result: report.match.result,
-        opponent: report.match.opponent,
-        reason: keyMatchReason(input),
-        key: `l-${report.season}-${report.week}`,
-      };
-    }
-  }
-
-  return null;
+function partitaChiave(report: WeekReport): PartitaChiave | null {
+  const chiave = report.keyMatch;
+  if (!chiave) return null;
+  const prefisso =
+    chiave.competition === "corona" ? "c" : chiave.competition === "tricolore" ? "t" : "l";
+  return {
+    result: chiave.result,
+    opponent: chiave.opponent,
+    reason: chiave.reason,
+    penalties: chiave.penalties,
+    key: `${prefisso}-${report.season}-${report.week}`,
+  };
 }
 
 /**

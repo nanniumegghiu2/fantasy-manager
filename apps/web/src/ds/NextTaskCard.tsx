@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import {
   CAREER_SEASONS,
+  seasonYearLabel,
   dressingRoom,
   type CareerState,
   type CareerWorld,
@@ -218,7 +219,7 @@ function prossimoCompito(
     tono: "var(--brand)",
     titolo: "Tutto a posto: si gioca",
     dettaglio: obiettivo
-      ? `Obiettivo dichiarato: ${obiettivo.label}. Stagione ${state.season} di ${CAREER_SEASONS}.`
-      : `Stagione ${state.season} di ${CAREER_SEASONS}. Manda avanti le giornate fino al prossimo mercato.`,
+      ? `Obiettivo dichiarato: ${obiettivo.label}. ${seasonYearLabel(state.season)}, stagione ${state.season} di ${CAREER_SEASONS}.`
+      : `${seasonYearLabel(state.season)}, stagione ${state.season} di ${CAREER_SEASONS}. Manda avanti le giornate fino al prossimo mercato.`,
   };
 }

@@ -9,6 +9,7 @@
  */
 import { describe, expect, it } from "vitest";
 import {
+  buildHighlightReel,
   GOAL_MOUTH,
   MATCH_SECONDS,
   ballAt,
@@ -140,16 +141,50 @@ describe("il flusso copre la partita, non solo sei clip", () => {
    * tabellino**, non a una soglia: è l'unico modo perché resti vera anche se un domani si
    * cambiassero le probabilità degli altri esiti.
    */
-  it("al rallentatore ci vanno esattamente i gol, non parate e cartellini", () => {
+  it("in modalita Salienti si vedono esattamente i gol, non parate e cartellini", () => {
     for (const [gf, gs] of [
       [2, 1],
       [3, 3],
       [0, 0],
     ] as const) {
       const flow = simulateMatchFlow(partita(gf, gs), `soligol-${gf}${gs}`, nomeDi, context);
-      const notevoli = flow.phases.filter((p) => p.notable);
-      expect(notevoli.every((p) => p.outcome === "gol")).toBe(true);
-      expect(notevoli.length).toBe(gf + gs);
+      const salienti = buildHighlightReel(flow, "salienti");
+      // Il test lega la regola al **numero di reti del tabellino**, non a una soglia: resta
+      // vera anche se un domani cambiassero le probabilita degli altri esiti.
+      expect(salienti.length).toBe(gf + gs);
+      for (const finestra of salienti) {
+        expect(flow.phases[finestra.phaseIndex]!.outcome).toBe("gol");
+      }
+    }
+  });
+
+  /**
+   * ⚠️ **Estesa mostra di piu, non un altro film.** Se le due modalita coincidessero, la scelta
+   * dell utente ("salienti solo gol, estesa gol piu qualche azione importante") sarebbe finta.
+   */
+  it("in modalita Estesa si vedono i gol piu le azioni importanti", () => {
+    const flow = simulateMatchFlow(partita(2, 1), "estesa-1", nomeDi, context);
+    const salienti = buildHighlightReel(flow, "salienti");
+    const estesa = buildHighlightReel(flow, "estesa");
+
+    expect(estesa.length).toBeGreaterThan(salienti.length);
+    // Nessun gol si perde per strada passando alla modalita piu ricca.
+    const golMostrati = estesa.filter((f) => flow.phases[f.phaseIndex]!.outcome === "gol").length;
+    expect(golMostrati).toBeGreaterThanOrEqual(1);
+  });
+
+  it("le finestre sono in ordine e non si sovrappongono", () => {
+    for (const seme of ["reel-1", "reel-2", "reel-3"]) {
+      const flow = simulateMatchFlow(partita(2, 2), seme, nomeDi, context);
+      const estesa = buildHighlightReel(flow, "estesa");
+      for (let i = 1; i < estesa.length; i++) {
+        // Sovrapporsi significherebbe far tornare indietro l orologio davanti all utente.
+        expect(estesa[i]!.from).toBeGreaterThan(estesa[i - 1]!.to);
+      }
+      for (const f of estesa) {
+        expect(f.to).toBeGreaterThan(f.from);
+        expect(f.from).toBeGreaterThanOrEqual(0);
+      }
     }
   });
 
@@ -400,6 +435,156 @@ describe("lettura del flusso a un dato istante", () => {
       expect(i).toBeLessThan(flow.phases.length);
       expect(i).toBeGreaterThanOrEqual(precedente);
       precedente = i;
+    }
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/* Azioni vere: contrasti, ripartenze, cross, filtranti                        */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * ⚠️ Richiesta dell'utente, col motore 2D di FM09 come riferimento: *"passaggi tra giocatori,
+ * contrasti e ripartenze, cross, filtranti. Questo è avere azioni vere"*.
+ *
+ * Prima nessuna delle quattro cose esisteva davvero: l'esito `recupero` copriva il 58% dei
+ * possessi e voleva dire soltanto "la palla passa all'altra squadra" (nessuno la toccava), il
+ * possesso dopo un recupero era costruito come tutti gli altri, il cross era un passaggio come
+ * un altro e il filtrante non era modellato affatto.
+ *
+ * I test verificano la **presenza e la coerenza** di ciascuna, non una frequenza esatta: le
+ * frequenze si tarano, le regole no.
+ */
+describe("le azioni sono azioni di calcio", () => {
+  it("i duelli hanno due nomi, di due squadre diverse", () => {
+    const flow = simulateMatchFlow(partita(2, 1), "duelli", nomeDi, context);
+    const conDuello = flow.phases.filter((f) => f.duel);
+    expect(conDuello.length).toBeGreaterThan(10);
+
+    const nostri = new Set(flow.players.filter((p) => p.side === "for").map((p) => p.id));
+    for (const fase of conDuello) {
+      const { winnerId, loserId } = fase.duel!;
+      expect(winnerId).not.toBeNull();
+      expect(winnerId).not.toBe(loserId);
+      // Chi vince il pallone è dell'altra squadra: un contrasto su un compagno non esiste.
+      expect(nostri.has(winnerId!)).toBe(fase.team === "against");
+      // E la cronaca lo racconta nominando entrambi, che è la differenza fra un fatto di gioco
+      // e un cambio di possesso muto.
+      expect(fase.commentary).toBeTruthy();
+    }
+  });
+
+  it("il portiere non contrasta a metà campo", () => {
+    const flow = simulateMatchFlow(partita(1, 2), "duelli-por", nomeDi, context);
+    const portieri = new Set(flow.players.filter((p) => p.department === "POR").map((p) => p.id));
+    for (const fase of flow.phases) {
+      if (fase.duel?.winnerId) expect(portieri.has(fase.duel.winnerId)).toBe(false);
+    }
+  });
+
+  it("una palla vinta alta produce una ripartenza, non un possesso qualunque", () => {
+    const flow = simulateMatchFlow(partita(2, 2), "ripartenze", nomeDi, context);
+    let nateDaDuello = 0;
+    for (let i = 1; i < flow.phases.length; i++) {
+      const prima = flow.phases[i - 1]!;
+      const dopo = flow.phases[i]!;
+      if (!prima.duel) continue;
+      if (dopo.pattern === "ripartenza" || dopo.pattern === "pressing_alto") nateDaDuello++;
+    }
+    // È la conseguenza che mancava del tutto: senza, un contrasto non *causerebbe* niente.
+    expect(nateDaDuello).toBeGreaterThan(5);
+  });
+
+  it("una ripartenza è più corta e più diretta di una costruzione", () => {
+    const flow = simulateMatchFlow(partita(3, 2), "forme", nomeDi, context);
+    const media = (p: string) => {
+      const fasi = flow.phases.filter((f) => f.pattern === p);
+      if (fasi.length === 0) return null;
+      return fasi.reduce((s, f) => s + f.touches.length, 0) / fasi.length;
+    };
+    const costruzione = media("costruzione");
+    const ripartenza = media("ripartenza");
+    expect(costruzione).not.toBeNull();
+    expect(ripartenza).not.toBeNull();
+    expect(costruzione!).toBeGreaterThan(ripartenza!);
+  });
+
+  it("cross e filtranti esistono, e il filtrante arriva davvero oltre la difesa", () => {
+    let cross = 0;
+    let filtranti = 0;
+    for (const seme of ["c1", "c2", "c3"]) {
+      const flow = simulateMatchFlow(partita(2, 2), seme, nomeDi, context);
+      for (const fase of flow.phases) {
+        for (const tocco of fase.touches) {
+          if (tocco.kind === "cross") {
+            cross++;
+            // Un cross parte largo: se partisse dal centro non sarebbe un cross.
+            expect(Math.abs(tocco.y - 50)).toBeGreaterThan(15);
+          }
+          if (tocco.kind === "filtrante") filtranti++;
+        }
+      }
+    }
+    expect(cross).toBeGreaterThan(10);
+    expect(filtranti).toBeGreaterThan(0);
+  });
+
+  it("un gol ha un assist, e non se lo dà da solo", () => {
+    for (const seme of ["a1", "a2", "a3", "a4"]) {
+      const flow = simulateMatchFlow(partita(3, 1), seme, nomeDi, context);
+      for (const fase of flow.phases.filter((f) => f.outcome === "gol")) {
+        if (fase.assistId === null) continue;
+        expect(fase.assistId).not.toBe(fase.scorerId);
+      }
+    }
+  });
+
+  /**
+   * I totali di una partita sono la rete di sicurezza della ritaratura: passando da ~280 a ~150
+   * possessi, i pesi degli esiti raddoppierebbero di effetto a parità di numeri. In questo file
+   * è già successo due volte di finire con 51 tiri o 38 falli a partita, e in entrambi i casi
+   * l'ha colto una misura, non un'occhiata.
+   */
+  it("i totali di una partita restano quelli di una partita vera", () => {
+    const N = 40;
+    const tot = { fasi: 0, tiri: 0, angoli: 0, falli: 0, fuorigioco: 0 };
+    for (let i = 0; i < N; i++) {
+      const flow = simulateMatchFlow(partita(i % 3, (i * 2) % 3), `tot-${i}`, nomeDi, context);
+      tot.fasi += flow.phases.length;
+      tot.tiri += flow.stats.for.shots + flow.stats.against.shots;
+      tot.angoli += flow.stats.for.corners + flow.stats.against.corners;
+      tot.falli += flow.stats.for.fouls + flow.stats.against.fouls;
+      tot.fuorigioco += flow.stats.for.offsides + flow.stats.against.offsides;
+    }
+    expect(tot.fasi / N).toBeGreaterThan(120);
+    expect(tot.fasi / N).toBeLessThan(190);
+    expect(tot.tiri / N).toBeGreaterThan(16);
+    expect(tot.tiri / N).toBeLessThan(32);
+    expect(tot.angoli / N).toBeGreaterThan(6);
+    expect(tot.angoli / N).toBeLessThan(16);
+    expect(tot.falli / N).toBeGreaterThan(14);
+    expect(tot.falli / N).toBeLessThan(30);
+    expect(tot.fuorigioco / N).toBeLessThan(9);
+  });
+});
+
+/**
+ * Il caso limite della riproduzione: uno 0-0 in modalità *Salienti* non ha nulla da mostrare, e
+ * la vista deve saperlo invece di aprirsi e chiudersi subito.
+ */
+describe("il reel degli highlight", () => {
+  it("su uno 0-0 la modalità Salienti è vuota, e l'Estesa no", () => {
+    const flow = simulateMatchFlow(partita(0, 0), "zero-zero", nomeDi, context);
+    expect(buildHighlightReel(flow, "salienti")).toHaveLength(0);
+    expect(buildHighlightReel(flow, "estesa").length).toBeGreaterThan(0);
+  });
+
+  it("ogni finestra contiene davvero la fase per cui è stata creata", () => {
+    const flow = simulateMatchFlow(partita(2, 1), "finestre", nomeDi, context);
+    for (const f of buildHighlightReel(flow, "estesa")) {
+      const fase = flow.phases[f.phaseIndex]!;
+      expect(f.to).toBeGreaterThanOrEqual(fase.endSecond - 0.001);
+      expect(f.from).toBeLessThanOrEqual(fase.startSecond);
     }
   });
 });

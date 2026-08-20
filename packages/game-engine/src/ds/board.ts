@@ -224,10 +224,33 @@ export interface BoardObjectiveOption {
   reply: string;
 }
 
+/**
+ * **La società ha una posizione anche sulle coppe** (richiesta dell'utente).
+ *
+ * ⚠️ Prima gli obiettivi si dichiaravano in **due tavoli distinti**: qui il campionato, i mezzi e
+ * la panchina; in una schermata a parte, subito dopo, le coppe — e lì il presidente non c'era.
+ * Erano quindi una dichiarazione unilaterale del DS, senza nessuno dall'altra parte: cioè non una
+ * trattativa. Ora ogni competizione a cui si partecipa arriva al tavolo con il suo minimo
+ * preteso, e si concorda insieme al resto.
+ */
+export interface BoardCupIssue {
+  key: "continental" | "national";
+  /** Nome della competizione, per il dialogo. */
+  competition: string;
+  /** Il traguardo minimo che la società pretende in questa coppa. */
+  minimum: { label: string; roundsFromWin: number };
+  /** Le fasce proponibili, dalla più ambiziosa. */
+  options: { label: string; roundsFromWin: number }[];
+  /** Cosa dice il presidente su questa competizione. */
+  speech: string;
+}
+
 export interface BoardMeeting {
   season: number;
   /** L'obiettivo **minimo** che la società pretende: la loro posizione di partenza. */
   minimum: { label: string; targetPosition: number };
+  /** Le coppe a cui si partecipa, con la posizione della società su ciascuna. */
+  cups: BoardCupIssue[];
   /** Il giudizio sull'annata appena chiusa, quando ce n'è una. */
   review?: string;
   /** Cosa si aspettano, detto da loro. */
@@ -257,6 +280,15 @@ export interface BoardMeetingInput {
   /** Quanto vale ciascuna fascia sul fatturato (`objectiveBudgetMultiplier`). */
   budgetMultiplierOf: (tier: { label: string; targetPosition: number }) => number;
   baseRevenue: number;
+  /**
+   * Le coppe a cui si partecipa quest'anno, con le fasce proponibili (`suggestCupObjectiveTiers`)
+   * già calcolate dal chiamante — qui non serve sapere nulla di tabelloni e iscritte.
+   */
+  cups?: readonly {
+    key: "continental" | "national";
+    competition: string;
+    tiers: readonly { label: string; roundsFromWin: number }[];
+  }[];
   /** L'esito della stagione precedente, se ce n'è stata una. */
   lastSeason?: { objectiveLabel?: string; finalPosition: number; trophies: number; met: boolean };
   coachName?: string;
@@ -360,9 +392,37 @@ export function boardSeasonMeeting(input: BoardMeetingInput): BoardMeeting {
         ? `Siamo stati pazienti abbastanza. Il minimo, quest'anno, è ${minimo.label}. Non ci sono altri modi di dirlo.`
         : `Il consiglio si aspetta ${minimo.label}. Se lei crede di poter fare di più, ci dica come — e vedremo di sostenerla.`;
 
+  /**
+   * **Il minimo di coppa segue la stessa impazienza del campionato.**
+   *
+   * Un presidente che si fida lascia margine anche in Europa; uno che non si fida pretende. Non
+   * è una regola nuova, è la stessa applicata a un altro fronte — ed è questo a far sì che le
+   * coppe non siano una dichiarazione a parte ma un pezzo dello stesso accordo.
+   */
+  const cups: BoardCupIssue[] = (input.cups ?? []).map((coppa) => {
+    const scala = [...coppa.tiers];
+    // `tiers` va dalla più ambiziosa: indice minore = più esigente, come per il campionato.
+    const indiceMinimo = Math.max(
+      0,
+      Math.min(scala.length - 1, scala.length - 1 - Math.max(0, -scostamento)),
+    );
+    const min = scala[indiceMinimo] ?? scala[scala.length - 1]!;
+    return {
+      key: coppa.key,
+      competition: coppa.competition,
+      minimum: { label: min.label, roundsFromWin: min.roundsFromWin },
+      options: scala.map((t) => ({ label: t.label, roundsFromWin: t.roundsFromWin })),
+      speech:
+        min.roundsFromWin === 0
+          ? `In ${coppa.competition} non ci andiamo per partecipare: la si va a vincere.`
+          : `In ${coppa.competition} il minimo è arrivare a "${min.label}". Se punta più in alto, ci fa piacere.`,
+    };
+  });
+
   return {
     season: input.season,
     minimum: { label: minimo.label, targetPosition: minimo.targetPosition },
+    cups,
     review,
     speech,
     baseRevenue: input.baseRevenue,
@@ -408,11 +468,32 @@ export function agreeWithBoard(
   meeting: BoardMeeting,
   chosenLabel: string,
   extraSteps = 0,
+  /**
+   * Le fasce di coppa concordate, per competizione. Assenti = si prende il minimo preteso, che
+   * è la lettura giusta: chi non dice niente accetta quel che gli è stato chiesto.
+   */
+  cupChoices: Partial<Record<"continental" | "national", string>> = {},
 ): BoardAgreement {
   const attuale = board ?? defaultBoard();
   const opzione =
     meeting.options.find((o) => o.label === chosenLabel) ??
     meeting.options.find((o) => o.stance === "minimo")!;
+
+  /**
+   * **Anche l'ambizione in coppa pesa**, nella stessa direzione di quella di campionato:
+   * promettere più del minimo apre il portafoglio e piace, promettere meno irrita. Il peso è
+   * volutamente **minore** — il campionato resta il fronte su cui una società giudica una
+   * stagione, e le coppe sono un tabellone dove basta un sorteggio storto.
+   */
+  let scartoCoppe = 0;
+  for (const coppa of meeting.cups) {
+    const scelta = cupChoices[coppa.key];
+    const iScelta = coppa.options.findIndex((o) => o.label === scelta);
+    const iMinimo = coppa.options.findIndex((o) => o.label === coppa.minimum.label);
+    if (iScelta < 0 || iMinimo < 0) continue;
+    // Indice minore = più ambizioso.
+    scartoCoppe += iMinimo - iScelta;
+  }
 
   const passi = Math.max(0, Math.min(meeting.extraBudget.step, Math.round(extraSteps)));
   const chiesto = Math.round((meeting.extraBudget.max / meeting.extraBudget.step) * passi);
@@ -424,13 +505,17 @@ export function agreeWithBoard(
    */
   const aperturaAmbizione = opzione.stance === "sopra" ? 1 : opzione.stance === "minimo" ? 0.6 : 0;
   const aperturaFiducia = Math.max(0, Math.min(1, (attuale.confidence - 30) / 55));
+  // Puntare in alto anche in coppa aiuta a strappare qualcosa in più, ma non sostituisce
+  // l'ambizione di campionato: è un accessorio, non la leva principale.
+  const spintaCoppe = Math.max(0, Math.min(0.25, scartoCoppe * 0.12));
   const concesso =
-    Math.round((chiesto * aperturaAmbizione * aperturaFiducia) / 500_000) * 500_000;
+    Math.round((chiesto * Math.min(1, aperturaAmbizione + spintaCoppe) * aperturaFiducia) / 500_000) *
+    500_000;
 
   const costoFiducia = passi * meeting.extraBudget.confidenceCostPerStep;
   const confidence = Math.max(
     0,
-    Math.min(100, attuale.confidence + opzione.confidenceDelta - costoFiducia),
+    Math.min(100, attuale.confidence + opzione.confidenceDelta + scartoCoppe * 2 - costoFiducia),
   );
 
   let message = opzione.reply;

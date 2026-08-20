@@ -2,6 +2,7 @@ import { useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Check, Download, Share2, Trophy, X } from "lucide-react";
 import { CelebrationConfetti } from "./CelebrationConfetti";
+import { seasonYearLabel } from "@app/game-engine";
 import {
   downloadTriumph,
   shareTriumph,
@@ -89,7 +90,7 @@ export function TriumphScreen({ data, onClose }: TriumphScreenProps) {
           transition={{ delay: 0.1 }}
           className="text-label font-semibold uppercase tracking-[0.28em] text-white/55"
         >
-          {data.leagueName} · Stagione {data.season}
+          {data.leagueName} · {seasonYearLabel(data.season)}
         </motion.p>
 
         <motion.h1

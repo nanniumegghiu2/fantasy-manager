@@ -7,11 +7,13 @@ import {
   formatEuro,
   formatWage,
   freeAgentMarket,
+  freeAgentInterest,
   matchesCriteria,
   type CareerState,
   type CareerWorld,
   type FreeAgent,
   type FreeAgentCounter,
+  type FreeAgentInterest,
   type FreeAgentOutcome,
   type SearchCriteria,
 } from "@app/game-engine";
@@ -85,7 +87,50 @@ function Intervallo({
   );
 }
 
-function Card({ agente, onApri }: { agente: FreeAgent; onApri: () => void }) {
+/**
+ * ⚠️ **L'interesse si legge prima di trattare** (scelta dell'utente dopo la segnalazione
+ * *"mercato svincolati ancora totalmente inutile"*).
+ *
+ * Prima l'esito si scopriva solo dopo aver presentato un'offerta: ogni tentativo era al buio,
+ * e su una vetrina da centinaia di nomi diventava una lotteria. Il livello e la leva vengono
+ * dal motore (`freeAgentInterest`), calcolati con gli stessi pesi della trattativa vera — non
+ * è una stima a parte che può divergere da quello che succede poi.
+ */
+function Interesse({ interesse }: { interesse: FreeAgentInterest }) {
+  const colore =
+    interesse.level >= 3 ? "var(--win)" : interesse.level === 2 ? "var(--draw)" : "var(--loss)";
+  return (
+    <div className="flex flex-col gap-0.5">
+      <span className="flex items-center gap-1.5">
+        <span className="flex gap-0.5" aria-hidden>
+          {[0, 1, 2, 3].map((i) => (
+            <span
+              key={i}
+              className="h-1.5 w-1.5 rounded-full"
+              style={{
+                backgroundColor: i < interesse.level ? colore : "var(--surface-border)",
+              }}
+            />
+          ))}
+        </span>
+        <span className="text-micro font-bold uppercase" style={{ color: colore }}>
+          {interesse.level >= 3 ? "interessato" : interesse.level === 2 ? "tiepido" : "freddo"}
+        </span>
+      </span>
+      <span className="text-label leading-snug text-[var(--text-secondary)]">{interesse.text}</span>
+    </div>
+  );
+}
+
+function Card({
+  agente,
+  interesse,
+  onApri,
+}: {
+  agente: FreeAgent;
+  interesse: FreeAgentInterest;
+  onApri: () => void;
+}) {
   return (
     <motion.div
       layout
@@ -128,6 +173,8 @@ function Card({ agente, onApri }: { agente: FreeAgent; onApri: () => void }) {
         {agente.askingSeasons === 1 ? "anno" : "anni"}
         {agente.wantsStarter && " · vuole giocare"}
       </p>
+
+      <Interesse interesse={interesse} />
 
       <button
         type="button"
@@ -349,7 +396,17 @@ export function FreeAgentsPanel({
       ) : (
         <div className="grid gap-2 sm:grid-cols-2">
           {visibili.map((a) => (
-            <Card key={a.id} agente={a} onApri={() => setTrattativa(a)} />
+            <Card
+              key={a.id}
+              agente={a}
+              interesse={freeAgentInterest(a, {
+                prestige: world.market?.valuation.clubPrestige[state.clubId] ?? 3,
+                ambitionTarget: state.seasonObjective?.targetPosition,
+                clubId: state.clubId,
+                clubName: world.clubName,
+              })}
+              onApri={() => setTrattativa(a)}
+            />
           ))}
         </div>
       )}

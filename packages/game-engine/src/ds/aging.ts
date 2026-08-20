@@ -203,9 +203,18 @@ export function advanceSeasonOveralls(
       const room = Math.max(0, entry.potential - entry.overall);
       delta = Math.min(Math.round(earned * development), margin, room);
     } else {
-      // Nel declino il rendimento può attenuare la caduta ma non invertirla: un trentatreenne
-      // in gran forma invecchia più lentamente, non ringiovanisce.
-      delta = Math.min(0, margin + Math.max(0, merit));
+      /**
+       * Nel declino il rendimento può **attenuare** la caduta, non annullarla: un trentatreenne
+       * in gran forma invecchia più lentamente, non smette di invecchiare.
+       *
+       * ⚠️ Il tetto al 70% è arrivato con le medie voto (2026-08-20) e non è pedanteria: misurato
+       * con `pnpm probe-crescita`, il merito di un portiere passa da +1 a **+6,3** quando i clean
+       * sheet e il voto entrano nel conto — abbastanza da coprire per intero un margine di −3 e
+       * lasciare i veterani **fermi** al loro Overall fino al ritiro. La regola scritta qui sopra
+       * diceva già la cosa giusta; senza il tetto smetteva di essere vera.
+       */
+      const attenuazione = Math.min(Math.max(0, merit), -margin * 0.7);
+      delta = Math.min(0, margin + attenuazione);
     }
 
     const after = clampOverall(entry.overall + delta);
@@ -223,14 +232,26 @@ export function advanceSeasonOveralls(
 
 /** Traduce le statistiche di carriera nella riga attesa da `overallV2`. */
 function statLineOf(stats: SeasonStats) {
+  /**
+   * ⚠️ **Media voto e clean sheet adesso esistono** (scelta dell'utente: *"le medie voto devono
+   * contare"*).
+   *
+   * Questa funzione diceva letteralmente *"media voto e clean sheet non esistono in DS mode"* e
+   * passava `null` su entrambe. Era il buco dichiarato in CLAUDE.md §2.2 da sempre: senza la
+   * media voto, `applySeasonAdjustment` valutava difensori, portieri e registi **solo** sui
+   * minuti e su gol e assist che quei ruoli non producono. Ora il voto arriva dalla partita
+   * (`matchRatings.ts`) ed è la componente che finalmente li vede.
+   *
+   * Restano `null` per chi non ha ancora una gara valutata: `overallV2` tratta un dato mancante
+   * come **neutro** invece di ridistribuirne il peso — lezione del 2026-07-28, senza la quale i
+   * portieri finivano valutati al 100% sul solo minutaggio.
+   */
+  const rated = stats.ratedAppearances ?? 0;
   return {
     minutes: stats.minutes,
     goals: stats.goals,
     assists: stats.assists,
-    // Media voto e clean sheet non esistono in DS mode: `overallV2` sa già trattare un dato
-    // mancante come neutro invece di ridistribuirne il peso (lezione del 2026-07-28: così i
-    // portieri non finivano valutati al 100% sul solo minutaggio).
-    averageRating: null,
-    cleanSheets: null,
+    averageRating: rated > 0 ? (stats.ratingSum ?? 0) / rated : null,
+    cleanSheets: stats.cleanSheets ?? null,
   };
 }

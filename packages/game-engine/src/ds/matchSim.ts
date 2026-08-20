@@ -209,6 +209,47 @@ export interface ShapeContext {
   possession: "for" | "against";
   /** 0 = giro palla tranquillo, 1 = azione da gol: il blocco si stringe attorno alla palla. */
   intensity: number;
+  /**
+   * **Il pressing ha un nome.**
+   *
+   * Prima chi non aveva il pallone si muoveva solo per prossimità, tutti allo stesso modo: il
+   * risultato era o ventidue pallini equidistanti o — con un raggio più largo — mezza squadra
+   * rannicchiata sulla palla, difetto già misurato una volta nel browser. Adesso **uno solo**
+   * va addosso al portatore e gli altri coprono, che è quello che si vede guardando una partita
+   * dall'alto.
+   */
+  presserId?: string | null;
+  /** Chi ha il pallone: lui e chi lo riceve li muove `costruisciFrame`, non questa funzione. */
+  carrierId?: string | null;
+  /**
+   * Il pallone sta volando in area su un cross: le punte attaccano primo e secondo palo, la
+   * difesa avversaria si stringe fra loro e la porta.
+   */
+  crossing?: boolean;
+}
+
+/**
+ * **Chi va a pressare il portatore**: l'avversario di movimento più vicino al pallone.
+ *
+ * Pura e in un posto solo, così la vista non deve deciderlo (e non può decidere diversamente da
+ * come si muove il resto della squadra). Il portiere è escluso: non esce a pressare a metà campo.
+ */
+export function pressingTarget(
+  players: readonly PitchPlayer[],
+  ball: { x: number; y: number },
+  possession: "for" | "against",
+): string | null {
+  let migliore: PitchPlayer | null = null;
+  let distanza = Infinity;
+  for (const p of players) {
+    if (p.side === possession || p.department === "POR") continue;
+    const d = Math.hypot(p.base.x - ball.x, p.base.y - ball.y);
+    if (d < distanza) {
+      distanza = d;
+      migliore = p;
+    }
+  }
+  return migliore?.id ?? null;
 }
 
 function clamp(v: number, min: number, max: number): number {
@@ -234,7 +275,7 @@ function clamp(v: number, min: number, max: number): number {
  * Sopra a tutto, un'oscillazione minima per giocatore: nessuno sta mai perfettamente fermo.
  */
 export function tacticalPosition(
-  player: Pick<PitchPlayer, "base" | "department" | "side" | "wobble">,
+  player: Pick<PitchPlayer, "base" | "department" | "side" | "wobble"> & { id?: string },
   ctx: ShapeContext,
   time: number,
 ): { x: number; y: number } {
@@ -273,6 +314,43 @@ export function tacticalPosition(
   x += (ctx.ball.x - x) * forza;
   y += (ctx.ball.y - y) * forza;
 
+  /**
+   * 5. **Il pressing designato**: uno solo va addosso al portatore, e ci va davvero. È la
+   * differenza fra una squadra che difende e ventidue pallini equidistanti.
+   */
+  if (player.id && player.id === ctx.presserId) {
+    x += (ctx.ball.x - x) * 0.62;
+    y += (ctx.ball.y - y) * 0.62;
+  }
+
+  /**
+   * 6. **Il supporto**: i compagni vicini al portatore non stanno fermi ad aspettare. Uno si
+   * allarga, uno si allunga in profondità — chi fa cosa lo decide la fase della sua
+   * oscillazione, che è stabile per giocatore, quindi non cambia da un fotogramma all altro.
+   */
+  if (attacking && distanza < 34 && player.id !== ctx.carrierId) {
+    const inProfondita = Math.sin(player.wobble) >= 0;
+    if (inProfondita) x += dir * 5 * vicinanza;
+    else y += (y >= ctx.ball.y ? 1 : -1) * 6 * vicinanza;
+  }
+
+  /**
+   * 7. **L area si attacca sul cross.** Le punte vanno al primo e al secondo palo invece di
+   * restare dove il blocco le aveva lasciate; la difesa avversaria si stringe fra loro e la
+   * porta. Senza, un cross vola in mezzo a nessuno.
+   */
+  if (ctx.crossing) {
+    const portaX = ctx.possession === "for" ? 92 : 8;
+    if (attacking && dept === "ATT") {
+      const palo = Math.sin(player.wobble * 1.3) >= 0 ? 42 : 58;
+      x += (portaX - x) * 0.45;
+      y += (palo - y) * 0.45;
+    } else if (!attacking && dept === "DIF") {
+      x += (portaX - x) * 0.2;
+      y += (50 - y) * 0.25;
+    }
+  }
+
   // Respiro individuale.
   x += Math.sin(time * 0.85 + player.wobble) * 0.9;
   y += Math.cos(time * 0.63 + player.wobble * 1.7) * 1.2;
@@ -287,20 +365,68 @@ export function tacticalPosition(
 export type TouchKind =
   | "inizio"
   | "passaggio"
+  /** Palla dietro la linea difensiva avversaria: il ricevente ci corre incontro. */
+  | "filtrante"
   | "lancio"
   | "cross"
   | "dribbling"
+  /** Scambio stretto: il pallone torna a chi l'ha giocato un attimo prima. */
+  | "uno_due"
+  /** Sponda di prima, spesso di testa, verso chi arriva. */
+  | "sponda"
   | "tiro"
   | "colpo_di_testa"
   | "rigore"
   | "parata"
   | "respinta"
+  /** Il difensore arriva sul pallone e lo porta via: il momento del contatto. */
+  | "contrasto"
+  /** Linea di passaggio letta e chiusa: la palla cambia squadra senza contatto. */
+  | "intercetto"
   | "recupero"
   | "fallo"
   | "rimessa"
   | "angolo"
   | "rinvio"
   | "rete";
+
+/**
+ * **Il disegno di un possesso**, non solo il suo esito.
+ *
+ * ⚠️ Prima ogni possesso aveva la stessa forma — due-cinque tocchi che puntavano la porta dal
+ * primo passaggio — e l'unica cosa che distingueva un'azione da gol da una rimessa laterale era
+ * il finale. Il `pattern` è ciò che rende una ripartenza diversa da una manovra **prima** che si
+ * sappia come finisce: decide quanti tocchi, quanto veloce viaggia la palla, da dove parte e
+ * quale vocabolario usa.
+ */
+export type PhasePattern =
+  /** Si riparte da dietro e si risale per reparti: lenta, tanti tocchi. */
+  | "costruzione"
+  /** Giro palla a metà campo, con cambi di fascia. */
+  | "manovra"
+  /** Palla vinta e via: pochi tocchi, in verticale, veloce. */
+  | "ripartenza"
+  /** Si salta il centrocampo: un lancio e il duello davanti. */
+  | "palla_lunga"
+  /** Recuperata alta, si attacca subito la porta da vicino. */
+  | "pressing_alto"
+  /** Rimessa, angolo, punizione: nasce ferma. */
+  | "palla_inattiva";
+
+/**
+ * **Un duello vinto**: chi ha preso il pallone e a chi l'ha tolto.
+ *
+ * ⚠️ È la cosa che mancava del tutto, ed è metà della segnalazione dell'utente («voglio
+ * passaggi, contrasti e ripartenze»). L'esito `recupero` copriva il **58%** dei possessi e
+ * significava soltanto "il possesso finisce e la palla passa all'altra squadra": nessun
+ * difensore convergeva, nessuno la toccava, non esisteva il momento del contatto — la palla
+ * cambiava colore e basta.
+ */
+export interface Duel {
+  winnerId: string | null;
+  loserId: string | null;
+  kind: "contrasto" | "intercetto";
+}
 
 /** Come viaggia il pallone: serve alla vista 2D per alzarlo da terra e disegnarne l'ombra. */
 export type BallArc = "raso" | "teso" | "alto";
@@ -329,7 +455,15 @@ export type PhaseOutcome =
   | "fuorigioco";
 
 /** Un evento che merita una riga di cronaca e un lampo a schermo. */
-export type PhaseFlash = "GOL" | "PARATA" | "PALO" | "FUORI" | "GIALLO" | "ROSSO" | null;
+export type PhaseFlash =
+  | "GOL"
+  | "PARATA"
+  | "PALO"
+  | "FUORI"
+  | "GIALLO"
+  | "ROSSO"
+  | "CONTRASTO"
+  | null;
 
 export interface PlayPhase {
   index: number;
@@ -338,6 +472,12 @@ export interface PlayPhase {
   endSecond: number;
   touches: BallTouch[];
   outcome: PhaseOutcome;
+  /** Come è disegnato questo possesso: decide tocchi, velocità e vocabolario. */
+  pattern: PhasePattern;
+  /** Il duello che ha chiuso il possesso, quando è finito con la palla persa. */
+  duel?: Duel;
+  /** Chi ha servito l'assist sul gol: è l'ultimo tocco prima della conclusione. */
+  assistId?: string | null;
   /** Il marcatore vero del tabellino, mai uno inventato. */
   scorerId: string | null;
   /**
@@ -399,17 +539,50 @@ const OPPOSITE = { for: "against", against: "for" } as const;
  * errore che a occhio sarebbe passato per "partita movimentata".
  */
 const OUTCOME_WEIGHTS: [PhaseOutcome, number][] = [
-  ["recupero", 58],
-  ["rimessa", 13],
-  // Sei e non nove: a nove il conto arrivava a trentotto falli a partita, misurato in campo al
-  // 69' con 19-9 già sul tabellone. Una partita vera ne ha poco più di venti.
-  ["fallo", 6],
-  ["fuori", 3.5],
-  ["angolo", 4],
-  ["parata", 3],
+  ["recupero", 31],
+  ["rimessa", 27],
+  ["fallo", 14],
+  ["angolo", 7],
+  ["fuori", 7.5],
+  ["parata", 5],
   ["fuorigioco", 3],
-  ["palo", 0.6],
+  ["palo", 0.9],
 ];
+
+/**
+ * **Il tempo in cui il pallone non è in gioco**, fra la fine di un possesso e l'inizio del
+ * successivo.
+ *
+ * Serve a due cose insieme, ed è il motivo per cui esiste invece di allungare i possessi. In una
+ * partita vera il pallone è in gioco poco più di un'ora sui novanta minuti: modellare le pause
+ * fa scendere il conto dei possessi dai ~280 di prima a ~140 — che è la densità chiesta
+ * dall'utente, *"meno azioni ma ognuna un'azione vera"* — **senza** dover fingere possessi da
+ * quaranta secondi, che nel calcio non esistono.
+ *
+ * Le durate sono quelle che chiunque riconosce: una rimessa si batte in fretta, un angolo no, e
+ * dopo un gol si torna a centrocampo con calma.
+ */
+function pausaDopo(outcome: PhaseOutcome, random: () => number): number {
+  switch (outcome) {
+    case "gol":
+      return 45 + random() * 30;
+    case "angolo":
+      return 22 + random() * 14;
+    case "fallo":
+      return 24 + random() * 18;
+    case "fuorigioco":
+      return 14 + random() * 8;
+    case "parata":
+    case "fuori":
+    case "palo":
+      return 14 + random() * 12;
+    case "rimessa":
+      return 10 + random() * 10;
+    default:
+      // Palla persa in mezzo al campo: il gioco non si ferma affatto.
+      return 0.6 + random() * 2.2;
+  }
+}
 
 function pesato<T>(voci: [T, number][], random: () => number): T {
   const totale = voci.reduce((s, [, w]) => s + w, 0);
@@ -544,12 +717,119 @@ function frase(chiave: string, chi: string, random: () => number): string {
 }
 
 /**
+ * **La cronaca di un duello nomina due persone**, non una.
+ *
+ * E la differenza fra "palla persa" e "Bastoni recupera su Leao": la prima e un cambio di
+ * possesso, la seconda e un fatto di gioco. Con una sola formulazione per esito, in novanta
+ * minuti si leggerebbe venti volte la stessa riga, quindi ce ne sono quattro per tipo.
+ */
+const FRASI_DUELLO = {
+  contrasto: [
+    "{vince} arriva in scivolata su {perde} e porta via il pallone.",
+    "Contrasto vinto da {vince}: {perde} resta a terra, si prosegue.",
+    "{perde} prova a passare, ma {vince} non lo lascia girare.",
+    "Duello fisico fra {perde} e {vince}: la spunta {vince}.",
+  ],
+  intercetto: [
+    "{vince} legge il passaggio di {perde} e lo chiude.",
+    "Palla telefonata di {perde}, {vince} la intercetta.",
+    "{vince} anticipa {perde} e rimette in gioco.",
+    "Linea di passaggio chiusa da {vince}: {perde} sbaglia i tempi.",
+  ],
+};
+
+function fraseDuello(
+  intercetto: boolean,
+  vince: string,
+  perde: string,
+  random: () => number,
+): string {
+  const opzioni = FRASI_DUELLO[intercetto ? "intercetto" : "contrasto"];
+  return opzioni[Math.floor(random() * opzioni.length)]!
+    .replace(/{vince}/g, vince)
+    .replace(/{perde}/g, perde);
+}
+
+/**
+ * Chi e piu vicino a un punto del campo, con un pizzico di scelta fra i primi tre.
+ *
+ * Serve ai duelli: chi contrasta e chi **era li**, non un compagno preso a caso in tutta la
+ * squadra. Prendere sempre il primo renderebbe pero il difensore centrale l eroe di ogni
+ * recupero, quindi si sorteggia in una finestra stretta.
+ */
+function piuVicino(
+  squadra: readonly PitchPlayer[],
+  x: number,
+  y: number,
+  random: () => number,
+): PitchPlayer | null {
+  const inCampo = squadra.filter((p) => p.department !== "POR");
+  const pool = inCampo.length > 0 ? inCampo : squadra;
+  if (pool.length === 0) return null;
+  const ordinati = [...pool].sort(
+    (a, b) => Math.hypot(a.base.x - x, a.base.y - y) - Math.hypot(b.base.x - x, b.base.y - y),
+  );
+  const finestra = Math.min(3, ordinati.length);
+  return ordinati[Math.floor(random() * finestra)] ?? null;
+}
+
+/**
  * Costruisce un singolo possesso: da dove parte il pallone fino a come finisce.
  *
  * La catena di passaggi è generata **dopo** aver deciso l'esito, non prima: è ciò che rende
  * impossibile per costruzione che un possesso non programmato finisca in rete, e che permette
  * a un'azione da gol di svilupparsi fino in area mentre un giro palla si spegne a centrocampo.
  */
+/**
+ * **La forma di ciascun disegno di possesso.**
+ *
+ * Sono i cinque numeri che distinguono un'azione manovrata da una ripartenza, ed è tutto ciò
+ * che serve: quanti tocchi, quanto tempo, quanto si risale in linea retta, quanto il gioco si
+ * sposta di fascia, se il pallone deve passare per i reparti.
+ *
+ * `linearita` vicino a 1 = il pallone attraversa il campo in modo uniforme (si costruisce);
+ * vicino a 0 = parabola che punta la porta dal primo tocco (si riparte).
+ */
+const FORMA_DEL_PATTERN: Record<
+  PhasePattern,
+  {
+    minTocchi: number;
+    maxTocchi: number;
+    /** Frazione della durata spesa nella costruzione, prima della chiusura. */
+    tempo: number;
+    linearita: number;
+    /** Di quanto il gioco si sposta di fascia a metà azione. */
+    ampiezza: number;
+    /** I tocchi seguono i reparti (dietro → mezzo → davanti). */
+    perReparti: boolean;
+    /** Il lancio lungo è nel vocabolario di questo disegno. */
+    lanci: boolean;
+  }
+> = {
+  costruzione: { minTocchi: 5, maxTocchi: 8, tempo: 1.35, linearita: 0.82, ampiezza: 30, perReparti: true, lanci: false },
+  manovra: { minTocchi: 3, maxTocchi: 6, tempo: 1.05, linearita: 0.62, ampiezza: 26, perReparti: false, lanci: false },
+  ripartenza: { minTocchi: 2, maxTocchi: 4, tempo: 0.6, linearita: 0.25, ampiezza: 10, perReparti: false, lanci: false },
+  palla_lunga: { minTocchi: 1, maxTocchi: 2, tempo: 0.55, linearita: 0.2, ampiezza: 6, perReparti: false, lanci: true },
+  pressing_alto: { minTocchi: 1, maxTocchi: 3, tempo: 0.5, linearita: 0.35, ampiezza: 12, perReparti: false, lanci: false },
+  palla_inattiva: { minTocchi: 2, maxTocchi: 4, tempo: 0.9, linearita: 0.7, ampiezza: 20, perReparti: false, lanci: false },
+};
+
+/**
+ * Dov'è la linea difensiva avversaria, in coordinate di campo.
+ *
+ * Serve a una cosa sola ma decisiva: riconoscere un **filtrante**, cioè un pallone che arriva
+ * *oltre* quella linea. È la condizione che lo distingue da un lancio lungo, e senza di essa il
+ * filtrante non è modellabile — è per questo che prima non esisteva.
+ */
+function lineaDifensiva(avversari: readonly PitchPlayer[], team: "for" | "against"): number {
+  const difensori = avversari.filter((p) => p.department === "DIF");
+  if (difensori.length === 0) return team === "for" ? 78 : 22;
+  // Chi attacca verso destra deve superare il difensore **più arretrato**, cioè quello con la x
+  // più alta; specularmente per chi attacca verso sinistra.
+  const xs = difensori.map((p) => p.base.x);
+  return team === "for" ? Math.max(...xs) : Math.min(...xs);
+}
+
 function costruisciFase(params: {
   index: number;
   team: "for" | "against";
@@ -557,6 +837,7 @@ function costruisciFase(params: {
   startSecond: number;
   durata: number;
   outcome: PhaseOutcome;
+  pattern: PhasePattern;
   goalEvent: MatchEvent | null;
   squadra: PitchPlayer[];
   avversari: PitchPlayer[];
@@ -570,6 +851,7 @@ function costruisciFase(params: {
     startSecond,
     durata,
     outcome,
+    pattern,
     goalEvent,
     squadra,
     avversari,
@@ -629,6 +911,7 @@ function costruisciFase(params: {
       endSecond: t,
       touches,
       outcome: "gol",
+      pattern,
       scorerId: goalEvent?.scorerId ?? null,
       goalSecond: secondoDelGol,
       actorId: tiratore,
@@ -640,44 +923,50 @@ function costruisciFase(params: {
   }
 
   /**
-   * **L'azione da gol si costruisce, le altre no.**
+   * **L'azione ha un disegno, e il disegno dipende dal `pattern`.**
    *
-   * ⚠️ Richiesta dell'utente: *"voglio migliorato la qualità del motore grafico delle azioni dei
-   * gol con movimenti strutturati, movimenti realistici dei pallini e azioni convincenti tra
-   * difesa e attacco"*. Prima ogni possesso — gol compreso — aveva la stessa forma: due-cinque
-   * tocchi con la stessa legge di avanzamento. Il gol arrivava quindi con la stessa costruzione
-   * di una rimessa laterale, e l'unica cosa che lo distingueva era il finale.
+   * ⚠️ Richiesta dell'utente: *"passaggi tra giocatori, contrasti e ripartenze, cross,
+   * filtranti. Questo è avere azioni vere"*, col motore 2D di FM09 come riferimento.
    *
-   * Adesso una rete nasce da una catena **più lunga e più lenta** (cinque-otto tocchi contro
-   * due-cinque), e soprattutto da una **risalita per reparti**: il pallone parte da dietro,
-   * passa dal centrocampo e arriva davanti, invece di puntare la porta dal primo tocco. È la
-   * differenza fra un'azione e un lancio lungo, ed è l'unica cosa che rende leggibile il gioco
-   * fra difesa e attacco in una vista dall'alto.
+   * Prima esisteva un solo trattamento speciale — quello dei gol — e tutto il resto erano
+   * due-cinque tocchi che puntavano la porta dal primo passaggio. Adesso ogni possesso sa che
+   * cos'è:
+   *
+   *  - **costruzione**: si parte da dietro e si risale per reparti (DIF → CC → ATT), lentamente
+   *    e con tanti tocchi. È l'azione che rende leggibile il gioco fra difesa e attacco;
+   *  - **manovra**: giro palla a metà campo con un cambio di fascia;
+   *  - **ripartenza**: pochi tocchi, verticali e veloci, senza passare da dietro;
+   *  - **palla_lunga**: si salta il centrocampo con un lancio;
+   *  - **pressing_alto**: la palla è già alta, si attacca la porta da vicino;
+   *  - **palla_inattiva**: nasce ferma, quindi il primo tocco è lento e il secondo è la giocata.
    */
-  const eGol = outcome === "gol";
-  const passaggi = eGol ? 5 + Math.floor(random() * 4) : 2 + Math.floor(random() * 4);
-  const tempoCostruzione =
-    durata * (eGol ? 1.35 : outcome === "recupero" || outcome === "rimessa" ? 0.9 : 0.75);
+  const forma = FORMA_DEL_PATTERN[pattern];
+  const passaggi =
+    forma.minTocchi + Math.floor(random() * (forma.maxTocchi - forma.minTocchi + 1));
+  const tempoCostruzione = durata * forma.tempo;
+
+  /** Fin dove arriva la linea difensiva avversaria: serve a riconoscere un filtrante. */
+  const lineaAvversaria = lineaDifensiva(avversari, team);
+  /** Su quale fascia si sposta il gioco a metà azione: dà l'ampiezza senza farla a caso. */
+  const fasciaFinale = random() < 0.5 ? -1 : 1;
+  let precedente: string | null = ultimo;
+
   for (let i = 1; i <= passaggi; i++) {
     const u = i / (passaggi + 1);
+    // La risalita: quasi lineare quando si costruisce (il pallone attraversa il campo), a
+    // parabola quando si riparte (si punta subito la porta).
+    const x = lerp(start.x, finaleX, u * forma.linearita + u * u * (1 - forma.linearita));
+    // Il cambio di fascia vero e proprio, non un'oscillazione casuale attorno alla diagonale.
+    const respiro = Math.sin(u * Math.PI) * forma.ampiezza * fasciaFinale;
+    const y = clamp(lerp(start.y, finaleY, u) + respiro + (random() - 0.5) * 18, 6, 94);
+
     /**
-     * Su un gol la risalita è **quasi lineare** e il pallone cambia fascia: si costruisce
-     * davvero, invece di puntare la porta con una parabola che schiaccia tutti i tocchi
-     * nell'area avversaria. Sulle altre azioni resta la legge di prima.
+     * **Chi tocca il pallone segue i reparti.** Senza questo vincolo il ricevente era
+     * semplicemente il più vicino, e capitava di vedere un attaccante impostare da centrocampo
+     * mentre il difensore concludeva. Il vincolo resta **morbido**: se il reparto atteso non ha
+     * nessuno libero si torna alla prossimità, invece di rompere la catena.
      */
-    const x = eGol
-      ? lerp(start.x, finaleX, u * 0.82 + u * u * 0.18)
-      : lerp(start.x, finaleX, u * u * 0.55 + u * 0.45);
-    // L'ampiezza: su un gol il pallone attraversa il campo (il gioco si sposta di fascia),
-    // sulle altre oscilla e basta. È ciò che rende l'azione "convincente" invece che diritta.
-    const respiro = eGol ? Math.sin(u * Math.PI) * 34 * (random() < 0.5 ? -1 : 1) : 0;
-    const y = clamp(lerp(start.y, finaleY, u) + respiro + (random() - 0.5) * 26, 6, 94);
-    /**
-     * **Chi tocca il pallone segue i reparti**: dietro all'inizio, in mezzo a metà azione,
-     * davanti alla fine. Senza questo vincolo il ricevente era semplicemente "il più vicino", e
-     * capitava di vedere un attaccante impostare da centrocampo mentre il difensore concludeva.
-     */
-    const repartoAtteso: Department | undefined = eGol
+    const repartoAtteso = forma.perReparti
       ? u < 0.3
         ? "DIF"
         : u < 0.68
@@ -685,31 +974,54 @@ function costruisciFase(params: {
           : "ATT"
       : undefined;
     const ricevente = riceve(squadra, x, y, ultimo, random, repartoAtteso);
-    const avanzamento = Math.abs(x - (touches[touches.length - 1]?.x ?? x));
-    // Il tipo di tocco decide anche **come vola il pallone**, che è ciò che dà profondità a una
-    // vista dall'alto: un cross dalla fascia si alza, un lancio scavalca, un appoggio resta
-    // raso. Con la sola soglia sull'avanzamento i palloni alti non uscivano quasi mai, e il
-    // campo sembrava un biliardo — un test lo ha misurato.
+    const destinatario = ricevente?.id ?? ultimo;
+
+    const precedenteX = touches[touches.length - 1]?.x ?? x;
+    const avanzamento = Math.abs(x - precedenteX);
     const largo = Math.abs(y - 50) > 26;
     const profondo = team === "for" ? x > 68 : x < 32;
+    /**
+     * **Il filtrante è una condizione, non un tiro di dado**: il pallone arriva *oltre* la linea
+     * difensiva avversaria. È ciò che lo distingue da un lancio, e prima non veniva mai
+     * valutato — esisteva solo `lancio`, scelto per soglia di avanzamento.
+     */
+    const oltreLaLinea =
+      team === "for" ? x > lineaAvversaria + 4 : x < lineaAvversaria - 4;
+
     let kind: TouchKind;
     let arc: BallArc;
-    if (largo && profondo && random() < 0.5) {
+    if (largo && profondo && random() < 0.55) {
+      // Cross dalla fascia: il bersaglio lo sceglie `chiudiConCross`, qui vola in area.
       kind = "cross";
       arc = "alto";
-    } else if (avanzamento > 20 || random() < 0.1) {
+    } else if (oltreLaLinea && avanzamento > 8) {
+      kind = "filtrante";
+      arc = "raso";
+    } else if (avanzamento > 22 || (forma.lanci && random() < 0.35)) {
       kind = "lancio";
       arc = "alto";
-    } else if (random() < 0.18) {
+    } else if (destinatario === precedente && random() < 0.22) {
+      // Il pallone torna a chi l'ha appena giocato: è uno scambio stretto, non un errore.
+      kind = "uno_due";
+      arc = "raso";
+    } else if (profondo && random() < 0.16) {
+      kind = "sponda";
+      arc = "teso";
+    } else if (random() < 0.16) {
       kind = "dribbling";
       arc = "raso";
     } else {
       kind = "passaggio";
       arc = random() < 0.22 ? "teso" : "raso";
     }
-    t += Math.max(0.8, (tempoCostruzione / passaggi) * (0.7 + random() * 0.6));
-    touches.push({ t, x, y, playerId: ricevente?.id ?? ultimo, team, kind, arc });
-    ultimo = ricevente?.id ?? ultimo;
+
+    // **Quanto ci mette il pallone dipende da che giocata e**: un filtrante e teso e arriva
+    // subito, un cross vola alto e lento, un appoggio sta in mezzo. Prima ogni tocco durava
+    // uguale, ed e la ragione per cui a schermo tutti i passaggi si assomigliavano.
+    t += Math.max(0.45, (tempoCostruzione / passaggi) * (0.7 + random() * 0.6) * DURATA_TOCCO[kind]);
+    touches.push({ t, x, y, playerId: destinatario, team, kind, arc });
+    precedente = ultimo;
+    ultimo = destinatario;
   }
 
   const conclusore = ultimo;
@@ -732,15 +1044,43 @@ function costruisciFase(params: {
   let commentary: string | null = null;
   let flash: PhaseFlash = null;
   let card: "giallo" | "rosso" | null = null;
+  /**
+   * Vale la pena guardarla al rallentatore?
+   *
+   * ⚠️ Due modalità, scelta dell'utente: *Salienti* mostra **solo i gol**, *Estesa* i gol più le
+   * azioni importanti. `notable` marca la seconda categoria — occasioni, parate, pali,
+   * espulsioni — e la selezione vera la fa `buildHighlightReel`, che sa quale modalità si sta
+   * guardando. Prima `notable` era stato ristretto ai soli gol, e con una riproduzione che
+   * attraversava il resto della partita a 330× il risultato era il blur segnalato.
+   */
   let notable = false;
+  let duel: Duel | undefined;
+  /**
+   * Chi ha servito il pallone della rete: e semplicemente **l ultimo tocco prima della
+   * conclusione**, cioe la definizione vera di assist. Non serviva inventare niente, serviva
+   * leggerlo — e prima nessuno lo leggeva, tanto che gli assist in carriera restavano a zero.
+   */
+  let assistId: string | null = null;
   let goalSecond: number | undefined;
 
   switch (outcome) {
     case "gol": {
       const marcatore = goalEvent?.scorerId ?? conclusore;
-      const diTesta = random() < 0.22;
+      // L ultimo che ha toccato prima della conclusione: se e il marcatore stesso, se l e
+      // fatta da solo e l assist non esiste.
+      assistId = conclusore !== marcatore ? conclusore : null;
+      const diTesta = random() < 0.26;
       if (diTesta) {
-        chiudi("cross", team === "for" ? 88 : 12, random() < 0.5 ? 12 : 88, "alto", conclusore, 1.1);
+        /**
+         * **Il cross ha un bersaglio.**
+         *
+         * Prima era un tocco come un altro, scelto quando la palla capitava larga e profonda:
+         * partiva dalla fascia e finiva in una coordinata fissa, senza che nessuno lo
+         * attaccasse. Adesso parte dalla fascia, vola verso **la punta che stacca**, e il
+         * tocco successivo e il suo colpo di testa. Sono due tocchi legati, cioe un azione.
+         */
+        const fascia = random() < 0.5 ? 12 : 88;
+        chiudi("cross", team === "for" ? 88 : 12, fascia, "alto", conclusore, 1.1);
       }
       // Il tiro parte da più lontano di prima (84 invece di 92): il pallone deve avere spazio
       // per essere *visto* attraversare l'area, superare il portiere ed entrare.
@@ -774,6 +1114,7 @@ function costruisciFase(params: {
       );
       commentary = frase("parata", nomeConclusore, random);
       flash = "PARATA";
+      notable = true;
       break;
     }
     case "palo": {
@@ -788,6 +1129,7 @@ function costruisciFase(params: {
       );
       commentary = frase("palo", nomeConclusore, random);
       flash = "PALO";
+      notable = true;
       break;
     }
     case "fuori": {
@@ -801,6 +1143,10 @@ function costruisciFase(params: {
       );
       commentary = frase("fuori", nomeConclusore, random);
       flash = "FUORI";
+      // Le conclusioni fuori restano nella cronaca e nelle statistiche ma **non fermano la
+      // partita**: sono una decina a gara, e misurando si vedeva che da sole portavano la
+      // modalita Estesa a nove minuti. Succedono, si leggono, non si guardano.
+      notable = false;
       break;
     }
     case "angolo": {
@@ -816,6 +1162,7 @@ function costruisciFase(params: {
       if (card === "rosso") {
         commentary = frase("rosso", nomeConclusore, random);
         flash = "ROSSO";
+        notable = true;
       } else if (card === "giallo") {
         commentary = frase("giallo", nomeConclusore, random);
         flash = "GIALLO";
@@ -839,15 +1186,44 @@ function costruisciFase(params: {
       break;
     }
     default: {
-      const recupera = avversari[Math.floor(random() * avversari.length)] ?? null;
+      /**
+       * **Il duello: il momento del contatto, con due nomi.**
+       *
+       * ⚠️ Era il difetto più grosso del motore, e copriva il **58%** dei possessi: `recupero`
+       * significava soltanto "la palla passa all'altra squadra". Nessun difensore convergeva,
+       * nessuno la toccava, la cronaca taceva — la palla cambiava colore e basta.
+       *
+       * Adesso il pallone lo porta via **un avversario preciso**, scelto fra i più vicini al
+       * punto in cui si sta giocando (non a caso in tutta la squadra: chi contrasta è chi era
+       * lì), e si distingue il **contrasto** — contatto, il difensore arriva addosso —
+       * dall'**intercetto**, che è una linea di passaggio letta e chiusa. La conseguenza è nel
+       * possesso successivo: se il pallone è stato vinto alto, parte una ripartenza
+       * (`patternDopoDuello`).
+       */
+      const ultimoTocco = touches[touches.length - 1]!;
+      const difensore = piuVicino(avversari, ultimoTocco.x, ultimoTocco.y, random);
+      const intercetto = random() < 0.42;
+      duel = {
+        winnerId: difensore?.id ?? null,
+        loserId: conclusore,
+        kind: intercetto ? "intercetto" : "contrasto",
+      };
       chiudi(
-        "recupero",
-        touches[touches.length - 1]!.x,
-        touches[touches.length - 1]!.y,
+        intercetto ? "intercetto" : "contrasto",
+        ultimoTocco.x,
+        ultimoTocco.y,
         "raso",
-        recupera?.id ?? null,
+        difensore?.id ?? null,
         0.8,
       );
+      commentary = fraseDuello(
+        intercetto,
+        nameOf(difensore?.id ?? null),
+        nomeConclusore,
+        random,
+      );
+      // Solo il contrasto vero merita il lampo: un intercetto è pulito e passa nella cronaca.
+      if (!intercetto) flash = "CONTRASTO";
       break;
     }
   }
@@ -858,6 +1234,9 @@ function costruisciFase(params: {
     startSecond,
     endSecond: t,
     touches,
+    pattern,
+    duel,
+    assistId,
     scorerId: outcome === "gol" ? (goalEvent?.scorerId ?? null) : null,
     goalSecond,
     actorId: conclusore,
@@ -867,6 +1246,49 @@ function costruisciFase(params: {
     flash,
     notable,
   };
+}
+
+/**
+ * Il disegno di un possesso che **non** nasce da una palla vinta: lo decide da dove parte.
+ *
+ * Non è decorazione. Un pallone che riparte dal proprio portiere è una costruzione dal basso —
+ * lenta, tanti tocchi, si risale per reparti; uno raccolto a metà campo è una manovra; una
+ * rimessa o un angolo nascono da fermo. Prima erano tutti la stessa cosa, ed è la ragione per
+ * cui il campo sembrava un carosello di passaggi identici.
+ */
+function scegliPattern(
+  team: "for" | "against",
+  palla: { x: number; y: number },
+  outcome: PhaseOutcome,
+  random: () => number,
+): PhasePattern {
+  if (outcome === "gol") {
+    // Una rete nasce da una costruzione o da una verticalizzazione, mai da una palla ferma.
+    return random() < 0.62 ? "costruzione" : "manovra";
+  }
+  // Quanto siamo lontani dalla nostra porta, in percentuale di campo.
+  const risalita = team === "for" ? palla.x : 100 - palla.x;
+  if (risalita < 28) return random() < 0.72 ? "costruzione" : "palla_lunga";
+  if (risalita > 76) return "pressing_alto";
+  return random() < 0.78 ? "manovra" : "palla_lunga";
+}
+
+/**
+ * **La conseguenza del duello**: chi vince il pallone nella metà avversaria riparte.
+ *
+ * Questa riga è metà del valore dei contrasti. Senza, un recupero sarebbe soltanto un momento
+ * carino da guardare e il possesso dopo verrebbe costruito da zero come tutti gli altri — cioè
+ * il contrasto non *causerebbe* niente, che è come dire che non è successo.
+ */
+function patternDopoDuello(fase: PlayPhase): PhasePattern | null {
+  if (!fase.duel) return null;
+  const ultimo = fase.touches[fase.touches.length - 1]!;
+  // Chi ha vinto il pallone è dell'altra squadra: la sua metà campo è specchiata.
+  const vincitore = OPPOSITE[fase.team];
+  const risalita = vincitore === "for" ? ultimo.x : 100 - ultimo.x;
+  if (risalita > 70) return "pressing_alto";
+  if (risalita > 34) return "ripartenza";
+  return null;
 }
 
 /** Dove riparte il gioco dopo un possesso concluso, e con quale squadra. */
@@ -942,12 +1364,20 @@ export function simulateMatchFlow(
     x: 50,
     y: 50,
   };
+  /**
+   * Come nasce il prossimo possesso, deciso da **come è finito il precedente**.
+   *
+   * È l'anello che mancava: una palla vinta nella metà avversaria deve produrre una ripartenza,
+   * non un possesso qualunque costruito da zero. Senza questa riga i contrasti restavano eventi
+   * isolati e non succedeva mai niente *per causa loro*.
+   */
+  let prossimoPattern: PhasePattern | null = null;
 
   while (t < MATCH_SECONDS && phases.length < 400) {
     const evento = goals[prossimoGol] ?? null;
     const secondoGol = goalSeconds[prossimoGol] ?? Infinity;
 
-    let durata = 7 + random() * 15;
+    let durata = 14 + random() * 22;
     let team = palla.team;
     let outcome: PhaseOutcome;
     let goalEvent: MatchEvent | null = null;
@@ -969,6 +1399,10 @@ export function simulateMatchFlow(
       if (Number.isFinite(secondoGol)) durata = Math.min(durata, Math.max(4, secondoGol - t - 4));
     }
 
+    const pattern = prossimoPattern ?? scegliPattern(team, palla, outcome, random);
+    // Una ripartenza è corta e veloce per definizione: dura meno di una manovra.
+    if (pattern === "ripartenza" || pattern === "pressing_alto") durata = Math.min(durata, 14);
+
     const fase = costruisciFase({
       index: phases.length,
       team,
@@ -976,6 +1410,7 @@ export function simulateMatchFlow(
       startSecond: t,
       durata,
       outcome,
+      pattern,
       goalEvent,
       squadra: squadre[team],
       avversari: squadre[OPPOSITE[team]],
@@ -984,8 +1419,10 @@ export function simulateMatchFlow(
     });
 
     phases.push(fase);
-    t = fase.endSecond + 0.6 + random() * 2.2;
+    // Il tempo morto: è ciò che porta i possessi da ~280 a ~140 senza inventarne di lunghissimi.
+    t = fase.endSecond + pausaDopo(fase.outcome, random);
     palla = ripartenza(fase, random);
+    prossimoPattern = patternDopoDuello(fase);
   }
 
   // Se il tabellino avesse ancora gol da assegnare (partita chiusa troppo presto per gli
@@ -999,6 +1436,7 @@ export function simulateMatchFlow(
       startSecond: Math.min(t, MATCH_SECONDS - 12),
       durata: 8,
       outcome: "gol",
+      pattern: "manovra",
       goalEvent: evento,
       squadra: squadre[evento.team],
       avversari: squadre[OPPOSITE[evento.team]],
@@ -1096,6 +1534,37 @@ export interface BallState {
 const ARC_HEIGHT: Record<BallArc, number> = { raso: 0, teso: 0.28, alto: 1 };
 
 /**
+ * **Quanto ci mette il pallone a percorrere un passaggio**, per tipo di giocata.
+ *
+ * Sotto 1 = piu veloce del passaggio medio. E l altra meta di "vedere una giocata": la
+ * traiettoria dice *dove* va il pallone, questa dice *come* ci va. Senza, un filtrante teso e
+ * un cross alto impiegavano lo stesso tempo e a schermo erano indistinguibili.
+ */
+const DURATA_TOCCO: Record<TouchKind, number> = {
+  inizio: 1,
+  passaggio: 1,
+  filtrante: 0.62,
+  lancio: 1.15,
+  cross: 1.3,
+  dribbling: 1.4,
+  uno_due: 0.6,
+  sponda: 0.55,
+  tiro: 0.45,
+  colpo_di_testa: 0.6,
+  rigore: 1,
+  parata: 0.5,
+  respinta: 0.5,
+  contrasto: 0.8,
+  intercetto: 0.7,
+  recupero: 0.9,
+  fallo: 1,
+  rimessa: 1,
+  angolo: 1,
+  rinvio: 1.2,
+  rete: 0.45,
+};
+
+/**
  * Dov'è il pallone in un dato secondo di una fase.
  *
  * L'interpolazione non è lineare per tutti i tocchi: un tiro parte forte e arriva subito, un
@@ -1124,11 +1593,16 @@ export function ballAt(phase: PlayPhase, second: number): BallState {
     const u = clamp((second - a.t) / span, 0, 1);
     // Un tiro viaggia a velocità piena, un passaggio decelera in ricezione.
     const eased =
-      b.kind === "tiro" || b.kind === "rete" || b.kind === "rigore"
-        ? u
+      b.kind === "tiro" || b.kind === "rete" || b.kind === "rigore" || b.kind === "filtrante"
+        ? // Palloni tesi: viaggiano a velocita piena dall inizio alla fine.
+          u
         : b.kind === "dribbling"
-          ? u * u * (3 - 2 * u)
-          : 1 - (1 - u) * (1 - u);
+          ? // Chi porta palla accelera e rallenta: non e un passaggio, e una corsa.
+            u * u * (3 - 2 * u)
+          : b.kind === "cross" || b.kind === "lancio"
+            ? // Parabola: parte forte e si siede in arrivo.
+              1 - (1 - u) * (1 - u) * (1 - u)
+            : 1 - (1 - u) * (1 - u);
     return {
       x: lerp(a.x, b.x, eased),
       y: lerp(a.y, b.y, eased),
@@ -1167,4 +1641,90 @@ export function phaseIndexAt(phases: readonly PlayPhase[], second: number): numb
     }
   }
   return best;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Le finestre da guardare                                                     */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * **Le due modalità di visione**, scelte dall'utente sul modello di FM09.
+ *
+ * Entrambe sono a highlight — velocità reale durante l'azione, orologio che salta fra una e
+ * l'altra — e differiscono solo in *cosa* è un highlight:
+ *  - `salienti`: **solo i gol**;
+ *  - `estesa`: i gol **più** le azioni importanti (conclusioni, parate, pali, espulsioni).
+ *
+ * È questo a far sparire il difetto segnalato: non esiste più riempitivo da attraversare a
+ * velocità assurda, quindi non esiste più il pallone che teletrasporta.
+ */
+export type MatchViewMode = "salienti" | "estesa";
+
+/** Una finestra di gioco da riprodurre a velocità reale. */
+export interface HighlightWindow {
+  /** Primo secondo da mostrare: comprende la rincorsa, cioè come nasce l'azione. */
+  from: number;
+  /** Ultimo secondo da mostrare. */
+  to: number;
+  /** La fase protagonista (quella che ha meritato la finestra). */
+  phaseIndex: number;
+  /** Il minuto di gioco in cui la finestra comincia, per la transizione dichiarata a schermo. */
+  minute: number;
+}
+
+/**
+ * Quanti secondi di gioco si vedono **prima** dell'azione vera e propria.
+ *
+ * In FM un highlight non comincia sul tiro: comincia qualche secondo prima, così si vede *come
+ * nasce* l'occasione. Senza questa rincorsa una rete arriverebbe senza contesto — e la
+ * costruzione per reparti, che è metà del lavoro fatto sul motore, non si vedrebbe mai.
+ */
+const LEAD_IN_SECONDS = 6;
+
+/**
+ * Le finestre da riprodurre, in ordine e senza sovrapposizioni.
+ *
+ * Pura e testabile: la vista non decide cosa guardare, lo chiede qui. Se due azioni importanti
+ * sono vicine le finestre si fondono, altrimenti si vedrebbe la stessa manciata di secondi due
+ * volte e l'orologio salterebbe all'indietro.
+ */
+export function buildHighlightReel(flow: MatchFlow, mode: MatchViewMode): HighlightWindow[] {
+  const finestre: HighlightWindow[] = [];
+
+  for (const fase of flow.phases) {
+    const merita = mode === "salienti" ? fase.outcome === "gol" : fase.notable;
+    if (!merita) continue;
+
+    // La rincorsa parte dalla fase precedente quando è attaccata a questa: è lì che si vede il
+    // contrasto o il recupero da cui l'azione è nata.
+    const precedente = flow.phases[fase.index - 1];
+    const inizioNaturale = fase.startSecond - LEAD_IN_SECONDS;
+    const from =
+      precedente && fase.startSecond - precedente.endSecond < 6
+        ? Math.min(inizioNaturale, precedente.startSecond)
+        : inizioNaturale;
+
+    const finestra: HighlightWindow = {
+      from: Math.max(0, from),
+      to: Math.min(MATCH_SECONDS, fase.endSecond),
+      phaseIndex: fase.index,
+      minute: minutoDi(Math.max(0, from)),
+    };
+
+    const ultima = finestre[finestre.length - 1];
+    if (ultima && finestra.from <= ultima.to + 1) {
+      // Si fondono: due occasioni ravvicinate sono un unico passaggio di gioco.
+      ultima.to = Math.max(ultima.to, finestra.to);
+      ultima.phaseIndex = finestra.phaseIndex;
+      continue;
+    }
+    finestre.push(finestra);
+  }
+
+  return finestre;
+}
+
+/** Il minuto di gioco (1-90+) corrispondente a un secondo del flusso. */
+export function minutoDi(second: number): number {
+  return Math.max(1, Math.min(90, Math.floor(second / 60) + 1));
 }

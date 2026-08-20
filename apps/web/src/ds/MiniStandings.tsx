@@ -19,10 +19,18 @@ export function MiniStandings({
   standings,
   state,
   world,
+  onOpenClub,
 }: {
   standings: StandingRow[];
   state: CareerState;
   world: CareerWorld;
+  /**
+   * ⚠️ **La rosa avversaria si guarda anche da qui** (richiesta dell'utente: *"voglio poter
+   * vedere le rose avversarie"*). `ClubViewerModal` esisteva già, ma si apriva **solo** dalla
+   * classifica completa: durante la corsa — cioè proprio quando si guardano i risultati e ci si
+   * chiede chi sia quella squadra — non c'era modo di arrivarci.
+   */
+  onOpenClub?: (clubId: string, name: string) => void;
 }) {
   const inCorona = !!state.cup && !!world.cupTeams;
   const [vista, setVista] = useState<"campionato" | "corona">("campionato");
@@ -126,7 +134,17 @@ export function MiniStandings({
                   }}
                 />
                 <span className="w-5 shrink-0 text-label tabular-nums">{row.position}</span>
-                <span className="min-w-0 flex-1 truncate text-label">{row.name}</span>
+                {onOpenClub && !row.isUser ? (
+                  <button
+                    type="button"
+                    onClick={() => onOpenClub(row.teamId, row.name)}
+                    className="min-w-0 flex-1 truncate text-left text-label underline decoration-dotted underline-offset-2"
+                  >
+                    {row.name}
+                  </button>
+                ) : (
+                  <span className="min-w-0 flex-1 truncate text-label">{row.name}</span>
+                )}
                 <span className="shrink-0 text-label font-extrabold tabular-nums">{row.points}</span>
               </motion.div>
             </li>

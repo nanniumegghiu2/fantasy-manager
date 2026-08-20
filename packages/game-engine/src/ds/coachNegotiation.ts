@@ -6,6 +6,7 @@
  * l'utente può sbloccare la trattativa offrendo un bonus d'ingaggio che impatta direttamente sul budget.
  */
 import type { Coach, CoachPromise, RosterEntry, PlayerIndex } from "./types";
+import { counterDemandFor, softenPromise, type CounterDemand } from "./promiseSoftening";
 import type { RoleCandidate } from "./coachRequestsCatalog";
 
 export interface CoachNegotiationState {
@@ -60,12 +61,27 @@ export function openCoachNegotiation(
  * I soldi non sono l'unica leva: `offer_alternative` e `delay` esistevano prima solo come
  * "paga o rinuncia", che non è una vera mediazione — segnalato dall'utente.
  */
+export interface CompromiseOutcome {
+  state: CoachNegotiationState;
+  accepted: boolean;
+  message: string;
+  /**
+   * ⚠️ **Un no che dichiara il prezzo.**
+   *
+   * Richiesta dell'utente: *«tutte le opzioni a schermo devono portare a un risultato
+   * tangibile nella conversazione»*. Un rifiuto che chiude la porta non è un risultato — uno
+   * che dice cosa servirebbe per cedere sì, perché lascia sempre una mossa da fare. È
+   * presente **solo** quando la mossa non è passata.
+   */
+  counterDemand?: CounterDemand;
+}
+
 export function proposePromiseCompromise(
   state: CoachNegotiationState,
   promiseId: string,
   action: "reduce_target" | "remove_promise" | "boost_salary" | "offer_alternative" | "delay",
   alternativeCandidates?: RoleCandidate[],
-): { state: CoachNegotiationState; accepted: boolean; message: string } {
+): CompromiseOutcome {
   if (state.status !== "in_corso") {
     return { state, accepted: false, message: "La trattativa non è attiva." };
   }
@@ -83,38 +99,46 @@ export function proposePromiseCompromise(
   let updatedPromises = [...state.promises];
   let newHireCost = state.hireCost;
   let patienceLoss = 20;
+  let counterDemand: CounterDemand | undefined;
 
   if (action === "reduce_target") {
-    if (priority === "imprescindibile") {
-      accepted = false;
-      patienceLoss = 30;
-      coachReply = `Assolutamente no, Direttore! "${promise.description}" è un punto imprescindibile per la mia idea di gioco. Non intendo abbassare l'asticella.`;
-      // Segna che la proposta è stata rifiutata per sbloccare l'opzione del bonus ingaggio
-      updatedPromises[promiseIndex] = { ...promise, rejectedOffer: true };
-    } else if (priority === "negoziabile") {
-      patienceLoss = 15;
-      if (typeof promise.targetValue === "number") {
-        const newTarget = Math.max(75, promise.targetValue - 2);
-        updatedPromises[promiseIndex] = {
-          ...promise,
-          targetValue: newTarget,
-          description: `${promise.description} (Ridotto a ${newTarget})`,
-        };
-        coachReply = `Capisco le esigenze del club. Posso accettare di ammorbidire la richiesta a Overall ${newTarget}, ma non andiamo oltre.`;
-      } else {
-        coachReply = "D'accordo Direttore, veniamoci incontro: accetto un compromesso ragionevole su questo punto.";
-      }
-    } else {
+    /**
+     * ⚠️ **Ogni compromesso cambia qualcosa di visibile.**
+     *
+     * Prima questo ramo, per una promessa `negoziabile` **senza soglia numerica**, rispondeva
+     * *"accetto un compromesso ragionevole"* e lasciava la promessa identica. E le promesse
+     * senza soglia sono la maggioranza del catalogo: il compromesso era quasi sempre una frase
+     * e basta — la segnalazione dell'utente, alla lettera.
+     *
+     * Ora `softenPromise` sa **come si fa più piccola** ogni singola richiesta: dove c'è un
+     * numero si scende, dove non c'è si restringe l'ambito. E quando non c'è più margine non si
+     * finge: si dichiara, e arriva la contropartita.
+     */
+    if (priority === "flessibile") {
       patienceLoss = 10;
       updatedPromises = updatedPromises.filter((p) => p.id !== promiseId);
       coachReply = "Trattandosi di una richiesta secondaria, accetto volentieri il tuo compromesso e possiamo stralciarla.";
+    } else {
+      const esito = softenPromise(promise);
+      patienceLoss = priority === "imprescindibile" ? 22 : 15;
+      coachReply = esito.reply;
+      if (esito.changed) {
+        updatedPromises[promiseIndex] = { ...esito.promise, rejectedOffer: false };
+      } else {
+        accepted = false;
+        // Segna il rifiuto: è ciò che sblocca il bonus d'ingaggio nel pannello.
+        updatedPromises[promiseIndex] = { ...promise, rejectedOffer: true };
+        counterDemand = counterDemandFor(promise, state.promises);
+        coachReply = `${esito.reply} ${counterDemand.text}`;
+      }
     }
   } else if (action === "remove_promise") {
     if (priority === "imprescindibile" || priority === "negoziabile") {
       accepted = false;
       patienceLoss = 40;
-      coachReply = `Rimuovere completamente questa richiesta? Impossibile! Senza garanzie su "${promise.description}" non posso garantire i risultati.`;
       updatedPromises[promiseIndex] = { ...promise, rejectedOffer: true };
+      counterDemand = counterDemandFor(promise, state.promises);
+      coachReply = `Toglierla del tutto no, Direttore: senza garanzie su "${promise.description}" non posso rispondere dei risultati. ${counterDemand.text}`;
     } else {
       patienceLoss = 15;
       updatedPromises = updatedPromises.filter((p) => p.id !== promiseId);
@@ -145,7 +169,8 @@ export function proposePromiseCompromise(
     } else {
       accepted = false;
       patienceLoss = 15;
-      coachReply = "Non ho un'alternativa credibile in mente: o troviamo chi chiedo io, o ne parliamo in altro modo.";
+      counterDemand = counterDemandFor(promise, state.promises);
+      coachReply = `Un'alternativa credibile non ce l'ho in mente, Direttore. ${counterDemand.text}`;
     }
   } else if (action === "delay") {
     patienceLoss = 10;
@@ -169,7 +194,11 @@ export function proposePromiseCompromise(
       ? `Proposta di compromesso su: "${promise.description}"`
       : action === "remove_promise"
         ? `Richiesta di eliminare la promessa: "${promise.description}"`
-        : `Offerta di bonus sull'ingaggio di €${(promise.salaryBonusDemanded ?? 1000000).toLocaleString("it-IT")} per sbloccare la promessa: "${promise.description}"`;
+        : action === "delay"
+          ? `Proposta di rimandare alla prossima finestra: "${promise.description}"`
+          : action === "offer_alternative"
+            ? `Proposta di un altro nome per: "${promise.description}"`
+            : `Offerta di bonus sull'ingaggio di €${(promise.salaryBonusDemanded ?? 1000000).toLocaleString("it-IT")} per sbloccare: "${promise.description}"`;
 
   const newState: CoachNegotiationState = {
     ...state,
@@ -184,7 +213,7 @@ export function proposePromiseCompromise(
     ],
   };
 
-  return { state: newState, accepted, message: coachReply };
+  return { state: newState, accepted, message: coachReply, counterDemand };
 }
 
 /**

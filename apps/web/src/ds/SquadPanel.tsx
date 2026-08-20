@@ -4,6 +4,7 @@ import {
   Activity,
   FileSignature,
   Goal,
+  Handshake,
   LayoutGrid,
   List,
   Plane,
@@ -317,9 +318,17 @@ export function SquadPanel({
                           style={{ width: `${quota}%` }}
                         />
                       </span>
-                      {entry.stats.goals > 0 && (
+                      {(entry.stats.goals > 0 || entry.stats.assists > 0) && (
                         <p className="mt-0.5 text-label font-bold text-emerald-400">
                           <Goal size={12} className="inline" /> {entry.stats.goals}
+                          {/* ⚠️ Gli assist non comparivano perché non venivano **mai contati**:
+                              restavano a zero per tutta la carriera. Ora esistono, e si leggono
+                              accanto ai gol — un rifinitore non si giudica dai soli gol. */}
+                          {entry.stats.assists > 0 && (
+                            <span className="ml-1.5 text-[var(--accent)]">
+                              <Handshake size={11} className="inline" /> {entry.stats.assists}
+                            </span>
+                          )}
                         </p>
                       )}
                     </div>

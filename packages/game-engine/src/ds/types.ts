@@ -109,11 +109,37 @@ export interface SeasonStats {
   appearances: number;
   minutes: number;
   goals: number;
+  /**
+   * ⚠️ **Fino al 2026-08-20 questo campo non veniva mai incrementato.**
+   *
+   * `applyMatchdayToRoster` scriveva presenze, minuti e gol, e basta: gli assist restavano a zero
+   * per tutte e dieci le stagioni di ogni carriera. Non era un difetto invisibile — entrano nella
+   * componente di produzione di `applySeasonAdjustment`, quindi centrocampisti e rifinitori
+   * venivano valutati come se non avessero mai servito un pallone.
+   */
   assists: number;
+  /**
+   * Somma dei voti presi, e su quante partite: la media si ricava da qui.
+   *
+   * Due campi invece di una media già fatta perché una media non si può aggiornare senza sapere
+   * su quante gare è stata calcolata — e perché così un salvataggio precedente (che non li ha)
+   * si legge come "nessun voto", non come "voto zero".
+   */
+  ratingSum?: number;
+  ratedAppearances?: number;
+  /** Solo portieri: partite chiuse senza subire gol. Alimenta `overallV2`. */
+  cleanSheets?: number;
 }
 
 export function emptySeasonStats(): SeasonStats {
-  return { appearances: 0, minutes: 0, goals: 0, assists: 0 };
+  return { appearances: 0, minutes: 0, goals: 0, assists: 0, ratingSum: 0, ratedAppearances: 0, cleanSheets: 0 };
+}
+
+/** La media voto stagionale, o `null` se non ha ancora giocato una partita valutata. */
+export function averageRating(stats: SeasonStats): number | null {
+  const n = stats.ratedAppearances ?? 0;
+  if (n <= 0) return null;
+  return (stats.ratingSum ?? 0) / n;
 }
 
 /**
@@ -276,6 +302,14 @@ export interface CoachPromise {
    * azione `delay`) la sposta di una stagione invece di forzare un pagamento o un rifiuto.
    */
   deadlineSeason?: number;
+  /**
+   * Quante volte il mister ha già ammorbidito questa richiesta (`softenPromise`).
+   *
+   * Campo esplicito e non dedotto dalla descrizione: il testo viene **riscritto** a ogni
+   * concessione, quindi contarci dentro dei marcatori non funziona — e infatti non funzionava,
+   * l'ha colto un test al primo giro. Opzionale: un salvataggio precedente riparte da zero.
+   */
+  softenings?: number;
 }
 
 /** Le competizioni di una stagione. */
@@ -326,3 +360,34 @@ export function derivePlayerPersonality(
   return "professionista";
 }
 
+
+/* -------------------------------------------------------------------------- */
+/* L'annata                                                                    */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * **La prima annata di ogni carriera**, scelta dall'utente.
+ *
+ * ⚠️ Nota dichiarata, perche fra sei mesi sembrerebbe un errore: le rose in database sono quelle
+ * reali **2025/26**, quindi la prima stagione giocata risulta un anno avanti rispetto ai dati.
+ * E una scelta consapevole — l'annata e un'etichetta di carriera, non una dichiarazione sulla
+ * provenienza dei dati (CLAUDE.md sez. 2.1/2.3, che resta la fonte di verita su quest'ultima).
+ */
+export const FIRST_SEASON_YEAR = 2026;
+
+/**
+ * L'annata di una stagione di carriera: 1 -> "2026/27", 10 -> "2035/36".
+ *
+ * Una funzione sola, e nessun calcolo sparso nei componenti: il numero di stagione compare in
+ * nove punti dell'interfaccia, e nove copie della stessa somma sono nove occasioni di
+ * divergere.
+ */
+export function seasonYearLabel(season: number): string {
+  const inizio = FIRST_SEASON_YEAR + Math.max(0, season - 1);
+  return `${inizio}/${String((inizio + 1) % 100).padStart(2, "0")}`;
+}
+
+/** "Stagione 3 · 2028/29": la forma completa, quella che si legge in testata. */
+export function seasonLabel(season: number): string {
+  return `Stagione ${season} · ${seasonYearLabel(season)}`;
+}

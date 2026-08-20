@@ -18,6 +18,8 @@ import {
   coachChoices,
   coachTierOf,
   createCareer,
+  boardMeeting,
+  settleBoardMeeting,
   closeNegotiation,
   currentLineup,
   hireCoach,
@@ -251,6 +253,43 @@ describe("avanzamento settimanale", () => {
 });
 
 describe("obiettivo stagionale", () => {
+  /**
+   * ⚠️ Segnalazione dell utente: *"nel meeting con la societa devo decidere tutti gli obiettivi,
+   * campionati e coppe, cosa che al momento si fa inutilmente in due fasi diverse"*. Il test
+   * verifica la proprieta che chiudeva il difetto: **un passaggio solo** scrive entrambi.
+   */
+  it("il colloquio con la societa dichiara campionato e coppe insieme", () => {
+    const base = buildWorld(82);
+    const world = withCupAndMarket(base);
+    const state = rinnovaTutti(
+      createCareer({
+        seed: "tavolo-unico",
+        clubId: "mio",
+        leagueId: "serie-a",
+        coachId: "c-10",
+        roster: base.roster,
+        budget: 30_000_000,
+        // Senza le iscritte alla Corona il club non e in coppa, e non c e nulla da concordare:
+        // e lo stesso dato che `DsMode` passa in partita.
+        cupEntrants: { clubIds: CUP_CLUBS, leagues: CUP_LEAGUES },
+      }),
+    );
+
+    const meeting = boardMeeting(state, world);
+    expect(meeting.cups.length).toBeGreaterThan(0);
+
+    const esito = settleBoardMeeting(state, world, {
+      objectiveLabel: meeting.minimum.label,
+      extraSteps: 0,
+      cupChoices: { continental: meeting.cups[0]!.minimum.label },
+    });
+
+    expect(esito.state.seasonObjectiveSet).toBe(true);
+    expect(esito.state.seasonObjective?.label).toBe(meeting.minimum.label);
+    // E la coppa: senza questa riga servirebbe ancora una seconda schermata.
+    expect(esito.state.seasonCupObjectives?.continental?.label).toBe(meeting.cups[0]!.minimum.label);
+  });
+
   it("propone tre fasce e dichiararle chiude il gate di inizio stagione", () => {
     const { state, world } = fullCareer("obiettivo-scelta");
     const scelte = seasonObjectiveChoices(state, world);

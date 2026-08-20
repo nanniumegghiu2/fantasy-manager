@@ -13,7 +13,7 @@ import {
   TrendingUp,
   Trophy,
 } from "lucide-react";
-import type { SeasonPlayerReport, SeasonSummary } from "@app/game-engine";
+import { seasonYearLabel, type SeasonPlayerReport, type SeasonSummary } from "@app/game-engine";
 import { ROLE_DEPARTMENT, type Department } from "@app/shared-types";
 import { ordinale } from "./format";
 
@@ -134,7 +134,7 @@ export function SeasonSquadReportModal({
                 Valutazione Rosa & Crescita
               </h2>
               <p className="mt-0.5 text-label text-[var(--text-secondary)] font-medium">
-                {clubName} · Stagione {summary.season} ({ordinale(summary.position)} posto)
+                {clubName} · {seasonYearLabel(summary.season)} ({ordinale(summary.position)} posto)
               </p>
             </div>
             <div className="text-right">

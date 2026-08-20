@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { CareerState } from "@app/game-engine";
+import { seasonYearLabel } from "@app/game-engine";
 import { supabase } from "../lib/supabaseClient";
 
 /**
@@ -75,6 +76,98 @@ export function useCareerSaves(enabled: boolean) {
   }, [refetch]);
 
   return { saves, loading, refetch };
+}
+
+/* -------------------------------------------------------------------------- */
+/* Punti di ripristino                                                         */
+/* -------------------------------------------------------------------------- */
+
+export interface CareerCheckpoint {
+  id: string;
+  season: number;
+  week: number;
+  label: string;
+  kind: "manuale" | "automatico";
+  createdAt: string;
+  state: CareerState;
+}
+
+interface CheckpointRow {
+  id: string;
+  season: number;
+  week: number;
+  label: string;
+  kind: string;
+  created_at: string;
+  state: CareerState;
+}
+
+/** L'etichetta che si legge nell'elenco: annata e giornata, cioè dove si sta tornando. */
+export function checkpointLabel(state: CareerState): string {
+  const annata = seasonYearLabel(state.season);
+  return state.week > 0 ? `${annata} · giornata ${state.week}` : `${annata} · pre-campionato`;
+}
+
+/**
+ * **I punti di ripristino di una carriera**, dal più recente.
+ *
+ * Al massimo due per stagione, e il vincolo **non vive qui**: lo applica un trigger Postgres
+ * (`prune_ds_career_saves`). Nel client una scheda chiusa a metà lo lascerebbe violato, e due
+ * schede aperte insieme lo violerebbero comunque.
+ */
+export function useCareerCheckpoints(careerId: string | null) {
+  const [checkpoints, setCheckpoints] = useState<CareerCheckpoint[]>([]);
+
+  const refetch = useCallback(async () => {
+    if (!careerId) {
+      setCheckpoints([]);
+      return;
+    }
+    const { data } = await supabase
+      .from("ds_career_saves")
+      .select("id, season, week, label, kind, created_at, state")
+      .eq("career_id", careerId)
+      .order("created_at", { ascending: false })
+      .returns<CheckpointRow[]>();
+    setCheckpoints(
+      (data ?? []).map((r) => ({
+        id: r.id,
+        season: r.season,
+        week: r.week,
+        label: r.label,
+        kind: r.kind === "automatico" ? "automatico" : "manuale",
+        createdAt: r.created_at,
+        state: r.state,
+      })),
+    );
+  }, [careerId]);
+
+  useEffect(() => {
+    void refetch();
+  }, [refetch]);
+
+  return { checkpoints, refetch };
+}
+
+/** Crea un punto di ripristino. Il trigger tiene solo i due più recenti della stagione. */
+export async function createCheckpoint(
+  careerId: string,
+  userId: string,
+  state: CareerState,
+  kind: "manuale" | "automatico" = "manuale",
+): Promise<{ ok: boolean; message: string }> {
+  const { error } = await supabase.from("ds_career_saves").insert({
+    career_id: careerId,
+    user_id: userId,
+    version: state.version,
+    season: state.season,
+    week: state.week,
+    kind,
+    label: checkpointLabel(state),
+    state,
+  });
+  if (error) return { ok: false, message: error.message };
+  return { ok: true, message: `Salvato · ${checkpointLabel(state)}` };
 }
 
 export interface CareerPersistence {
@@ -160,6 +253,34 @@ export function useCareerPersistence(
       if (pending.current) void write(pending.current);
     };
   }, [write]);
+
+  /**
+   * **La rete di sicurezza** (scelta dell'utente: il salvataggio principale lo decide lui, ma
+   * il gioco scrive comunque nei tre casi in cui perdere sarebbe ingiusto).
+   *
+   * `pagehide` e `visibilitychange` invece di `beforeunload`: su mobile è l'unico evento che
+   * arriva davvero quando la scheda va in secondo piano o viene chiusa dal sistema — e su
+   * mobile è dove si gioca. `offline` copre la connessione che cade: la scrittura fallirà, ma
+   * `pending` resta in coda e riparte al ritorno.
+   */
+  useEffect(() => {
+    if (!userId) return;
+    const salva = () => {
+      if (timer.current) clearTimeout(timer.current);
+      if (pending.current) void write(pending.current);
+    };
+    const suVisibilita = () => {
+      if (document.visibilityState === "hidden") salva();
+    };
+    window.addEventListener("pagehide", salva);
+    window.addEventListener("offline", salva);
+    document.addEventListener("visibilitychange", suVisibilita);
+    return () => {
+      window.removeEventListener("pagehide", salva);
+      window.removeEventListener("offline", salva);
+      document.removeEventListener("visibilitychange", suVisibilita);
+    };
+  }, [userId, write]);
 
   return { saveId, persist, saving, error };
 }

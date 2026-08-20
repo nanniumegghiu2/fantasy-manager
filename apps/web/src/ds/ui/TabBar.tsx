@@ -34,9 +34,16 @@ interface TabBarProps<T extends string> {
   onChange: (key: T) => void;
   /** Azione contestuale sopra la barra ("Gioca fino al mercato"). */
   action?: React.ReactNode;
+  /**
+   * Navigazione sospesa: c'è qualcosa da decidere prima.
+   *
+   * Serve al velo che copre la carriera mentre si decide se guardare una partita chiave: lo
+   * stato dietro contiene già l'esito, quindi cambiare scheda sarebbe un modo per sbirciarlo.
+   */
+  disabled?: boolean;
 }
 
-export function TabBar<T extends string>({ items, value, onChange, action }: TabBarProps<T>) {
+export function TabBar<T extends string>({ items, value, onChange, action, disabled }: TabBarProps<T>) {
   return (
     <div className="fixed inset-x-0 bottom-0 z-20 border-t border-[var(--surface-border)] bg-[var(--surface)]/95 backdrop-blur">
       {action && (
@@ -54,10 +61,11 @@ export function TabBar<T extends string>({ items, value, onChange, action }: Tab
               type="button"
               role="tab"
               aria-selected={attivo}
+              disabled={disabled}
               onClick={() => onChange(key)}
               className={`relative flex min-w-0 flex-1 flex-col items-center justify-center gap-1 py-2.5 transition-colors ${
                 attivo ? "text-[var(--brand)]" : "text-[var(--text-secondary)]"
-              }`}
+              } ${disabled ? "pointer-events-none opacity-40" : ""}`}
             >
               {attivo && (
                 <motion.span

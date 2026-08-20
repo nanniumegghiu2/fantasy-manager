@@ -15,6 +15,7 @@ import {
   aiClaimsFreeAgent,
   clubWouldRenew,
   freeAgentBidScore,
+  freeAgentInterest,
   resolveFreeAgentBids,
   rivalBidsFor,
   type FreeAgent,
@@ -489,5 +490,95 @@ describe("la concorrenza dell'IA", () => {
     );
     expect(bids.length).toBeGreaterThan(0);
     expect(bids.every((b) => b.wage <= 2_500_000)).toBe(true);
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/* L'interesse, dichiarato prima di trattare                                   */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * ⚠️ Segnalazione dell'utente: *"mercato svincolati ancora totalmente inutile, resta altissima la
+ * percentuale di giocatori totalmente disinteressati nonostante sia la squadra dominante"*.
+ *
+ * **Nota di metodo, perché è il punto più istruttivo della correzione**: la prima misura, fatta
+ * su *tutti* gli svincolati, dava l'83% di accordi e sembrava smentire la segnalazione. Era la
+ * popolazione sbagliata — quel numero è dominato dal fondo rosa che nessuno prova a prendere.
+ * Misurando solo i giocatori da **78 in su**, cioè quelli su cui si apre davvero una trattativa,
+ * alla quarta stagione ce n'erano 13 su 382 e ne firmavano 3. La lamentela era esatta.
+ */
+describe("l'interesse di uno svincolato si legge prima di trattare", () => {
+  const base = (over: Partial<FreeAgent> = {}): FreeAgent => ({
+    id: "fa-1",
+    name: "Tizio",
+    nation: "Italia",
+    role: "CC",
+    secondaryRoles: [],
+    department: "CC",
+    birthDate: "1996-03-02",
+    age: 29,
+    overall: 79,
+    baseOverall: 79,
+    origin: "scaduto",
+    windowsFree: 0,
+    nextDecay: 1,
+    personality: "professionista",
+    askingWage: 3_000_000,
+    askingSeasons: 2,
+    wantsStarter: true,
+    suitors: 0,
+    ...over,
+  });
+
+  it("un club dominante interessa più di uno senza ambizioni", () => {
+    const agente = base();
+    const grande = freeAgentInterest(agente, { prestige: 5, ambitionTarget: 1 });
+    const piccola = freeAgentInterest(agente, { prestige: 1, ambitionTarget: 15 });
+    expect(grande.level).toBeGreaterThanOrEqual(piccola.level);
+  });
+
+  it("chi vuole giocare lo dice: la leva è il campo", () => {
+    const agente = base({ personality: "giovane_ambizioso", age: 22, wantsStarter: true });
+    expect(freeAgentInterest(agente, { prestige: 5 }).lever).toBe("campo");
+  });
+
+  it("al mercenario interessano i soldi, e il consiglio lo dice", () => {
+    const agente = base({ personality: "mercenario", wantsStarter: false });
+    expect(freeAgentInterest(agente, { prestige: 3 }).lever).toBe("soldi");
+  });
+
+  it("l'interesse concorda con l'esito: chi è dato interessato firma alla cifra piena", () => {
+    // Se le due cose divergessero, mostrare l'interesse sarebbe peggio che non mostrarlo.
+    for (const personality of ["leader", "professionista", "mercenario", "insofferente"] as const) {
+      const agente = base({ id: `fa-${personality}`, personality });
+      const club = { prestige: 5, ambitionTarget: 1 };
+      const interesse = freeAgentInterest(agente, club);
+      if (interesse.level < 3) continue;
+      const v = resolveFreeAgentBids(
+        agente,
+        {
+          clubId: "mio",
+          clubName: "Mia",
+          prestige: club.prestige,
+          wage: agente.askingWage,
+          seasons: agente.askingSeasons,
+          guaranteedStarter: agente.wantsStarter,
+          captain: false,
+          ambitionTarget: club.ambitionTarget,
+        },
+        [],
+        "concordanza",
+        1,
+      );
+      expect(v.accepted, `${personality}: dato interessato ma non firma`).toBe(true);
+    }
+  });
+
+  it("chi non verrebbe comunque è dichiarato tale, non lasciato scoprire dopo", () => {
+    // Un giovane molto forte chiamato da un club senza ambizioni: il veto di `wouldConsider`.
+    const agente = base({ age: 24, overall: 88, personality: "giovane_ambizioso" });
+    const i = freeAgentInterest(agente, { prestige: 1 });
+    expect(i.level).toBe(0);
+    expect(i.text).toMatch(/non/i);
   });
 });
